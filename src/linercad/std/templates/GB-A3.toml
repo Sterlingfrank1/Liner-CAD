@@ -1,0 +1,117 @@
+# GB 模板 A3（横放）。SPEC §6.1；图幅与边距由 gb.toml [sheets] 推出
+# （装订边 a = 25，其余边 c = 5，GB/T 14689-2008）。
+# load_template 读入后补 title_block.origin（标题栏左下角的图纸坐标）和 frame（内图框）。
+name = "GB-A3"
+sheet = "A3"
+size = [420.0, 297.0]  # 宽, 高
+margins = [25.0, 5.0, 5.0, 5.0]  # 内图框距图幅边：左（装订边）, 下, 右, 上
+
+# 标题栏（M0 简化版，三个模板完全相同）。坐标相对标题栏左下角，单位 mm。
+# 标题栏左下角在图纸上的位置 = (宽 - 右边距 - 180, 下边距)，由 load_template 补成 title_block.origin。
+#
+#   y
+#  56 +------+------------+---------+----------------------------------------------+
+#     | 单位 | company    | 图样名称 | name                                         |
+#  36 +------+------------+---------+----------------------------------------------+
+#     | 设计 | designer   | 图号    | drawing_no                                   |
+#  24 +------+------------+---------+---------------------+------+-----------------+
+#     | 审核 | checker    | 材料    | material            | 比例 | scale           |
+#  12 +------+------------+---------+---------------------+------+-----------------+
+#     | 日期 | date       | 质量    | mass                | 页次 | sheet           |
+#   0 +------+------------+---------+---------------------+------+-----------------+
+#     0     15           60        80                    120    140               180   x
+#
+# 外框 thick（粗实线），内部分隔 thin（细实线）。每个字段槽位 box 是所在格子内缩 1 的矩形，
+# 值文字在 box 内居中；固定标签 labels 的 at 是文字中心，字高 3.5，与槽位分在相邻的格子里。
+
+[title_block]
+size = [180.0, 56.0]
+lines = [
+    # 外框
+    { p1 = [0.0, 0.0], p2 = [180.0, 0.0], role = "thick" },
+    { p1 = [180.0, 0.0], p2 = [180.0, 56.0], role = "thick" },
+    { p1 = [0.0, 56.0], p2 = [180.0, 56.0], role = "thick" },
+    { p1 = [0.0, 0.0], p2 = [0.0, 56.0], role = "thick" },
+    # 横向分隔（通栏）
+    { p1 = [0.0, 36.0], p2 = [180.0, 36.0], role = "thin" },
+    { p1 = [0.0, 24.0], p2 = [180.0, 24.0], role = "thin" },
+    { p1 = [0.0, 12.0], p2 = [180.0, 12.0], role = "thin" },
+    # 纵向分隔：左栏标签 | 左栏槽位 | 右栏标签 | 右栏槽位（下两排再分成两对）
+    { p1 = [15.0, 0.0], p2 = [15.0, 56.0], role = "thin" },
+    { p1 = [60.0, 0.0], p2 = [60.0, 56.0], role = "thin" },
+    { p1 = [80.0, 0.0], p2 = [80.0, 56.0], role = "thin" },
+    { p1 = [120.0, 0.0], p2 = [120.0, 24.0], role = "thin" },
+    { p1 = [140.0, 0.0], p2 = [140.0, 24.0], role = "thin" },
+]
+labels = [
+    { text = "单位", at = [7.5, 46.0], height = 3.5 },
+    { text = "设计", at = [7.5, 30.0], height = 3.5 },
+    { text = "审核", at = [7.5, 18.0], height = 3.5 },
+    { text = "日期", at = [7.5, 6.0], height = 3.5 },
+    { text = "图样名称", at = [70.0, 46.0], height = 3.5 },
+    { text = "图号", at = [70.0, 30.0], height = 3.5 },
+    { text = "材料", at = [70.0, 18.0], height = 3.5 },
+    { text = "质量", at = [70.0, 6.0], height = 3.5 },
+    { text = "比例", at = [130.0, 18.0], height = 3.5 },
+    { text = "页次", at = [130.0, 6.0], height = 3.5 },
+]
+
+[title_block.fields.name]
+label = "图样名称"
+box = [81.0, 37.0, 179.0, 55.0]
+height = 7.0
+default = ""
+
+[title_block.fields.drawing_no]
+label = "图号"
+box = [81.0, 25.0, 179.0, 35.0]
+height = 5.0
+default = ""
+
+[title_block.fields.material]
+label = "材料"
+box = [81.0, 13.0, 119.0, 23.0]
+height = 3.5
+default = ""
+
+[title_block.fields.scale]
+label = "比例"
+box = [141.0, 13.0, 179.0, 23.0]
+height = 3.5
+default = ""
+
+[title_block.fields.mass]
+label = "质量"
+box = [81.0, 1.0, 119.0, 11.0]
+height = 3.5
+default = ""
+
+[title_block.fields.sheet]
+label = "页次"
+box = [141.0, 1.0, 179.0, 11.0]
+height = 3.5
+default = "共 1 张 第 1 张"
+
+[title_block.fields.company]
+label = "单位"
+box = [16.0, 37.0, 59.0, 55.0]
+height = 3.5
+default = ""
+
+[title_block.fields.designer]
+label = "设计"
+box = [16.0, 25.0, 59.0, 35.0]
+height = 3.5
+default = ""
+
+[title_block.fields.checker]
+label = "审核"
+box = [16.0, 13.0, 59.0, 23.0]
+height = 3.5
+default = ""
+
+[title_block.fields.date]
+label = "日期"
+box = [16.0, 1.0, 59.0, 11.0]
+height = 3.5
+default = ""
