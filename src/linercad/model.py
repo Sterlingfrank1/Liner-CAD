@@ -357,6 +357,19 @@ class Drawing:
                 self._counters[key] = n
                 return cand
 
+    def _auto_name(self, prefix: str, scope: tuple, stem: str) -> str:
+        """Next free name ``<stem>_<n>`` for ``prefix.scope.<name>`` (honours a forced ID on replay)."""
+        if self._forced_id is not None:
+            fid, self._forced_id = self._forced_id, None
+            return fid.rsplit(".", 1)[-1]
+        key = (prefix, *scope, stem)
+        n = self._counters.get(key, 0)
+        while True:
+            n += 1
+            if ".".join([prefix, *scope, f"{stem}_{n}"]) not in self._els:
+                self._counters[key] = n
+                return f"{stem}_{n}"
+
     def _add(self, el: Element) -> Element:
         if el._id in self._els:
             base = el._id

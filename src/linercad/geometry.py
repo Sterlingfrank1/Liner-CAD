@@ -272,8 +272,8 @@ class View(Element):
     def _poly(self, name, ftype, pts, role, closed):
         segs = list(zip(pts, pts[1:] + pts[:1] if closed else pts[1:]))
         intents = [{"shape": "line", "p1": _pt(a), "p2": _pt(b), "role": role} for a, b in segs]
-        if name is None:
-            return [self._edge(None, i) for i in intents]
+        if name is None:  # multi-edge shapes always get a feature, auto-named <type>_<n>
+            name = self._d._auto_name("F", (self.name,), ftype)
         f = self._feature(name, {"type": ftype, "closed": closed, "points": [_pt(p) for p in pts]})
         return self._feature_edges(f, intents)
 

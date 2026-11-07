@@ -65,6 +65,17 @@ def test_named_feature_edges(d):
     assert "V.front" in d["E.front.plate.1"].refs and "F.front.plate" in d["E.front.plate.1"].refs
 
 
+def test_unnamed_multi_edge_shapes_get_auto_feature(d):
+    f = d.view("front")
+    a = f.rect((0, 0), 1, 1)
+    b = f.polygon([(0, 0), (1, 0), (0, 1)])
+    c = f.rect((5, 5), 1, 1)
+    assert (a.id, b.id, c.id) == ("F.front.rect_1", "F.front.polygon_1", "F.front.rect_2")
+    assert a.edges[0].id == "E.front.rect_1.1"
+    d._forced_id = "F.front.rect_9"
+    assert f.rect((0, 0), 2, 2).id == "F.front.rect_9"
+
+
 def test_named_line_returns_edge_and_feature(d):
     e = d.view("front").line((0, 0), (5, 0), name="ref")
     assert e.id == "E.front.ref.1" and "F.front.ref" in d
