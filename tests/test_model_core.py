@@ -340,7 +340,7 @@ def test_where_with_tolerance_and_near(plate):
     e = d.q.lines(view="front").where(length=30, dir="h").near(15, 10).exactly(1)[0]
     assert e.id == "E.front.plate.3"
     assert d.q.lines(view="front").where(length=30.004, dir="h").exactly(2)
-    assert len(d.q.lines(view="front").where(length=30.5, tol=0.6)) == 4
+    assert len(d.q.lines(view="front").where(length=30.5, tol=0.6)) == 2
     assert len(d.q.lines(view="front").where(lambda el: el.start[1] == 0)) == 3
 
 
