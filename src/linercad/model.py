@@ -257,7 +257,28 @@ class Drawing:
         self._init_sheet()
 
     def _init_sheet(self):
-        """Frame and title block elements; filled in by the annotation layer."""
+        from .annotate import init_sheet
+
+        init_sheet(self)
+
+    # ---- sheet-level annotations ---------------------------------------------------------
+    @property
+    def notes(self):
+        from .annotate import NotesNS
+
+        return NotesNS(self)
+
+    def title(self, **fields):
+        """Fill title-block fields (each one recorded as a ``set`` on ``T.title.<field>``)."""
+        from .annotate import drawing_title
+
+        drawing_title(self, **fields)
+
+    @mutator("section")
+    def section(self, letter, view, cut_in, through, look=None):
+        from .annotate import drawing_section
+
+        return drawing_section(self, letter, view, cut_in, through, look)
 
     # ---- parameters -----------------------------------------------------------------
     def params(self, **params):

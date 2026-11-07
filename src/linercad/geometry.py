@@ -236,6 +236,25 @@ class View(Element):
     def _children(self):
         return [e._id for e in self._d._els.values() if e is not self and e.view == self.name]
 
+    # ---- annotations (implemented in annotate.py) ----------------------------------------
+    @property
+    def dim(self):
+        from .annotate import DimNS
+
+        return DimNS(self)
+
+    @mutator("note")
+    def note(self, name, text, anchor, dir=None, length=None):
+        from .annotate import view_note
+
+        return view_note(self, name, text, anchor, dir, length)
+
+    @mutator("hatch")
+    def hatch(self, name, loops):
+        from .annotate import view_hatch
+
+        return view_hatch(self, name, loops)
+
     # ---- internal helpers -------------------------------------------------------------
     def _p(self, p, what="点"):
         return resolve_point(self._d, p, view=self.name, what=what)
