@@ -221,6 +221,15 @@ class View(Element):
         super()._apply_place(fields)
 
     def _apply_move(self, dx, dy):
+        n = self.name
+        if (n in ("top", "bottom") and abs(dx) > 1e-9) or (n in ("left", "right", "rear") and abs(dy) > 1e-9):
+            free = "dy" if n in ("top", "bottom") else "dx"
+            raise InvalidArgument(
+                f"{self._id} 只能沿 {free} 方向移动，否则破坏投影对齐",
+                id=self._id,
+                values={"dx": dx, "dy": dy},
+                hint="移动整组视图用 V.front.move(...)",
+            )
         ox, oy = self._layout.get("offset", [0.0, 0.0])
         self._layout["offset"] = [ox + dx, oy + dy]
 

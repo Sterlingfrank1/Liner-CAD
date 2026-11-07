@@ -252,11 +252,50 @@ def test_move_edge_and_feature(d):
     assert min(x.start[0] for x in feat.edges) == 1
 
 
-def test_view_move_accumulates_offset(d):
+def test_view_move_accumulates_offset_along_free_axis(d):
     v = d.view("top")
     v.move(dy=-5)
     v.move(dy=-2)
     assert v.placement["offset"] == [0, -7]
+    with pytest.raises(errors.InvalidArgument):
+        v.move(dx=1)
+    with pytest.raises(errors.InvalidArgument):
+        d.view("left").move(dy=1)
+    d.view("front").move(dx=3, dy=4)
+    assert d.view("front").placement["offset"] == [3, 4]
+
+
+def test_suppress_refuses_when_referenced(d):
+    f = d.view("front")
+    f.line((0, 0), (1, 0), name="base")
+    f.line("E.front.base.1:end", (5, 5))  # refs only the view; anchors are recorded by dims/notes
+    other = d.view("front").line((0, 0), (2, 0))
+    object.__setattr__(other, "_refs", other._refs + ["E.front.base.1"])
+    with pytest.raises(errors.InvalidArgument) as e:
+        d["F.front.base"].suppress()
+    assert other.id in e.value.candidates
+    other.suppress()
+    d["F.front.base"].suppress()
+    assert "E.front.base.1" not in d
+
+
+def test_intent_and_placement_are_copies(d):
+    e = d.view("front").line((0, 0), (1, 0))
+    e.intent["p1"][0] = 99
+    assert e.start == (0, 0)
+    pl = e.placement
+    pl["resolved"]["bbox"] = [1, 2, 3, 4]
+    assert e.bbox is None
+
+
+def test_scope_names_for_temp_scripts(d):
+    f = d.view("front")
+    f.line((0, 0), (1, 0))
+    d._scope = "e7"
+    assert f.line((0, 0), (1, 0)).id == "E.front.e7_1"
+    assert f.rect((0, 0), 1, 1).id == "F.front.rect_e7_1"
+    d._scope = None
+    assert f.line((0, 0), (1, 0)).id == "E.front.2"
 
 
 def test_getitem_candidates(d):

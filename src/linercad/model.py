@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextvars
+import copy
 import difflib
 import math
 import re
@@ -99,7 +100,7 @@ class Element:
 
     # ---- read-only fields -------------------------------------------------------------
     id = property(lambda s: s._id)
-    intent = property(lambda s: dict(s._intent))
+    intent = property(lambda s: copy.deepcopy(s._intent))
     refs = property(lambda s: list(s._refs))
     covers = property(lambda s: list(s._covers))
     tags = property(lambda s: list(s._tags))
@@ -117,7 +118,7 @@ class Element:
         p["auto"] = list(self._auto)
         p["resolved"] = dict(self._resolved)
         p["reason"] = self._reason
-        return p
+        return copy.deepcopy(p)
 
     def to_dict(self) -> dict:
         return _round(
@@ -238,6 +239,7 @@ class Drawing:
         self._recorder = None
         self._src_override = None  # replay sets {"edit","line"} while applying a log operation
         self._forced_id = None  # replay sets the recorded ID of the element an op creates
+        self._scope = None  # "e7" while a temp script runs: auto names become e7_<n> (SPEC §3.2)
         self._els: dict[str, Element] = {}
         self._removed: list[str] = []
         self._counters: dict[tuple, int] = {}
@@ -348,11 +350,12 @@ class Drawing:
         if self._forced_id is not None:
             fid, self._forced_id = self._forced_id, None
             return fid
-        key = tuple(parts)
+        key = (*parts, self._scope)
         n = self._counters.get(key, 0)
         while True:
             n += 1
-            cand = ".".join([*parts, str(n)])
+            stem = f"{self._scope}_{n}" if self._scope else str(n)
+            cand = ".".join([*parts, stem])
             if cand not in self._els:
                 self._counters[key] = n
                 return cand
@@ -362,13 +365,14 @@ class Drawing:
         if self._forced_id is not None:
             fid, self._forced_id = self._forced_id, None
             return fid.rsplit(".", 1)[-1]
-        key = (prefix, *scope, stem)
+        key = (prefix, *scope, stem, self._scope)
         n = self._counters.get(key, 0)
         while True:
             n += 1
-            if ".".join([prefix, *scope, f"{stem}_{n}"]) not in self._els:
+            name = f"{stem}_{self._scope}_{n}" if self._scope else f"{stem}_{n}"
+            if ".".join([prefix, *scope, name]) not in self._els:
                 self._counters[key] = n
-                return f"{stem}_{n}"
+                return name
 
     def _add(self, el: Element) -> Element:
         if el._id in self._els:
@@ -386,13 +390,33 @@ class Drawing:
         self._els[el._id] = el
         return el
 
+    def _owned(self, id) -> list[str]:
+        """The element and everything it owns, depth first."""
+        out = [id]
+        for cid in self._els[id]._children():
+            if cid in self._els and cid not in out:
+                out += [c for c in self._owned(cid) if c not in out]
+        return out
+
     def _remove(self, id):
-        el = self[id]
-        for cid in el._children():
-            if cid in self._els:
-                self._remove(cid)
-        del self._els[id]
-        self._removed.append(id)
+        self[id]
+        gone = self._owned(id)
+        gone_set = set(gone)
+        deps = [
+            e._id
+            for e in self._els.values()
+            if e._id not in gone_set and any(r in gone_set for r in e._refs)
+        ]
+        if deps:
+            raise InvalidArgument(
+                f"{id} 还被其它元素引用，不能删除",
+                id=id,
+                candidates=deps,
+                hint="先 suppress 这些依赖元素，或改它们的引用",
+            )
+        for gid in gone:
+            del self._els[gid]
+            self._removed.append(gid)
 
 
 def parse_scale(scale) -> tuple[str, float]:
