@@ -81,6 +81,6 @@ def main(argv=None) -> int:
     except LinerError as e:
         emit({"ok": False, "error": e.to_dict()})
         return 1
-    except Exception as e:  # noqa: BLE001 - the contract is one JSON object, even on bugs
+    except Exception as e:  # the contract is one JSON object, even on bugs
         emit({"ok": False, "error": {"code": "internal", "message": f"{type(e).__name__}: {e}"}})
         return 1
