@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import ast
 import copy
+import math
 import pickle
 import random
 import re
 import sys
+import warnings
 from pathlib import Path
 
 import pytest
@@ -837,6 +839,51 @@ def test_expr_src_of_abs_is_accepted_by_eval_expr(P):
     e = abs(P.D - 40)
     assert e.src == "abs(D - 40)"
     assert eval_expr(e.src, P.values()) == 10.0
+
+
+def test_eval_expr_parsing_emits_no_python_warnings():
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with pytest.raises(InvalidArgument):
+            eval_expr(r"'\d'", {})
+    assert caught == []
+
+
+def test_eval_expr_out_of_range_literal_is_invalid_argument():
+    with pytest.raises(InvalidArgument) as ei:
+        eval_expr("1e999", {})
+    assert "1e999" in ei.value.message
+
+
+def test_calc_failure_message_brackets_negative_operands():
+    with pytest.raises(InvalidArgument) as ei:
+        eval_expr("(-8) ** 0.5", {})
+    assert "(-8) ** 0.5" in ei.value.message
+    assert ei.value.values == {"op": "**", "left": -8.0, "right": 0.5}
+
+
+def test_expr_works_with_numpy_scalars_on_either_side(P):
+    np = pytest.importorskip("numpy")
+    left = np.float64(2) * P.a
+    right = P.a * np.int64(3)
+    assert isinstance(left, Expr) and left.src == "2 * a" and left.value == 14.0
+    assert isinstance(right, Expr) and right.src == "a * 3" and right.value == 21.0
+    assert (np.float64(2) < P.a) is True
+
+
+def test_expr_feeds_math_functions_and_builtins(P):
+    assert math.floor(P.a / 2) == 3
+    assert math.isclose(math.cos(P.a), math.cos(7.0))
+    a, b = P.a, P.b
+    assert max(a, b) is a
+    assert [e.src for e in sorted([a, b])] == ["b", "a"]
+
+
+def test_read_only_error_is_self_contained(P):
+    with pytest.raises(ParamError) as ei:
+        P.D = 5
+    assert "lcad build -m" in ei.value.message
+    assert ei.value.to_dict()["code"] == "param"
 
 
 # --------------------------------------------------------------------- implementation
