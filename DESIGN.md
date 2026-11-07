@@ -106,16 +106,14 @@ from linercad import Drawing, Param
 
 d = Drawing(template="templates/A3-GB.dxf", std="GB")
 P = d.params(
-    D=Param(30, min=10, max=60, step=0.5, unit="mm", label="外径", tol="h7"),
-    d1=Param(20, min=8, max=50, step=0.5, unit="mm", label="轴颈", rule="d1 < D"),
+    D  = Param(30, min=10, max=60, step=0.5, unit="mm", label="外径", tol="h7"),
+    d1 = Param(20, min=8,  max=50, step=0.5, unit="mm", label="轴颈", rule="d1 < D"),
 )
-front = d.view("front")  # → V.front
-body = front.profile("body", ...)  # → F.front.body
-front.dim.dia("D", ref=body.edge("top"), value=P.D, role="size")  # → D.D
-d.datum("A", ref=...)
-d.gtol("runout", "circular_runout", 0.02, datums=["A"], ref="D.D")
-d.notes.tech(["未注倒角 C0.5", "调质 220–250HB"])
-d.title(name="传动轴", material="45")
+front = d.view("front")                                           # → V.front
+body  = front.profile("body", ...)                                 # → F.front.body
+front.dim.dia("D", ref=body.edge("top"), value=P.D, role="size")   # → D.D
+d.datum("A", ref=...);  d.gtol("runout", "circular_runout", 0.02, datums=["A"], ref="D.D")
+d.notes.tech(["未注倒角 C0.5", "调质 220–250HB"]);  d.title(name="传动轴", material="45")
 ```
 
 ### 3.2 临时脚本层：现写、现跑、即弃，只留下效果
@@ -126,8 +124,8 @@ d.title(name="传动轴", material="45")
 # .linercad/tmp/move-dim.py   « 用户：@D.D 移到右侧，公差改 g6 »
 def apply(d):
     dim = d["D.D"]
-    dim.place(side="right")  # 改布局（排号由引擎选）
-    dim.fit = "g6"  # 改意图
+    dim.place(side="right")               # 改布局（排号由引擎选）
+    dim.fit = "g6"                        # 改意图
 ```
 
 `lcad edit .linercad/tmp/move-dim.py -m "<用户原话>"` 以事务方式执行：
@@ -195,9 +193,9 @@ v0 阶段，多视图之间的一致性靠下面三点保证，不另外设规�
 
 ```python
 d = Drawing(kind="assembly", std="GB")
-shaft = d.component("../shaft")  # 引用零件图，改轴径会同步到装配图
-bolt = d.std_part("GB/T 5782", "M10x40", qty=4)
-d.bom()  # 明细栏由组件自动生成
+shaft = d.component("../shaft")                 # 引用零件图，改轴径会同步到装配图
+bolt  = d.std_part("GB/T 5782", "M10x40", qty=4)
+d.bom()                                         # 明细栏由组件自动生成
 ```
 
 - **版本管理不变。** 整个产品放在一个仓库里，每张图只提交自己的源文件（§6）。
