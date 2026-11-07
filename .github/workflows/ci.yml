@@ -11,6 +11,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.9.18"
+          enable-cache: true
       - run: uv sync --locked
       - run: uv run ruff check
 
@@ -28,6 +31,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
+          version: "0.9.18"
+          enable-cache: true
           python-version: ${{ matrix.python }}
       - run: uv sync --locked
       - run: uv run pytest -q

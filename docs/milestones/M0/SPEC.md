@@ -170,14 +170,16 @@ ID 规则（名字：Unicode 字母、数字、`_`、`-`，字母开头）：
 ```python
 from linercad import Drawing, Param
 
-d = Drawing(sheet="A3", std="GB", scale="1:1")   # sheet: A4（竖放）/ A3 / A2（横放）；std: M0 只有 "GB"
+d = Drawing(
+    sheet="A3", std="GB", scale="1:1"
+)  # sheet: A4（竖放）/ A3 / A2（横放）；std: M0 只有 "GB"
 P = d.params(
     D=Param(30, min=10, max=60, step=0.5, unit="mm", label="外径", tol="h7"),
     d1=Param(20, min=8, max=50, step=0.5, unit="mm", label="轴颈", rule="d1 < D"),
 )
-P.D            # Expr：.value=30.0，.src="D"，.params={"D"}
-P.D / 2 - 1    # Expr：.src="D / 2 - 1"
-d.P            # 同一个 ParamSet；临时脚本里用它（只读）
+P.D  # Expr：.value=30.0，.src="D"，.params={"D"}
+P.D / 2 - 1  # Expr：.src="D / 2 - 1"
+d.P  # 同一个 ParamSet；临时脚本里用它（只读）
 ```
 
 - `Param(value, min=None, max=None, step=None, unit="mm", label="", tol=None, rule=None, group=None)`；创建时记下自己在 drawing.py 的 `{"file","line"}`（M2 写回源码用）。
@@ -188,19 +190,19 @@ d.P            # 同一个 ParamSet；临时脚本里用它（只读）
 ### 4.2 视图与几何
 
 ```python
-front = d.view("front")              # → V.front；已存在则返回同一个（不记录操作）
-left  = d.view("left")               # 第一角画法：左视图在主视图右侧，高平齐
+front = d.view("front")  # → V.front；已存在则返回同一个（不记录操作）
+left = d.view("left")  # 第一角画法：左视图在主视图右侧，高平齐
 
-front.line(p1, p2, role="thick", name=None)         # → Edge；有 name 时同时建特征 F.front.<name>
-front.polyline(points, role="thick", name=None)     # → Feature
-front.polygon(points, role="thick", name=None)      # → Feature（闭合，可作剖面线边界）
-front.rect((x, y), w, h, role="thick", name=None)   # → Feature（闭合）
-front.circle(center, r, role="thick", name=None)    # → Edge；有 name 时同时建闭合特征
-front.arc(center, r, start, end, role="thick", name=None)   # 角度制，逆时针
-front.turned(name, profile=[(x0, r0), (x1, r1), ...], axis=0, role="thick")   # → Feature
-front.centerline(p1, p2, name=None)                  # → CenterLine；两端各外延标准档值
-front.center_mark(center, r, name=None)              # 圆的十字中心线，外延同上
-front.holes_on_circle(name, center, pcd, n, d, start=90)   # → Feature：n 个孔 + 节圆 + 径向中心线
+front.line(p1, p2, role="thick", name=None)  # → Edge；有 name 时同时建特征 F.front.<name>
+front.polyline(points, role="thick", name=None)  # → Feature
+front.polygon(points, role="thick", name=None)  # → Feature（闭合，可作剖面线边界）
+front.rect((x, y), w, h, role="thick", name=None)  # → Feature（闭合）
+front.circle(center, r, role="thick", name=None)  # → Edge；有 name 时同时建闭合特征
+front.arc(center, r, start, end, role="thick", name=None)  # 角度制，逆时针
+front.turned(name, profile=[(x0, r0), (x1, r1), ...], axis=0, role="thick")  # → Feature
+front.centerline(p1, p2, name=None)  # → CenterLine；两端各外延标准档值
+front.center_mark(center, r, name=None)  # 圆的十字中心线，外延同上
+front.holes_on_circle(name, center, pcd, n, d, start=90)  # → Feature：n 个孔 + 节圆 + 径向中心线
 ```
 
 - `turned`：`profile` 为上半轮廓 `(x, r)`，x 单调不减，r > 0。工具画上半各非竖直段、镜像的下半各段，以及**每个转折处一条从 −r_max 到 +r_max 的竖线**（端面、台阶、倒角圆都由它表达；同一 x 的多个点取最大 r；共线的中间点不画竖线），再画轴线。`axis` 是轴线的 y。
@@ -232,11 +234,11 @@ front.hatch(name, loops=[...])                                      # 剖面线 
 ### 4.4 引用与查询（§4.3）
 
 ```python
-d["D.D"]                                    # 元素；找不到抛 not_found，带相近 ID
-d.q.dims(view="front", role="position")     # Query；按字段过滤
-d.q.lines(view="front").where(length=30, dir="h").near(120, 45).exactly(1)   # near 用视图局部坐标
+d["D.D"]  # 元素；找不到抛 not_found，带相近 ID
+d.q.dims(view="front", role="position")  # Query；按字段过滤
+d.q.lines(view="front").where(length=30, dir="h").near(120, 45).exactly(1)  # near 用视图局部坐标
 d.q.circles(view="left").where(r=6, tol=0.1).one()
-d.near(210, 148, r=5)                       # 图纸坐标；按距离、面积排序
+d.near(210, 148, r=5)  # 图纸坐标；按距离、面积排序
 ```
 
 - `d.q.<种类>`：`views features edges lines circles arcs centers dims notes hatches sections cells all`；写错种类报错并列出全部。
