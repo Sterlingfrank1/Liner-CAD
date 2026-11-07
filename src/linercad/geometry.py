@@ -236,6 +236,25 @@ class View(Element):
     def _children(self):
         return [e._id for e in self._d._els.values() if e is not self and e.view == self.name]
 
+    # ---- coordinates (after layout) -----------------------------------------------------
+    def _origin(self):
+        o = self._resolved.get("origin")
+        if o is None:
+            raise InvalidArgument(f"{self._id} 还没有布局结果，先 lcad build", id=self._id)
+        return o
+
+    def to_sheet(self, x, y):
+        """View-local model point → sheet coordinates."""
+        ox, oy = self._origin()
+        s = self._d.scale
+        return (ox + num(x, "x") * s, oy + num(y, "y") * s)
+
+    def to_local(self, x, y):
+        """Sheet point → view-local model coordinates."""
+        ox, oy = self._origin()
+        s = self._d.scale
+        return ((num(x, "x") - ox) / s, (num(y, "y") - oy) / s)
+
     # ---- annotations (implemented in annotate.py) ----------------------------------------
     @property
     def dim(self):

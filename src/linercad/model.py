@@ -240,6 +240,7 @@ class Drawing:
         self._src_override = None  # replay sets {"edit","line"} while applying a log operation
         self._forced_id = None  # replay sets the recorded ID of the element an op creates
         self._scope = None  # "e7" while a temp script runs: auto names become e7_<n> (SPEC §3.2)
+        self._accepted: dict[tuple, str] = {}  # (rule, id) -> reason
         self._els: dict[str, Element] = {}
         self._removed: list[str] = []
         self._counters: dict[tuple, int] = {}
@@ -260,6 +261,19 @@ class Drawing:
         from .annotate import init_sheet
 
         init_sheet(self)
+
+    # ---- checks ----------------------------------------------------------------------------
+    @mutator("accept")
+    def accept(self, rule, id, reason):
+        """Let an intended warning pass: status becomes ``accepted(reason)``."""
+        rules = ("overlap", "out_of_frame", "view_align", "stale_op")
+        if rule not in rules:
+            raise InvalidArgument(f"没有检查规则 {rule!r}", candidates=list(rules))
+        if rule != "stale_op":
+            self[id]
+        if not str(reason or "").strip():
+            raise InvalidArgument("accept 需要写明理由", id=id)
+        self._accepted[(rule, id)] = str(reason)
 
     # ---- sheet-level annotations ---------------------------------------------------------
     @property
