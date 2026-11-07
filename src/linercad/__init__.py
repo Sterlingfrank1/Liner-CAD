@@ -4,6 +4,7 @@ from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _version
 
 from . import errors
+from .model import Drawing
 from .params import Param
 
 try:
@@ -11,4 +12,4 @@ try:
 except PackageNotFoundError:  # running from a source tree without installing
     __version__ = "0.0.0+unknown"
 
-__all__ = ["Param", "__version__", "errors"]
+__all__ = ["Drawing", "Param", "__version__", "errors"]
