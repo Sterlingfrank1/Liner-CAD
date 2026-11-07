@@ -7,7 +7,7 @@ import math
 import re
 
 from .errors import InvalidArgument, NotFound
-from .geometry import Edge, Feature, resolve_point
+from .geometry import CenterLine, Edge, Feature, resolve_point
 from .model import Element, check_name, num
 from .record import mutator
 
@@ -28,6 +28,14 @@ def _expr_parts(value):
     if hasattr(value, "src") and hasattr(value, "params"):
         return float(value), value.src, sorted(value.params)
     return num(value, "value"), None, []
+
+
+def _required_name(name, what):
+    if name is None:
+        raise InvalidArgument(
+            f"{what}必须起名（第一个参数），日志和 @ID 引用靠它", hint="例如 'L'、'd1'、'bore'"
+        )
+    return check_name(name)
 
 
 def _el(d, ref, what):
@@ -183,11 +191,7 @@ class DimNS:
                 values={"name": name},
                 hint="例如 datum='E.front.body.1' 或 datum='E.front.base.1:start'",
             )
-        if name is None:
-            cand = f"D.{covers[0]}" if len(covers) == 1 and expr == covers[0] else None
-            did = cand if cand and cand not in d._els and d._forced_id is None else d._alloc("D", (v,))
-        else:
-            did = f"D.{check_name(name)}"
+        did = f"D.{_required_name(name, '尺寸')}"
         intent = {
             "type": type_,
             "view": v,
@@ -246,14 +250,21 @@ class DimNS:
         return {"p1": list(a), "p2": list(b), "dir": dir, "measured": measured}, refs
 
     def _circle(self, circle, kinds):
+        """→ (element id, centre, radius) of a circle/arc edge or a circular centre line."""
         e = _el(self._d, circle, "circle")
         if isinstance(e, Feature) and len(e.edges) == 1:
             e = e.edges[0]
-        if not isinstance(e, Edge) or e.shape not in kinds:
-            raise InvalidArgument(f"circle 应为{'或'.join(kinds)}边，{e.id} 不是", id=e.id)
         if e.view != self._view.name:
             raise InvalidArgument(f"{e.id} 在视图 {e.view}，不在 {self._view.name}", id=e.id)
-        return e
+        if isinstance(e, Edge) and e.shape in kinds:
+            return e.id, list(e.center), e.r
+        if isinstance(e, CenterLine) and e.type == "circle" and "circle" in kinds:
+            return e.id, list(e._intent["c"]), e._intent["r"]
+        if isinstance(e, Edge) and e.shape == "circle" and kinds == ("arc",):
+            raise InvalidArgument(
+                f"{e.id} 是整圆：整圆标直径（GB/T 4458.4），用 dim.dia(circle=...)", id=e.id
+            )
+        raise InvalidArgument(f"circle 应为{'或'.join(kinds)}，{e.id} 不是", id=e.id)
 
     @mutator("dim.linear")
     def linear(self, name=None, p1=None, p2=None, dir=None, value=None, tol=None, role="size",
@@ -266,9 +277,9 @@ class DimNS:
     def dia(self, name=None, p1=None, p2=None, circle=None, at=None, value=None, tol=None, role="size",
             datum=None, prefix="", suffix="", text=None, side=None, row=None, offset=None, ref=None):
         if circle is not None:
-            e = self._circle(circle, ("circle", "arc"))
-            p = {"circle": e.id, "c": list(e.center), "r": e.r, "measured": 2 * e.r}
-            return self._new(name, "dia", p, value, tol, role, datum, prefix, suffix, text, {"at": at}, [e.id])
+            cid, c, r = self._circle(circle, ("circle", "arc"))
+            p = {"circle": cid, "c": c, "r": r, "measured": 2 * r}
+            return self._new(name, "dia", p, value, tol, role, datum, prefix, suffix, text, {"at": at}, [cid])
         p, refs = self._two_points(p1, p2, None, ref)
         return self._new(name, "dia", p, value, tol, role, datum, prefix, suffix, text,
                          {"side": side, "row": row, "offset": offset}, refs)
@@ -277,10 +288,10 @@ class DimNS:
     def rad(self, name=None, circle=None, at=None, value=None, tol=None, role="size", datum=None,
             prefix="", suffix="", text=None):
         if circle is None:
-            raise InvalidArgument("半径尺寸需要 circle=圆或圆弧边")
-        e = self._circle(circle, ("circle", "arc"))
-        p = {"circle": e.id, "c": list(e.center), "r": e.r, "measured": e.r}
-        return self._new(name, "rad", p, value, tol, role, datum, prefix, suffix, text, {"at": at}, [e.id])
+            raise InvalidArgument("半径尺寸需要 circle=圆弧边")
+        cid, c, r = self._circle(circle, ("arc",))
+        p = {"circle": cid, "c": c, "r": r, "measured": r}
+        return self._new(name, "rad", p, value, tol, role, datum, prefix, suffix, text, {"at": at}, [cid])
 
 
 class Note(Element):
@@ -362,6 +373,21 @@ class Hatch(Element):
     loops = property(lambda s: list(s._intent["loops"]))
 
 
+LOOK_VEC = {"left": (-1, 0), "right": (1, 0), "up": (0, 1), "down": (0, -1)}
+
+
+def _check_look(look, a, b):
+    ux, uy = b[0] - a[0], b[1] - a[1]
+    lx, ly = LOOK_VEC[look]
+    n = math.hypot(ux, uy)
+    if abs(ux * ly - uy * lx) / n < 1e-6:
+        raise InvalidArgument(
+            f"投射方向 {look} 与剖切迹线平行",
+            values={"through": [list(a), list(b)]},
+            candidates=[k for k, (x, y) in LOOK_VEC.items() if abs(ux * y - uy * x) / n > 1e-6],
+        )
+
+
 class Section(Element):
     """Full section: cutting-plane symbol in ``cut_in`` + ``X-X`` label above ``view``."""
 
@@ -371,6 +397,8 @@ class Section(Element):
     def _apply_set(self, fields):
         if fields["look"] not in SECTION_LOOK:
             raise InvalidArgument(f"look 只能是 {SECTION_LOOK}", id=self._id, candidates=list(SECTION_LOOK))
+        a, b = self._intent["through"]
+        _check_look(fields["look"], a, b)
         self._intent["look"] = fields["look"]
 
 
@@ -397,7 +425,7 @@ def default_look(std, view, cut_in) -> str:
 def view_note(self, name, text, anchor, dir=None, length=None):
     d = self._d
     a = resolve_point(d, anchor, view=self.name, what="anchor")
-    nid = d._alloc("N", (self.name,)) if name is None else f"N.{check_name(name)}"
+    nid = f"N.{_required_name(name, '引线注释')}"
     refs = [self.id]
     if isinstance(anchor, str):
         refs.append(anchor.split(":")[0])
@@ -434,7 +462,7 @@ def view_hatch(self, name, loops):
     if not loops:
         raise InvalidArgument("hatch 至少要一个边界环")
     ls = [_loop_of(d, x, self.name) for x in loops]
-    hid = d._alloc("H", (self.name,), name)
+    hid = f"H.{self.name}.{_required_name(name, '剖面线')}"
     refs = [self.id] + [x["ref"] for x in ls if "ref" in x]
     return d._add(Hatch(d, hid, {"view": self.name, "loops": ls}, refs=refs))
 
@@ -458,6 +486,7 @@ def drawing_section(self, letter, view, cut_in, through, look=None):
         look = default_look(d.std, view, cut_in)
     elif look not in SECTION_LOOK:
         raise InvalidArgument(f"look 只能是 {SECTION_LOOK}", candidates=list(SECTION_LOOK))
+    _check_look(look, a, b)
     intent = {"letter": letter, "view": view, "cut_in": cut_in, "through": [list(a), list(b)], "look": look}
     return d._add(Section(d, f"S.{letter}", intent, refs=[f"V.{view}", f"V.{cut_in}"]))
 

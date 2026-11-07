@@ -32,19 +32,22 @@ def test_linear_measured_and_text(d):
     assert dim.refs == ["V.front"]
 
 
-def test_value_expression_covers_and_default_name(d):
+def test_value_expression_covers_and_names_required(d):
     P = d.P
-    a = d.view("front").dim.linear(None, (0, -20), (120, -20), value=P.L, role="overall")
+    a = d.view("front").dim.linear("L", (0, -20), (120, -20), value=P.L, role="overall")
     assert a.id == "D.L" and a.covers == ["L"] and a.intent["expr"] == "L"
-    b = d.view("front").dim.linear(None, (0, -20), (120, -20), value=P.L)
-    assert b.id == "D.front.1"  # D.L already taken
-    c = d.view("front").dim.linear(None, (40, 0), (120, 0), value=P.L - P.l1)
-    assert c.id == "D.front.2" and c.covers == ["L", "l1"] and c.value == 80
+    c = d.view("front").dim.linear("l2", (40, 0), (120, 0), value=P.L - P.l1)
+    assert c.covers == ["L", "l1"] and c.value == 80
+    with pytest.raises(errors.InvalidArgument) as e:
+        d.view("front").dim.linear(None, (0, 0), (40, 0))
+    assert "起名" in e.value.message
+    with pytest.raises(errors.DuplicateId):
+        d.view("front").dim.linear("L", (0, 0), (40, 0))
 
 
 def test_dia_on_non_circular_view_and_tol(d):
     P = d.P
-    dim = d.view("front").dim.dia(None, (20, 15), (20, -15), value=P.D, tol="h7", side="inside")
+    dim = d.view("front").dim.dia("D", (20, 15), (20, -15), value=P.D, tol="h7", side="inside")
     assert dim.id == "D.D" and dim.intent["dir"] == "v"
     assert dim.text == "Φ30h7"
     assert dim.placement["side"] == "inside" and dim.LAYOUT == ("side", "row", "offset")
@@ -136,6 +139,12 @@ def test_circle_view_dia_and_rad():
     assert rad.text == "R10"
     with pytest.raises(errors.InvalidArgument):
         left.dim.rad("bad")
+    with pytest.raises(errors.InvalidArgument) as e:
+        left.dim.rad("full", circle=c)
+    assert "直径" in e.value.message
+    holes = left.holes_on_circle("bolt", (0, 0), pcd=40, n=4, d=6)
+    pcd = left.dim.dia("pcd", circle="C.left.bolt")
+    assert pcd.text == "Φ40" and holes
     line = left.line((0, 0), (1, 0))
     with pytest.raises(errors.InvalidArgument):
         left.dim.dia("bad", circle=line)
@@ -165,8 +174,8 @@ def test_leader_note(d):
     assert n.placement["shift"] == [3, -1]
     n.place(length=12)
     assert n.placement["length"] == 12
-    auto = d.view("front").note(None, "x", (0, 0))
-    assert auto.id == "N.front.1"
+    with pytest.raises(errors.InvalidArgument):
+        d.view("front").note(None, "x", (0, 0))
 
 
 def test_tech_notes_numbering_not_reused(d):
@@ -204,6 +213,9 @@ def test_section_and_default_look():
         d.section("B", view="front", cut_in="top", through=[(0, 0), (1, 0)])
     s.look = "right"
     assert s.intent["look"] == "right"
+    with pytest.raises(errors.InvalidArgument) as e:
+        s.look = "up"
+    assert set(e.value.candidates) == {"left", "right"}
 
 
 def test_default_look_first_and_third_angle():
@@ -229,5 +241,8 @@ def test_hatch_loops(d):
         f.hatch("bad", loops=["F.front.body"])  # turned outline is not a closed feature
     with pytest.raises(errors.InvalidArgument):
         f.hatch("bad2", loops=[])
-    auto = f.hatch(None, loops=[up])
-    assert auto.id == "H.front.1"
+    with pytest.raises(errors.InvalidArgument):
+        f.hatch(None, loops=[up])
+    with pytest.raises(errors.InvalidArgument) as e:
+        up.suppress()
+    assert "H.front.sec" in e.value.candidates
