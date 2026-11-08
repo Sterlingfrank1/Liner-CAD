@@ -307,3 +307,25 @@ def test_hatch_outline_thin(shaft):
     h = f.hatch("rs", loops=[[(40, -5), (45, -5), (45, 5), (40, 5)]], outline="thin")
     layout(d)
     assert len([p for p in h._prims if isinstance(p, Line) and p.layer == "thin"]) == 4
+
+
+def test_aux_views_record_and_replay(tmp_path):
+    from linercad import txn
+    from linercad.runtime import build
+
+    p = tmp_path / "s"
+    txn.init(p, from_="shaft")
+    script = p / ".linercad/tmp/aux.py"
+    script.write_text(
+        "def apply(d):\n"
+        "    sec = d.removed_section('B', parent='front', through=[(100, -25), (100, 25)])\n"
+        "    sec.circle((0, 0), 18, name='cut')\n"
+        "    d.detail('I', parent='front', center=(30, 12.5), r=4, scale='4:1')\n"
+        "    d.view('front').wavy('brk', [(150, -15), (150, 15)])\n",
+        encoding="utf-8",
+    )
+    out = txn.edit(p, script, "加断面和放大图")
+    assert out["ok"], out
+    d = build(p).d
+    for i in ("V.B", "S.B", "F.B.cut", "V.I", "S.I", "W.front.brk"):
+        assert i in d, i
