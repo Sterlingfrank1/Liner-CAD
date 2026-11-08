@@ -464,7 +464,7 @@ def rough_symbol(i, std, with_text=True):
 def rough_cands(vl, el):
     std = vl.std
     sym = rough_symbol(el._intent, std)
-    out = []
+    out, direct = [], []
     for frac in _fracs(el):
         an = _anchor(vl, el, frac)
         if an is None:
@@ -477,8 +477,7 @@ def rough_cands(vl, el):
             fields = {"at": frac}
             c = _cand(prims, fields)
             c["mode"] = "direct"
-            out.append(c)
-            continue
+            direct.append(c)
         lift = std["rough"]["h2"] + 3 if n[1] < -0.3 else 0.0  # symbol stands clear of the part
         for L in _lens(el._layout, std):
             L = L + lift if not el._layout.get("length") else L
@@ -493,7 +492,7 @@ def rough_cands(vl, el):
             c = _cand(prims, fields)
             c["mode"] = "leader"
             out.append(c)
-    return out
+    return direct + out  # standing on the surface first, a leader when that is crowded
 
 
 def rough_default_prims(el, std, right, bottom):
@@ -503,17 +502,18 @@ def rough_default_prims(el, std, right, bottom):
     h = std["dim"]["text_height"]
     b1 = prims_bbox(sym)
     b2 = prims_bbox(basic)
-    wpar = text_size("(", h, std)[0]
+    hp = next((v for v in std["text"]["heights"] if v > h), h)  # brackets one size up
+    wpar = text_size("(", hp, std)[0]
     total = (b1[2] - b1[0]) + 2 + wpar * 2 + (b2[2] - b2[0]) + 1
     x0 = right - total
     prims = transform(sym, 0, x0 - b1[0], bottom - b1[1])
     x = x0 + (b1[2] - b1[0]) + 2
     mid = bottom + (b2[3] - b2[1]) / 2
-    prims.append(make_text("(", (x + wpar / 2, mid), h * 1.6, std, layer="text"))
+    prims.append(make_text("(", (x + wpar / 2, mid), hp, std, layer="text"))
     x += wpar
     prims += transform(basic, 0, x - b2[0], bottom - b2[1])
     x += b2[2] - b2[0]
-    prims.append(make_text(")", (x + wpar / 2, mid), h * 1.6, std, layer="text"))
+    prims.append(make_text(")", (x + wpar / 2, mid), hp, std, layer="text"))
     return prims
 
 
