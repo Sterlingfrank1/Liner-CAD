@@ -249,7 +249,7 @@ def keyway(view, name, x0, length, d, axis=0, facing="viewer", kind="shaft"):
         "length": L,
         "axis": ax,
         "std": k.get("std"),
-        "tol_b": k.get("tol_shaft", "N9"),
+        "tol_b": k.get("width_fit", {}).get("normal", {}).get("shaft", "N9"),
         "t1_dev": k.get("t1_dev"),
         "t2_dev": k.get("t2_dev"),
     }
@@ -360,7 +360,7 @@ def keyway_end(view, name, c, d, kind="hub", angle=90):
         "closed": True,
         "points": pts,
         "std": k.get("std"),
-        "tol_b": k.get("tol_hub", "JS9"),
+        "tol_b": k.get("width_fit", {}).get("normal", {}).get("hub", "JS9"),
         "t2_dev": k.get("t2_dev"),
     }
     return _feat(view, name, "keyway", intent, [seg["arc"], *seg["lines"]])
@@ -384,7 +384,10 @@ def spline(view, name, spec, x0, x1, axis=0):
         "axis": ax,
         "std": s.get("std"),
         "mask": mask,
-        "fits": s.get("fits_shaft") or ["f7", "a11", "d10"],
+        "fits": [
+            s.get("tol", {}).get("shaft", {}).get("sliding", {}).get(k, f)
+            for k, f in (("d", "f7"), ("D", "a11"), ("B", "d10"))
+        ],
     }
     return _feat(view, name, "spline", intent, edges)
 
