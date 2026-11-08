@@ -136,7 +136,7 @@ h1 = 5.0
 h2 = 10.5
 
 [checks]  # rule → standard number reported with each finding (SPEC M1 §7)
-basis = "各规则所依据的标准；ISO 档覆盖为对应 ISO 标准"
+basis = "各规则依据的 GB/T 标准号（ISO 档覆盖为对应 ISO 标准号）"
 overlap = "GB/T 4458.4-2003"
 out_of_frame = "GB/T 14689-2008"
 view_align = "GB/T 4458.1-2002"
