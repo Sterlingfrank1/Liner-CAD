@@ -20,9 +20,23 @@ def close(value, expected, rel, floor=1.0):
 
 @pytest.mark.parametrize(
     "grade, size, expected",
-    [(7, 30, 0.021), (7, 30.001, 0.025), (6, 3, 0.006), (6, 3.001, 0.008), (7, 6, 0.012),
-     (7, 10, 0.015), (7, 18, 0.018), (7, 50, 0.025), (7, 80, 0.030), (7, 120, 0.035),
-     (7, 120.5, 0.040), (1, 1, 0.0008), (12, 500, 0.63), (18, 2, 1.4), (5, 400, 0.025)],
+    [
+        (7, 30, 0.021),
+        (7, 30.001, 0.025),
+        (6, 3, 0.006),
+        (6, 3.001, 0.008),
+        (7, 6, 0.012),
+        (7, 10, 0.015),
+        (7, 18, 0.018),
+        (7, 50, 0.025),
+        (7, 80, 0.030),
+        (7, 120, 0.035),
+        (7, 120.5, 0.040),
+        (1, 1, 0.0008),
+        (12, 500, 0.63),
+        (18, 2, 1.4),
+        (5, 400, 0.025),
+    ],
 )
 def test_it_values_and_inclusive_upper_bounds(grade, size, expected):
     assert res.it(grade, size) == expected
@@ -30,18 +44,42 @@ def test_it_values_and_inclusive_upper_bounds(grade, size, expected):
 
 @pytest.mark.parametrize(
     "code, size, upper, lower",
-    [("H7", 30, 0.021, 0.0), ("k6", 30, 0.015, 0.002), ("f7", 25, -0.020, -0.041),
-     ("p6", 100, 0.059, 0.037), ("r6", 60, 0.060, 0.041), ("K7", 30, 0.006, -0.015),
-     ("g6", 40, -0.009, -0.025), ("H7", 40, 0.025, 0.0), ("e9", 110, -0.072, -0.159),
-     ("H11", 110, 0.220, 0.0), ("K7", 300, 0.016, -0.036), ("js6", 30, 0.0065, -0.0065),
-     ("JS9", 8, 0.018, -0.018), ("h6", 30, 0.0, -0.013), ("m6", 30, 0.021, 0.008),
-     ("s6", 60, 0.072, 0.053), ("u6", 30, 0.061, 0.048), ("t6", 28, 0.054, 0.041),
-     ("c11", 35, -0.120, -0.280), ("a11", 5, -0.270, -0.345), ("n6", 30, 0.028, 0.015),
-     ("D9", 30, 0.117, 0.065), ("F8", 30, 0.053, 0.020), ("G7", 30, 0.028, 0.007),
-     ("M7", 30, 0.0, -0.021), ("N7", 30, -0.007, -0.028), ("P7", 30, -0.014, -0.035),
-     ("R7", 30, -0.020, -0.041), ("U7", 30, -0.040, -0.061), ("K8", 30, 0.010, -0.023),
-     ("N9", 30, 0.0, -0.052), ("P7", 3, -0.006, -0.016), ("k8", 30, 0.033, 0.0),
-     ("k5", 10, 0.007, 0.001)],
+    [
+        ("H7", 30, 0.021, 0.0),
+        ("k6", 30, 0.015, 0.002),
+        ("f7", 25, -0.020, -0.041),
+        ("p6", 100, 0.059, 0.037),
+        ("r6", 60, 0.060, 0.041),
+        ("K7", 30, 0.006, -0.015),
+        ("g6", 40, -0.009, -0.025),
+        ("H7", 40, 0.025, 0.0),
+        ("e9", 110, -0.072, -0.159),
+        ("H11", 110, 0.220, 0.0),
+        ("K7", 300, 0.016, -0.036),
+        ("js6", 30, 0.0065, -0.0065),
+        ("JS9", 8, 0.018, -0.018),
+        ("h6", 30, 0.0, -0.013),
+        ("m6", 30, 0.021, 0.008),
+        ("s6", 60, 0.072, 0.053),
+        ("u6", 30, 0.061, 0.048),
+        ("t6", 28, 0.054, 0.041),
+        ("c11", 35, -0.120, -0.280),
+        ("a11", 5, -0.270, -0.345),
+        ("n6", 30, 0.028, 0.015),
+        ("D9", 30, 0.117, 0.065),
+        ("F8", 30, 0.053, 0.020),
+        ("G7", 30, 0.028, 0.007),
+        ("M7", 30, 0.0, -0.021),
+        ("N7", 30, -0.007, -0.028),
+        ("P7", 30, -0.014, -0.035),
+        ("R7", 30, -0.020, -0.041),
+        ("U7", 30, -0.040, -0.061),
+        ("K8", 30, 0.010, -0.023),
+        ("N9", 30, 0.0, -0.052),
+        ("P7", 3, -0.006, -0.016),
+        ("k8", 30, 0.033, 0.0),
+        ("k5", 10, 0.007, 0.001),
+    ],
 )
 def test_fit_known_values(code, size, upper, lower):
     got = res.fit(code, size)
@@ -57,9 +95,15 @@ def test_it_matches_formula(grade):
         assert close(res.it(grade, hi) * 1000, FACTOR[grade] * unit, 0.06), (grade, hi)
 
 
-@pytest.mark.parametrize("letter, formula", [
-    ("d", lambda d: -16 * d**0.44), ("e", lambda d: -11 * d**0.41),
-    ("f", lambda d: -5.5 * d**0.41), ("g", lambda d: -2.5 * d**0.34)])
+@pytest.mark.parametrize(
+    "letter, formula",
+    [
+        ("d", lambda d: -16 * d**0.44),
+        ("e", lambda d: -11 * d**0.41),
+        ("f", lambda d: -5.5 * d**0.41),
+        ("g", lambda d: -2.5 * d**0.34),
+    ],
+)
 def test_shaft_deviation_matches_formula(letter, formula):
     for hi, d in zip(RANGES[2:], GEO[1:]):  # above 3 mm; the 0-3 row is table-only
         assert close(res.fit(letter + "8", hi)["upper"] * 1000, formula(d), 0.08), (letter, hi)
@@ -79,11 +123,23 @@ def test_unknown_input_gives_candidates():
 
 @pytest.mark.parametrize(
     "cls, size, kind, bound",
-    [("m", 45, "linear", 0.3), ("f", 0.5, "linear", 0.05), ("f", 3, "linear", 0.05),
-     ("m", 3.1, "linear", 0.1), ("c", 100, "linear", 0.8), ("v", 1000, "linear", 4),
-     ("v", 4000, "linear", 8), ("m", 2, "chamfer", 0.2), ("c", 5, "chamfer", 1),
-     ("m", 30, "chamfer", 1), ("v", 9, "chamfer", 2), ("m", 8, "angle", 1.0),
-     ("c", 30, "angle", 1.0), ("v", 500, "angle", 20 / 60), ("f", 100, "angle", 20 / 60)],
+    [
+        ("m", 45, "linear", 0.3),
+        ("f", 0.5, "linear", 0.05),
+        ("f", 3, "linear", 0.05),
+        ("m", 3.1, "linear", 0.1),
+        ("c", 100, "linear", 0.8),
+        ("v", 1000, "linear", 4),
+        ("v", 4000, "linear", 8),
+        ("m", 2, "chamfer", 0.2),
+        ("c", 5, "chamfer", 1),
+        ("m", 30, "chamfer", 1),
+        ("v", 9, "chamfer", 2),
+        ("m", 8, "angle", 1.0),
+        ("c", 30, "angle", 1.0),
+        ("v", 500, "angle", 20 / 60),
+        ("f", 100, "angle", 20 / 60),
+    ],
 )
 def test_general_tol_values(cls, size, kind, bound):
     got = res.general_tol(cls, size, kind=kind)
@@ -97,8 +153,13 @@ def test_general_tol_angle_keeps_original_text():
 
 
 def test_general_tol_errors_have_candidates():
-    for args, kw in [(("x", 10), {}), (("m", 10), {"kind": "volume"}), (("m", 5000), {}),
-                     (("v", 1), {}), (("m", 0.2), {})]:
+    for args, kw in [
+        (("x", 10), {}),
+        (("m", 10), {"kind": "volume"}),
+        (("m", 5000), {}),
+        (("v", 1), {}),
+        (("m", 0.2), {}),
+    ]:
         with pytest.raises(InvalidArgument) as err:
             res.general_tol(*args, **kw)
         assert err.value.candidates or err.value.hint, args
@@ -109,12 +170,20 @@ def test_general_tol_errors_have_candidates():
 
 @pytest.mark.parametrize(
     "spec, d2, d1, pitch, coarse",
-    [("M10", 9.026, 8.376, 1.5, True), ("M20x1.5", 19.026, 18.376, 1.5, False),
-     ("M20×1.5", 19.026, 18.376, 1.5, False), ("M6", 5.350, 4.917, 1, True),
-     ("M12", 10.863, 10.106, 1.75, True), ("M16", 14.701, 13.835, 2, True),
-     ("M24", 22.051, 20.752, 3, True), ("M30", 27.727, 26.211, 3.5, True),
-     ("M8x1", 7.350, 6.917, 1, False), ("M1.6", 1.373, 1.221, 0.35, True),
-     ("M64", 60.103, 57.505, 6, True), ("M20x2.5", 18.376, 17.294, 2.5, True)],
+    [
+        ("M10", 9.026, 8.376, 1.5, True),
+        ("M20x1.5", 19.026, 18.376, 1.5, False),
+        ("M20×1.5", 19.026, 18.376, 1.5, False),
+        ("M6", 5.350, 4.917, 1, True),
+        ("M12", 10.863, 10.106, 1.75, True),
+        ("M16", 14.701, 13.835, 2, True),
+        ("M24", 22.051, 20.752, 3, True),
+        ("M30", 27.727, 26.211, 3.5, True),
+        ("M8x1", 7.350, 6.917, 1, False),
+        ("M1.6", 1.373, 1.221, 0.35, True),
+        ("M64", 60.103, 57.505, 6, True),
+        ("M20x2.5", 18.376, 17.294, 2.5, True),
+    ],
 )
 def test_thread_dimensions(spec, d2, d1, pitch, coarse):
     got = res.thread(spec)
@@ -150,9 +219,16 @@ def test_thread_classes():
 
 @pytest.mark.parametrize(
     "d, b, h, t1, t2, rng",
-    [(32, 10, 8, 5.0, 3.3, [30, 38]), (30, 8, 7, 4.0, 3.3, [22, 30]), (8, 2, 2, 1.2, 1.0, [6, 8]),
-     (8.1, 3, 3, 1.8, 1.4, [8, 10]), (45, 14, 9, 5.5, 3.8, [44, 50]), (60, 18, 11, 7.0, 4.4, [58, 65]),
-     (100, 28, 16, 10.0, 6.4, [95, 110]), (130, 32, 18, 11.0, 7.4, [110, 130])],
+    [
+        (32, 10, 8, 5.0, 3.3, [30, 38]),
+        (30, 8, 7, 4.0, 3.3, [22, 30]),
+        (8, 2, 2, 1.2, 1.0, [6, 8]),
+        (8.1, 3, 3, 1.8, 1.4, [8, 10]),
+        (45, 14, 9, 5.5, 3.8, [44, 50]),
+        (60, 18, 11, 7.0, 4.4, [58, 65]),
+        (100, 28, 16, 10.0, 6.4, [95, 110]),
+        (130, 32, 18, 11.0, 7.4, [110, 130]),
+    ],
 )
 def test_key_values(d, b, h, t1, t2, rng):
     got = res.key(d)
@@ -167,7 +243,9 @@ def test_key_depth_deviations_and_derived_dimensions():
     assert big["d_t1"] == {"nominal": 27.0, "upper": 0.0, "lower": -0.2}
     assert big["d_t2"] == {"nominal": 35.3, "upper": 0.2, "lower": 0.0}
     assert (big["width_fit"]["normal"], big["width_fit"]["close"]) == (
-        {"shaft": "N9", "hub": "JS9"}, {"shaft": "P9", "hub": "P9"})
+        {"shaft": "N9", "hub": "JS9"},
+        {"shaft": "P9", "hub": "P9"},
+    )
 
 
 def test_key_table_is_contiguous_and_depths_add_up():
@@ -175,7 +253,9 @@ def test_key_table_is_contiguous_and_depths_add_up():
     for lo, hi in zip(sizes, sizes[1:]):
         got = res.key(hi)
         assert got["d_range"] == [lo, hi]
-        assert 0.19 <= got["t1"] + got["t2"] - got["h"] <= 0.41  # keyway depths leave 0.2-0.4 clearance
+        assert (
+            0.19 <= got["t1"] + got["t2"] - got["h"] <= 0.41
+        )  # keyway depths leave 0.2-0.4 clearance
     for bad in (5.9, 131):
         with pytest.raises(InvalidArgument):
             res.key(bad)
@@ -186,9 +266,14 @@ def test_key_table_is_contiguous_and_depths_add_up():
 
 @pytest.mark.parametrize(
     "spec, n, d, big_d, b, series",
-    [("6x23x26x6", 6, 23, 26, 6, "light"), ("6×23×28×6", 6, 23, 28, 6, "medium"),
-     ("8x56x65x10", 8, 56, 65, 10, "medium"), ("10x112x120x18", 10, 112, 120, 18, "light"),
-     ("6x13x16x3.5", 6, 13, 16, 3.5, "medium"), ("8x42x46x8", 8, 42, 46, 8, "light")],
+    [
+        ("6x23x26x6", 6, 23, 26, 6, "light"),
+        ("6×23×28×6", 6, 23, 28, 6, "medium"),
+        ("8x56x65x10", 8, 56, 65, 10, "medium"),
+        ("10x112x120x18", 10, 112, 120, 18, "light"),
+        ("6x13x16x3.5", 6, 13, 16, 3.5, "medium"),
+        ("8x42x46x8", 8, 42, 46, 8, "light"),
+    ],
 )
 def test_spline(spec, n, d, big_d, b, series):
     got = res.spline(spec)

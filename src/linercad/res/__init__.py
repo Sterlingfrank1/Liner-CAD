@@ -33,7 +33,9 @@ __all__ = [
 @cache
 def _table(name: str) -> dict:
     """The parsed ``<name>.toml``; cached, so callers must not modify it."""
-    return tomllib.loads((resources.files(__package__) / f"{name}.toml").read_text(encoding="utf-8"))
+    return tomllib.loads(
+        (resources.files(__package__) / f"{name}.toml").read_text(encoding="utf-8")
+    )
 
 
 def _mm(um: float) -> float:
@@ -103,7 +105,11 @@ def fit(code: str, size: float) -> dict:
         if base is None:
             raise InvalidArgument(
                 f"{letter} 在公称尺寸 {size} mm 无基本偏差（{low} 只用于大于 24 mm）",
-                candidates=[x for x in _SHAFT_LETTERS if x in ("h", "js") or _fundamental(x, size) is not None],
+                candidates=[
+                    x
+                    for x in _SHAFT_LETTERS
+                    if x in ("h", "js") or _fundamental(x, size) is not None
+                ],
                 values={"size": size},
             )
         if low in "abcdefg":  # es; the hole letter has EI = -es
@@ -136,7 +142,9 @@ def general_tol(cls: str, size: float, kind: str = "linear") -> dict:
     """
     data = _table("general_tol")
     if kind not in ("linear", "chamfer", "angle"):
-        raise InvalidArgument(f"未知一般公差类型 {kind!r}", candidates=["linear", "chamfer", "angle"])
+        raise InvalidArgument(
+            f"未知一般公差类型 {kind!r}", candidates=["linear", "chamfer", "angle"]
+        )
     table = data[kind]
     if cls not in ("f", "m", "c", "v"):
         raise InvalidArgument(f"未知一般公差等级 {cls!r}", candidates=["f", "m", "c", "v"])
@@ -198,7 +206,9 @@ def thread(spec: str, cls: str | None = None) -> dict:
         )
     d, formula = row["d"], data["formula"]
     out = {
-        "designation": f"M{d:g}" if pitch == row["coarse"] and not match.group(2) else f"M{d:g}x{pitch:g}",
+        "designation": f"M{d:g}"
+        if pitch == row["coarse"] and not match.group(2)
+        else f"M{d:g}x{pitch:g}",
         "d": d,
         "P": pitch,
         "d2": round(d - formula["d2"] * pitch, 3),
@@ -296,7 +306,8 @@ def rough_series(param: str = "Ra") -> dict:
     data = _table("rough")
     if param not in data or param == "meta":
         raise InvalidArgument(
-            f"资源库没有粗糙度参数 {param!r} 的数值系列", candidates=[k for k in data if k != "meta"]
+            f"资源库没有粗糙度参数 {param!r} 的数值系列",
+            candidates=[k for k in data if k != "meta"],
         )
     return {
         "param": param,
