@@ -301,6 +301,31 @@ class View(Element):
 
         return view_hatch(self, name, loops, outline)
 
+    @mutator("datum")
+    def datum(self, letter, ref, at=None, length=None):
+        """Datum feature symbol → DT.<letter>; ref = dimension (axis) or edge (surface)."""
+        from .pmi import view_datum
+
+        return view_datum(self, letter, ref, at, length)
+
+    @mutator("gtol")
+    def gtol(
+        self, name, char, value, datums=(), ref=None, zone=None, modifiers=(), at=None, length=None
+    ):
+        """Geometric tolerance frame → G.<name> (GB/T 1182-2018)."""
+        from .pmi import view_gtol
+
+        return view_gtol(self, name, char, value, datums, ref, zone, modifiers, at, length)
+
+    @mutator("rough")
+    def rough(
+        self, name, value, ref, param="Ra", removal="required", process=None, at=None, length=None
+    ):
+        """Surface texture symbol → R.<name> (GB/T 131-2006)."""
+        from .pmi import view_rough
+
+        return view_rough(self, name, value, ref, param, removal, process, at, length)
+
     @mutator("wavy")
     def wavy(self, name, points):
         """Thin wavy line (local section / break boundary) through ``points`` → W.<view>.<name>."""

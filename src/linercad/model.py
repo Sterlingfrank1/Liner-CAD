@@ -267,7 +267,9 @@ class Drawing:
     @mutator("accept")
     def accept(self, rule, id, reason):
         """Let an intended warning pass: status becomes ``accepted(reason)``."""
-        rules = ("overlap", "out_of_frame", "view_align", "stale_op")
+        from .checks import RULES
+
+        rules = tuple(RULES)
         if rule not in rules:
             raise InvalidArgument(f"没有检查规则 {rule!r}", candidates=list(rules))
         if rule != "stale_op":
@@ -345,6 +347,27 @@ class Drawing:
         from .views import oblique
 
         return oblique(self, letter, parent, at, look, rotate)
+
+    @mutator("rough_default")
+    def rough_default(self, value, param="Ra", removal="required"):
+        """Roughness for all other surfaces → R.default, near the title block (GB/T 131-2006)."""
+        from .pmi import drawing_rough_default
+
+        return drawing_rough_default(self, value, param, removal)
+
+    @mutator("chain")
+    def chain(self, name, closing, increase=(), decrease=(), require=None):
+        """Dimension chain → K.<name>: closing link by worst case and RSS (SPEC M1 §3.3)."""
+        from .pmi import drawing_chain
+
+        return drawing_chain(self, name, closing, increase, decrease, require)
+
+    @mutator("general_tol")
+    def general_tol(self, cls="m"):
+        """General tolerance class (GB/T 1804 f/m/c/v) → a technical-requirement line."""
+        from .pmi import drawing_general_tol
+
+        return drawing_general_tol(self, cls)
 
     # ---- parameters -----------------------------------------------------------------
     def params(self, **params):

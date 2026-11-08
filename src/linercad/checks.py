@@ -17,6 +17,13 @@ VIEW_AXES = {
     "right": ((1, "Y"), (1, "Z")),
     "rear": ((-1, "X"), (1, "Z")),
 }
+# rule → pack (Checks v1 extends this registry, SPEC M1 §7)
+RULES = {
+    "overlap": "layout",
+    "out_of_frame": "layout",
+    "view_align": "layout",
+    "stale_op": "layout",
+}
 AXIS_NAME = {"X": "长对正", "Z": "高平齐", "Y": "宽相等"}
 MAX_CORRIDOR = 50.0
 OWN_ZONE = ("frame", "table.cell")

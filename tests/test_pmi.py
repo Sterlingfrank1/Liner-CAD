@@ -62,7 +62,12 @@ def test_three_display_modes(shaft):
     assert texts(el)[0] == "Φ30H7(" and texts(el)[1:3] == ["+0.021", "0"] and ")" in texts(el)
     el.set(tol="±0.1")
     assert el.intent["tolerance"] == {
-        "kind": "sym", "upper": 0.1, "lower": -0.1, "envelope": False, "std": None, "code": None
+        "kind": "sym",
+        "upper": 0.1,
+        "lower": -0.1,
+        "envelope": False,
+        "std": None,
+        "code": None,
     }
     assert el.text == "Φ30±0.1"
     el.set(tol="+0.02/-0.01")
@@ -127,7 +132,7 @@ def test_chamfer_dimension(shaft):
     f.turned("k", [(40, 8), (42, 10 + 0.0), (60, 10)])
     e2 = d.q.lines(view="front").where(dir=None).near(41, 9).one()
     assert f.dim.chamfer("c2", e2).text == "C2"
-    f.turned("t", [(70, 8), (72, 10 + 2 * 3**0.5 - 2), (90, 10 + 2 * 3**0.5 - 2)])
+    f.turned("t", [(70, 8), (72, 8 + 2 / 3**0.5), (90, 8 + 2 / 3**0.5)])
     e3 = d.q.lines(view="front").where(dir=None).near(71, 9).one()
     assert f.dim.chamfer("c3", e3).text == "2×30°"
 
@@ -196,7 +201,9 @@ def test_roughness_fields_and_symbol(shaft):
     assert "Ra 0.8" in texts(r) and "磨" in texts(r)
     rd = d["R.default"]
     assert rd.intent["default"] is True and "Ra 6.3" in texts(rd)
-    assert len([p for p in rd._prims if isinstance(p, Line)]) >= 6  # symbol + bracketed basic symbol
+    assert (
+        len([p for p in rd._prims if isinstance(p, Line)]) >= 6
+    )  # symbol + bracketed basic symbol
 
 
 def test_roughness_on_bottom_face_uses_leader(shaft):
@@ -253,7 +260,9 @@ def test_model_json_has_separate_pmi_fields(shaft):
     els = {e["id"]: e for e in m["elements"]}
     assert els["D.D"]["intent"]["tolerance"]["lower"] == pytest.approx(0.002)
     assert els["DT.A"]["kind"] == "datum" and els["DT.A"]["intent"]["letter"] == "A"
-    assert els["G.run"]["kind"] == "gtol" and els["G.run"]["intent"]["datums"][0]["letters"] == ["A"]
+    assert els["G.run"]["kind"] == "gtol" and els["G.run"]["intent"]["datums"][0]["letters"] == [
+        "A"
+    ]
     assert els["R.j"]["kind"] == "rough" and els["R.j"]["intent"]["value"] == 0.8
     for i in ("DT.A", "G.run", "R.j"):
         assert els[i]["refs"], i

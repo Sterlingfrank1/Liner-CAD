@@ -226,10 +226,14 @@ def arrow(tip, d, std, layer="dim"):
 
 def make_text(s, at, h, std, rot=0, layer="dim"):
     w, hh = text_size(s, h, std)
-    if rot % 180 == 90:
+    if abs(rot % 180 - 90) < 1e-9:
         box = (at[0] - hh / 2, at[1] - w / 2, at[0] + hh / 2, at[1] + w / 2)
-    else:
+    elif abs(rot % 180) < 1e-9:
         box = (at[0] - w / 2, at[1] - hh / 2, at[0] + w / 2, at[1] + hh / 2)
+    else:  # axis-aligned box of the rotated text rectangle
+        c, s_ = abs(math.cos(math.radians(rot))), abs(math.sin(math.radians(rot)))
+        bw, bh = (w * c + hh * s_) / 2, (w * s_ + hh * c) / 2
+        box = (at[0] - bw, at[1] - bh, at[0] + bw, at[1] + bh)
     return Text(s, tuple(at), h, rot, layer, box)
 
 
@@ -677,8 +681,7 @@ class _ViewLayout:
             if side == "inside"
             else ([lay["row"]] if lay.get("row") else range(1, int(dm["max_rows"]) + 1))
         )
-        h = dm["text_height"]
-        w, hh = text_size(i["text"], h, std)
+        w, hh = label_size(i, std)
         al, gap = dm["arrow_length"], 1.0
         out = []
         for row in rows:
@@ -758,12 +761,10 @@ class _ViewLayout:
         segs.append(line)
         tg = dm["text_gap"]
         if dir == "h":
-            t = make_text(el._intent["text"], (c, level + tg + hh / 2), dm["text_height"], self.std)
+            tp, tbox = dim_label(el._intent, (c, level + tg + hh / 2), self.std)
         else:
-            t = make_text(
-                el._intent["text"], (level - tg - hh / 2, c), dm["text_height"], self.std, rot=90
-            )
-        prims.append(t)
+            tp, tbox = dim_label(el._intent, (level - tg - hh / 2, c), self.std, 90)
+        prims += tp
         fields = {"side": side, "row": row, "offset": off}
         why = {"in": "", "out_hi": "文字放不下，移到界线外", "out_lo": "文字放不下，移到界线外"}[
             pos
@@ -772,9 +773,10 @@ class _ViewLayout:
             why = "文字避让，沿尺寸线移位"
         return {
             "prims": prims,
-            "boxes": [t.box],
+            "boxes": [tbox],
             "segs": segs,
             "dimline": line,
+            "ends": [pt(lo, level), pt(hi, level)],
             "fields": fields,
             "why": why,
         }
@@ -785,8 +787,7 @@ class _ViewLayout:
         circ = self.d._els.get(i["circle"])
         src = circ._intent if circ is not None else i  # follow the circle if it moved
         c, r = self.P(src["c"]), src["r"] * self.s
-        h = dm["text_height"]
-        w, hh = text_size(i["text"], h, std)
+        w, hh = label_size(i, std)
         al = dm["arrow_length"]
         angles = [lay["at"]] if lay.get("at") is not None else list(DIA_ANGLES)
         circ = self.d._els.get(i["circle"])
@@ -821,13 +822,18 @@ class _ViewLayout:
                     segs.append((p1, e))
             prims.append(Line(e, sh, "dim"))
             segs.append((e, sh))
-            t = make_text(
-                i["text"], (e[0] + sg * (1 + w / 2), e[1] + dm["text_gap"] + hh / 2), h, std
-            )
-            prims.append(t)
+            tp, tbox = dim_label(i, (e[0] + sg * (1 + w / 2), e[1] + dm["text_gap"] + hh / 2), std)
+            prims += tp
             why = "引线加长以避开轮廓" if lead > al + LEADS[0] else ""
             out.append(
-                {"prims": prims, "boxes": [t.box], "segs": segs, "fields": {"at": ang}, "why": why}
+                {
+                    "prims": prims,
+                    "boxes": [tbox],
+                    "segs": segs,
+                    "fields": {"at": ang},
+                    "ends": [p2, p1],
+                    "why": why,
+                }
             )
         return out
 
@@ -888,6 +894,10 @@ class _ViewLayout:
                 best = (len(conf), k, cand, conf)
         _, k, cand, conf = best
         el._resolved.update(cand["fields"])
+        if cand.get("ends"):
+            el._resolved["ends"] = [list(p) for p in cand["ends"]]
+        if cand.get("mode"):
+            el._resolved["mode"] = cand["mode"]
         el._auto = [f for f in auto_fields if f in cand["fields"]]
         reasons = []
         if (
@@ -915,8 +925,10 @@ class _ViewLayout:
     def annotations(self):
         dims = self.els("dim")
         decl = {e._id: k for k, e in enumerate(dims)}
-        linear = [e for e in dims if not e._intent.get("circle")]
+        lin_t = ("linear", "dia", "rad", "aligned")
+        linear = [e for e in dims if not e._intent.get("circle") and e._intent["type"] in lin_t]
         circular = [e for e in dims if e._intent.get("circle")]
+        others = [e for e in dims if e._intent["type"] in ("angle", "chamfer")]
 
         def is_fixed(e):
             lay = e._layout
@@ -925,22 +937,32 @@ class _ViewLayout:
         def key(e):
             i = e._intent
             a, b = self.P(i["p1"]), self.P(i["p2"])
-            side = e._layout.get("side") or self._side_for(a, b, i["dir"])
+            side = e._layout.get("side") or (
+                "top" if i["dir"] == "a" else self._side_for(a, b, i["dir"])
+            )
             return (SIDE_ORDER.index(side), i["measured"], decl[e._id])
 
         notes = self.els("note")
 
         def fixed(e):
-            if e.kind == "note":
+            if e.kind == "note" or e._intent.get("type") == "chamfer":
                 return e._layout.get("dir") is not None
+            if e._intent.get("type") == "angle":
+                return e._layout.get("r") is not None
             if e._intent.get("circle"):
                 return e._layout.get("at") is not None
             return bool(is_fixed(e))
 
         def place(e):
-            if e.kind == "note":
+            if e.kind == "note" or e._intent.get("type") == "chamfer":
                 auto = [f for f in ("dir", "length") if e._layout.get(f) is None]
                 self.choose(e, self.note_cands(e), auto)
+            elif e._intent.get("type") == "angle":
+                auto = [] if e._layout.get("r") is not None else ["r"]
+                self.choose(e, angle_cands(self, e), auto)
+            elif e._intent.get("type") == "aligned":
+                auto = [f for f in ("side", "row") if e._layout.get(f) is None]
+                self.choose(e, aligned_cands(self, e), auto)
             elif e._intent.get("circle"):
                 self.choose(
                     e, self.circle_cands(e), [] if e._layout.get("at") is not None else ["at"]
@@ -953,8 +975,15 @@ class _ViewLayout:
             place(e)
         for e in sorted([x for x in linear if not fixed(x)], key=key):
             place(e)
-        for e in [x for x in circular + notes if not fixed(x)]:
+        for e in [x for x in circular + others + notes if not fixed(x)]:
             place(e)
+        # PMI leaders after the dimensions they may attach to (datum → gtol → roughness)
+        for kind, fn in (("datum", datum_cands), ("gtol", gtol_cands), ("rough", rough_cands)):
+            for e in self.els(kind):
+                cands = fn(self, e)
+                if cands:
+                    auto = [f for f in ("at", "length") if e._layout.get(f) is None]
+                    self.choose(e, cands, auto)
 
     def section_labels(self):
         sec = self.std["section"]
@@ -1054,6 +1083,11 @@ class _Layout:
         for e in d._els.values():
             if e._prims and e.kind != "view":
                 e._resolved["bbox"] = list(prims_bbox(e._prims))
+        from .pmi import chain_result
+
+        for e in d._els.values():
+            if e.kind == "chain":
+                e._resolved["result"] = chain_result(d, e)
         for e in d._els.values():  # features: union of their edges
             if e.kind == "feature":
                 b = union(
@@ -1139,6 +1173,11 @@ class _Layout:
             notes[0]._prims.insert(0, t)
             boxes.append(t.box)
             TN = union(boxes)
+        rd = d._els.get("R.default")
+        if rd is not None:
+            rd._prims = rough_default_prims(rd, std, TB[2] - 2, TB[3] + tn["gap"])
+            rd._resolved["bbox"] = list(prims_bbox(rd._prims))
+            TN = union([TN, prims_bbox(rd._prims)])
         return {"F": F, "TB": TB, "TN": TN}
 
     # -- view placement ----------------------------------------------------------------------------
@@ -1274,3 +1313,16 @@ def _rect(b):
 def layout(d):
     """Resolve every element's placement and prims (sheet coordinates)."""
     _Layout(d).run()
+
+
+# PMI layout uses the prims above (import last: circular)
+from .pmi_layout import (  # noqa: E402
+    aligned_cands,
+    angle_cands,
+    datum_cands,
+    dim_label,
+    gtol_cands,
+    label_size,
+    rough_cands,
+    rough_default_prims,
+)

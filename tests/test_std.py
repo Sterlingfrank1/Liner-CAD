@@ -24,6 +24,9 @@ FIELDS = [
 GROUPS = {
     "lines",
     "wavy",
+    "tolerancing",
+    "datum",
+    "rough",
     "linetypes",
     "text",
     "dim",

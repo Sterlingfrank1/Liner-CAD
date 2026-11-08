@@ -37,6 +37,15 @@ CREATE_OPS = (
     "detail",
     "oblique",
     "wavy",
+    "datum",
+    "gtol",
+    "rough",
+    "dim.aligned",
+    "dim.angle",
+    "dim.chamfer",
+    "rough_default",
+    "chain",
+    "general_tol",
 )
 MODIFY_OPS = ("place", "move", "set", "suppress", "accept", "raw")
 VIEW_SCOPED = (
@@ -56,9 +65,30 @@ VIEW_SCOPED = (
     "note",
     "hatch",
     "wavy",
+    "datum",
+    "gtol",
+    "rough",
+    "dim.aligned",
+    "dim.angle",
+    "dim.chamfer",
 )
-DRAWING_CREATE = ("section", "raw_add", "removed_section", "detail", "oblique")
-LAYOUT_GROUPS = {"linear": ("side", "row"), "circle": ("at",), "note": ("dir", "length")}
+DRAWING_CREATE = (
+    "section",
+    "raw_add",
+    "removed_section",
+    "detail",
+    "oblique",
+    "rough_default",
+    "chain",
+    "general_tol",
+)
+LAYOUT_GROUPS = {
+    "linear": ("side", "row"),
+    "circle": ("at",),
+    "note": ("dir", "length"),
+    "leader": ("at", "length"),
+    "angle": ("r",),
+}
 
 
 def mutator(op: str):
@@ -185,7 +215,13 @@ class Recorder:
 def _layout_group(el):
     i = el._intent
     if el.kind == "dim":
+        if i["type"] == "chamfer":
+            return LAYOUT_GROUPS["note"]
+        if i["type"] == "angle":
+            return LAYOUT_GROUPS["angle"]
         return LAYOUT_GROUPS["circle"] if i.get("circle") else LAYOUT_GROUPS["linear"]
+    if el.kind in ("datum", "gtol", "rough") and not i.get("default"):
+        return LAYOUT_GROUPS["leader"]
     if el.kind == "note" and not i.get("tech"):
         return LAYOUT_GROUPS["note"]
     return ()
