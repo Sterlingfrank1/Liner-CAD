@@ -1,0 +1,90 @@
+name = "ISO"
+extends = "GB"
+
+# 标准档 ISO（SPEC M1 §6）：继承 GB，只改标准号（带年份）、英文用语和 ISO 与 GB 取值不同的几项。
+# 字体仍取 GB 档的 simfang（含 CJK），数值（线宽、字高系列、尺寸线参数）与 GB 档相同的不重复写。
+# 标准号取自 ISO 官方目录，条款级数值未逐条核对 ISO 原文的，basis 写 convention 并保留 GB 档取值。
+
+[lines]
+basis = "ISO 128-1:2020 / ISO 128-2:2020 线型与线宽（粗:细 = 2:1，d=0.5 组）；颜色为 convention（沿用 GB/T 14665 的 ACI 色号，ISO 不规定）"
+
+[linetypes]
+basis = "convention：ISO 128-2:2020 以线宽 d 的倍数给出，按细线 d=0.25 过密；取与 GB 档相同的教材通行值"
+
+[text]
+basis = "ISO 3098-0:1997 / ISO 3098-2:2000（字高系列 1.8 … 20，与 GB/T 14691 相同）；字体取 simfang（CJK 兼容），cjk_em 与 char_width 为 ezdxf.fonts 实测"
+
+[dim]
+basis = "ISO 129-1:2018（尺寸注法）；箭头与排距数值 convention（沿用 GB 档）"
+
+[center]
+basis = "convention（ISO 128-2:2020 点画线首末为长画；超出量取教材通行值）"
+
+[note]
+basis = "convention"
+
+[hatch]
+basis = "ISO 128-2:2020（剖面线为细实线，45° 为通用画法）；间距 convention"
+
+[section]
+basis = "ISO 128-2:2020（剖切线用粗短画）；数值 convention"
+
+[views]
+basis = "ISO 5456-2:1996（正投影表示法：第一角与第三角画法及识别符号）；gap 为 convention。默认第一角，Drawing(projection='third') 切换"
+
+[sheets]
+basis = "ISO 5457:1999（基本幅面 A0~A4 同 ISO 216）；装订边与边距 convention（沿用 GB/T 14689-2008 的取值）"
+
+[scales]
+basis = "ISO 5455:1979（放大 50:1 … 2:1；原值 1:1；缩小 1:2 … 1:1000）"
+preferred = ["1:1", "1:2", "1:5", "1:10", "1:20", "1:50", "1:100", "1:200", "1:500", "1:1000", "2:1", "5:1", "10:1", "20:1", "50:1"]
+allowed = []
+
+[title_block]
+basis = "ISO 7200:2004（数据栏；本模板 180 × 48，字段名与 GB 档统一）"
+size = [180.0, 48.0]
+
+[tech_notes]
+basis = "convention"
+title = "NOTES"
+
+[wavy]
+basis = "convention（ISO 128-2:2020 徒手线，未规定波形；沿用 GB 档）"
+
+[tolerancing]
+basis = "ISO 286-1:2010（极限与配合）；ISO 1101:2017（几何公差框格）；ISO 2768-1:1989（未注线性公差）；尺寸 convention"
+general_note = "General tolerances ISO 2768-{cls}"
+gtol_std = "ISO 1101:2017"
+
+[datum]
+basis = "ISO 5459:2011（基准与基准体系；方框内大写字母，涂黑三角形）；尺寸 convention"
+
+[rough]
+basis = "ISO 1302:2002（↔ GB/T 131-2006；新版 ISO 21920-1:2021 改写了符号体系，本档仍按 ISO 1302:2002 画法）：h=3.5 时 H1=5、H2=10.5"
+std = "ISO 1302:2002"
+
+[checks]
+basis = "各规则依据的 ISO 标准号（规则集同上一档）"
+overlap = "ISO 129-1:2018"
+out_of_frame = "ISO 5457:1999"
+view_align = "ISO 5456-2:1996"
+stale_op = "DESIGN §3.2"
+line_width = "ISO 128-2:2020"
+text_height = "ISO 3098-0:1997"
+scale = "ISO 5455:1979"
+sheet = "ISO 5457:1999"
+conv_dim = "ISO 129-1:2018 / ISO 6410-1:1993"
+section_ref = "ISO 128-2:2020 / ISO 5456-2:1996"
+center_mark = "ISO 128-2:2020"
+duplicate = "ISO 129-1:2018"
+closed_loop = "ISO 129-1:2018"
+missing = "ISO 129-1:2018"
+param_cover = "DESIGN §4.4"
+dev_order = "ISO 286-1:2010"
+gtol_syntax = "ISO 1101:2017"
+datum_letter = "ISO 5459:2011"
+general_tol = "ISO 2768-1:1989"
+chain_limit = "ISO 129-1:2018"
+rough_syntax = "ISO 1302:2002"
+rough_default = "ISO 1302:2002"
+rough_fit = "ISO 1302:2002"

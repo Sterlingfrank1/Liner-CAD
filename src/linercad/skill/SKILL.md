@@ -53,7 +53,11 @@ def apply(d):
 ```python
 from linercad import Drawing, Param
 
-d = Drawing(sheet="A3", std="GB", scale="1:1")     # sheet: A4(竖) / A3 / A2；比例 "1:2" "2:1" …
+d = Drawing(sheet="A3", std="GB", scale="1:1")     # sheet: A4(竖) A3 A2 A1 A0；std: "GB"|"ISO"；比例 "1:2" "2:1" …
+# 可选：projection="third"（第三角，缺省第一角，标题栏投影符号随之）、overlay="<名>"（企业档，见下）
+# 标题栏字段 d.title(...) 的键两档相同：name drawing_no material mass scale sheet company designer
+#   checker approver process standardizer date revision stage doc_type；换 std= 即可出另一档
+# 企业档：lcad template import 公司.dxf --name acme → templates/acme.toml（图层线宽/颜色、字高、箭头、标题栏块）
 P = d.params(
     L=Param(200, min=120, max=400, step=1, label="总长"),
     d1=Param(25, min=10, max=60, label="轴颈直径", tol="k6"),

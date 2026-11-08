@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from .errors import InvalidArgument, NotFound
+from .model import check_name
 from .runtime import SRC, TMP_DIR, build
 
 BRIEF_KINDS = ("view", "feature", "center", "dim", "note", "hatch", "section", "table.cell", "raw")
@@ -186,4 +187,25 @@ def skill(family=None):
         "ok": True,
         "path": f"families/{family}.md",
         "text": (fam / f"{family}.md").read_text(encoding="utf-8"),
+    }
+
+
+def template_import(dir, file, name):
+    """Company DXF → ``templates/<name>.toml`` (enterprise overlay, SPEC M1 §6)."""
+    from .dxfout import write_text_atomic
+    from .std.importer import dump_toml, import_dxf
+
+    check_name(name, "企业档名")
+    data, notes = import_dxf(file)
+    rel = f"templates/{name}.toml"
+    head = f"# lcad template import {Path(file).name}\n"
+    write_text_atomic(Path(dir) / rel, head + dump_toml(data))
+    tb = data.get("title_block", {})
+    return {
+        "ok": True,
+        "path": rel,
+        "std": {k: sorted(v) for k, v in data.get("std", {}).items()},
+        "title_block": {"size": tb.get("size"), "fields": sorted(tb.get("fields", {}))},
+        "notes": notes,
+        "hint": f'Drawing(..., overlay="{name}")；下一次 lcad build -m 会连同图纸源一起提交',
     }

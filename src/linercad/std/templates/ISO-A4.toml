@@ -1,0 +1,171 @@
+# ISO 模板 A4。ISO 7200:2004 标题栏（180 × 48，4 行 × 12）。
+# 每格上沿印字段名（英文，高 2.5），下方是值槽。必备字段：Legal owner、Identification number、
+# Revision index、Date of issue、Sheet、Title、Document type、Created by、Approved by；
+# 另有 Scale、Material、Mass、投影方法符号（ISO 5456-2）和 GB 档共有的 Checked by / Process /
+# Standardization / Status（字段名与 GB 档统一）。外框粗实线，内部细实线。
+name = "ISO-A4"
+sheet = "A4"
+size = [210.0, 297.0]  # 宽, 高
+margins = [25.0, 5.0, 5.0, 5.0]  # 内图框距图幅边：左（装订边）, 下, 右, 上
+
+[title_block]
+size = [180.0, 48.0]
+
+lines = [
+    { p1 = [0.0, 0.0], p2 = [180.0, 0.0], role = "thick" },
+    { p1 = [180.0, 0.0], p2 = [180.0, 48.0], role = "thick" },
+    { p1 = [0.0, 48.0], p2 = [180.0, 48.0], role = "thick" },
+    { p1 = [0.0, 0.0], p2 = [0.0, 48.0], role = "thick" },
+    { p1 = [0.0, 12.0], p2 = [180.0, 12.0], role = "thin" },
+    { p1 = [0.0, 24.0], p2 = [180.0, 24.0], role = "thin" },
+    { p1 = [0.0, 36.0], p2 = [180.0, 36.0], role = "thin" },
+    { p1 = [30.0, 24.0], p2 = [30.0, 36.0], role = "thin" },
+    { p1 = [60.0, 0.0], p2 = [60.0, 48.0], role = "thin" },
+    { p1 = [90.0, 0.0], p2 = [90.0, 36.0], role = "thin" },
+    { p1 = [120.0, 0.0], p2 = [120.0, 36.0], role = "thin" },
+    { p1 = [150.0, 12.0], p2 = [150.0, 36.0], role = "thin" },
+]
+
+labels = [
+    { text = "Legal owner", at = [30.0, 45.8], height = 2.5 },
+    { text = "Title", at = [120.0, 45.8], height = 2.5 },
+    { text = "Created by", at = [15.0, 33.8], height = 2.5 },
+    { text = "Checked by", at = [45.0, 33.8], height = 2.5 },
+    { text = "Approved by", at = [75.0, 33.8], height = 2.5 },
+    { text = "Process", at = [105.0, 33.8], height = 2.5 },
+    { text = "Standardization", at = [135.0, 33.8], height = 2.5 },
+    { text = "Status", at = [165.0, 33.8], height = 2.5 },
+    { text = "Identification number", at = [30.0, 21.8], height = 2.5 },
+    { text = "Revision index", at = [75.0, 21.8], height = 2.5 },
+    { text = "Date of issue", at = [105.0, 21.8], height = 2.5 },
+    { text = "Sheet", at = [135.0, 21.8], height = 2.5 },
+    { text = "Document type", at = [165.0, 21.8], height = 2.5 },
+    { text = "Material", at = [30.0, 9.8], height = 2.5 },
+    { text = "Mass", at = [75.0, 9.8], height = 2.5 },
+    { text = "Scale", at = [105.0, 9.8], height = 2.5 },
+    { text = "Projection", at = [150.0, 9.8], height = 2.5 },
+]
+
+[title_block.projection.first]  # 投影识别符号（粗实线圆台 + 同心圆），随 Drawing(projection=) 取用
+lines = [
+    { p1 = [142.5, 1.5], p2 = [142.5, 7.5], role = "thick" },
+    { p1 = [148.5, 3.0], p2 = [148.5, 6.0], role = "thick" },
+    { p1 = [142.5, 7.5], p2 = [148.5, 6.0], role = "thick" },
+    { p1 = [142.5, 1.5], p2 = [148.5, 3.0], role = "thick" },
+    { p1 = [141.9, 4.5], p2 = [158.1, 4.5], role = "thin" },
+    { p1 = [154.5, 0.8999999999999999], p2 = [154.5, 8.1], role = "thin" },
+]
+circles = [
+    { c = [154.5, 4.5], r = 3.0, role = "thick" },
+    { c = [154.5, 4.5], r = 1.5, role = "thick" },
+]
+
+[title_block.projection.third]  # 投影识别符号（粗实线圆台 + 同心圆），随 Drawing(projection=) 取用
+lines = [
+    { p1 = [157.5, 1.5], p2 = [157.5, 7.5], role = "thick" },
+    { p1 = [151.5, 3.0], p2 = [151.5, 6.0], role = "thick" },
+    { p1 = [157.5, 7.5], p2 = [151.5, 6.0], role = "thick" },
+    { p1 = [157.5, 1.5], p2 = [151.5, 3.0], role = "thick" },
+    { p1 = [141.9, 4.5], p2 = [158.1, 4.5], role = "thin" },
+    { p1 = [145.5, 0.8999999999999999], p2 = [145.5, 8.1], role = "thin" },
+]
+circles = [
+    { c = [145.5, 4.5], r = 3.0, role = "thick" },
+    { c = [145.5, 4.5], r = 1.5, role = "thick" },
+]
+
+[title_block.fields.company]
+label = "Legal owner"
+box = [1.0, 37.0, 59.0, 43.5]
+height = 3.5
+default = ""
+
+[title_block.fields.name]
+label = "Title"
+box = [61.0, 37.0, 179.0, 43.5]
+height = 5.0
+default = ""
+
+[title_block.fields.designer]
+label = "Created by"
+box = [1.0, 25.0, 29.0, 31.5]
+height = 3.5
+default = ""
+
+[title_block.fields.checker]
+label = "Checked by"
+box = [31.0, 25.0, 59.0, 31.5]
+height = 3.5
+default = ""
+
+[title_block.fields.approver]
+label = "Approved by"
+box = [61.0, 25.0, 89.0, 31.5]
+height = 3.5
+default = ""
+
+[title_block.fields.process]
+label = "Process"
+box = [91.0, 25.0, 119.0, 31.5]
+height = 3.5
+default = ""
+
+[title_block.fields.standardizer]
+label = "Standardization"
+box = [121.0, 25.0, 149.0, 31.5]
+height = 3.5
+default = ""
+
+[title_block.fields.stage]
+label = "Status"
+box = [151.0, 25.0, 179.0, 31.5]
+height = 3.5
+default = ""
+
+[title_block.fields.drawing_no]
+label = "Identification number"
+box = [1.0, 13.0, 59.0, 19.5]
+height = 3.5
+default = ""
+
+[title_block.fields.revision]
+label = "Revision index"
+box = [61.0, 13.0, 89.0, 19.5]
+height = 3.5
+default = ""
+
+[title_block.fields.date]
+label = "Date of issue"
+box = [91.0, 13.0, 119.0, 19.5]
+height = 3.5
+default = ""
+
+[title_block.fields.sheet]
+label = "Sheet"
+box = [121.0, 13.0, 149.0, 19.5]
+height = 3.5
+default = "1/1"
+
+[title_block.fields.doc_type]
+label = "Document type"
+box = [151.0, 13.0, 179.0, 19.5]
+height = 3.5
+default = ""
+
+[title_block.fields.material]
+label = "Material"
+box = [1.0, 1.0, 59.0, 7.5]
+height = 3.5
+default = ""
+
+[title_block.fields.mass]
+label = "Mass"
+box = [61.0, 1.0, 89.0, 7.5]
+height = 3.5
+default = ""
+
+[title_block.fields.scale]
+label = "Scale"
+box = [91.0, 1.0, 119.0, 7.5]
+height = 3.5
+default = ""

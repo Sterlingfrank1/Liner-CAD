@@ -41,6 +41,7 @@ COMMANDS = {
     "render": "出 PNG 自检：lcad render [--focus ID]",
     "check": "全部检查结果，按规则包分组（drafting / dimensioning / tolerancing / surface / layout）",
     "skill": "打印 SKILL.md，或 lcad skill <零件族> 打印零件族卡片",
+    "template": '企业档：lcad template import <file.dxf> --name <名> → templates/<名>.toml，Drawing(overlay="<名>") 叠加',
 }
 
 
@@ -71,6 +72,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("check")
     s = sub.add_parser("skill")
     s.add_argument("family", nargs="?", default=None)
+    s = sub.add_parser("template").add_subparsers(dest="action", parser_class=_Parser)
+    s = s.add_parser("import")
+    s.add_argument("file")
+    s.add_argument("--name", required=True)
     return p
 
 
@@ -115,6 +120,10 @@ def _run(args, parser) -> int:
         out = commands.check(d)
     elif args.cmd == "skill":
         out = commands.skill(args.family)
+    elif args.cmd == "template":
+        if args.action != "import":
+            return _usage("lcad template 只有子命令 import")
+        out = commands.template_import(d, args.file, args.name)
     else:
         out = commands.render(d, args.focus, args.out, args.dpi)
     emit(out)

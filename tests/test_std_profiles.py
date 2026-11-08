@@ -180,7 +180,7 @@ def test_iso_block_has_the_iso_7200_fields_in_english():
 
 
 LONG = dict(
-    name="一个特别特别特别特别长的图样名称用来测试缩小字高",
+    name="一个特别长的图样名称" * 4,
     drawing_no="LC-VERY-LONG-DRAWING-NUMBER-2026-0001-REV-B",
     company="某某某某机械制造股份有限公司第三分厂工艺装备研究所",
     material="45 钢调质处理后表面发黑",
@@ -211,7 +211,7 @@ d.title(**{LONG!r})
 
 
 def company_dxf(path):
-    doc = ezdxf.new("R2018", setup=True)
+    doc = ezdxf.new("R2018", setup=["linetypes"])
     for name, color, lw, lt in [
         ("THICK", 7, 70, "Continuous"),
         ("THIN", 3, 35, "Continuous"),
