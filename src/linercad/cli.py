@@ -32,18 +32,44 @@ class _Parser(argparse.ArgumentParser):
         raise UsageError(message)
 
 
-COMMANDS: dict[str, str] = {}  # name -> one-line help; filled as commands are added
+COMMANDS = {
+    "init": "新建图纸目录：lcad init <dir> [--from shaft|flange|bracket] [--sheet A3]",
+    "build": '重建产物；-m "<原话>" 时提交源文件改动',
+    "edit": '事务执行临时脚本：lcad edit <script.py> -m "<用户原话>"',
+    "undo": "撤销某一轮：lcad undo eK [-m ...]",
+    "context": "图纸摘要，或 lcad context <ID>... 看元素详情",
+    "render": "出 PNG 自检：lcad render [--focus ID]",
+}
 
 
 def build_parser() -> argparse.ArgumentParser:
     p = _Parser(prog="lcad", description="Liner-CAD harness CLI")
     p.add_argument("--version", action="store_true", help="版本号（JSON）")
     p.add_argument("-h", "--help", action="store_true", help="帮助（JSON）")
-    p.add_subparsers(dest="cmd", parser_class=_Parser)
+    p.add_argument("-C", dest="dir", default=".", help="图纸目录（默认当前目录）")
+    sub = p.add_subparsers(dest="cmd", parser_class=_Parser)
+    s = sub.add_parser("init")
+    s.add_argument("path")
+    s.add_argument("--from", dest="from_", default=None)
+    s.add_argument("--sheet", default="A3")
+    s = sub.add_parser("build")
+    s.add_argument("-m", dest="msg", default=None)
+    s = sub.add_parser("edit")
+    s.add_argument("script")
+    s.add_argument("-m", dest="msg", default=None)
+    s = sub.add_parser("undo")
+    s.add_argument("edit")
+    s.add_argument("-m", dest="msg", default=None)
+    s = sub.add_parser("context")
+    s.add_argument("ids", nargs="*")
+    s = sub.add_parser("render")
+    s.add_argument("--focus", default=None)
+    s.add_argument("-o", dest="out", default=None)
+    s.add_argument("--dpi", type=int, default=None)
     return p
 
 
-def _usage(parser, message: str) -> int:
+def _usage(message: str) -> int:
     emit(
         {
             "ok": False,
@@ -59,13 +85,31 @@ def _usage(parser, message: str) -> int:
 
 
 def _run(args, parser) -> int:
+    from . import commands, txn
+
     if args.help:
         emit({"ok": True, "help": parser.format_help(), "commands": COMMANDS})
         return 0
     if args.version:
         emit({"ok": True, "version": __version__})
         return 0
-    return _usage(parser, "缺少子命令")
+    if args.cmd is None:
+        return _usage("缺少子命令")
+    d = args.dir
+    if args.cmd == "init":
+        out = txn.init(args.path, args.from_, args.sheet)
+    elif args.cmd == "build":
+        out = txn.build_commit(d, args.msg)
+    elif args.cmd == "edit":
+        out = txn.edit(d, args.script, args.msg)
+    elif args.cmd == "undo":
+        out = txn.undo(d, args.edit, args.msg)
+    elif args.cmd == "context":
+        out = commands.context(d, args.ids)
+    else:
+        out = commands.render(d, args.focus, args.out, args.dpi)
+    emit(out)
+    return 0
 
 
 def main(argv=None) -> int:
@@ -75,11 +119,17 @@ def main(argv=None) -> int:
     try:
         args = parser.parse_args(argv)
     except UsageError as e:
-        return _usage(parser, f"用法错误：{e}")
+        return _usage(f"用法错误：{e}")
     try:
         return _run(args, parser)
     except LinerError as e:
-        emit({"ok": False, "error": e.to_dict()})
+        emit(
+            {
+                "ok": False,
+                "rolled_back": args.cmd in ("edit", "undo", "build", "init"),
+                "error": e.to_dict(),
+            }
+        )
         return 1
     except Exception as e:  # the contract is one JSON object, even on bugs
         emit({"ok": False, "error": {"code": "internal", "message": f"{type(e).__name__}: {e}"}})

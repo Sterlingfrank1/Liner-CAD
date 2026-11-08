@@ -35,6 +35,7 @@ class LinerError(Exception):
             "candidates": self.candidates,
             "values": self.values,
             "hint": self.hint,
+            **{k: getattr(self, k) for k in ("where", "trace") if getattr(self, k, None)},
         }
 
     def __str__(self) -> str:

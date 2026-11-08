@@ -97,6 +97,7 @@ class Element:
         o(self, "_history", [])
         o(self, "_status", "ok")
         o(self, "_prims", [])
+        o(self, "_raw", [])  # d.raw overrides, applied when the DXF is written
 
     # ---- read-only fields -------------------------------------------------------------
     id = property(lambda s: s._id)
@@ -274,6 +275,36 @@ class Drawing:
         if not str(reason or "").strip():
             raise InvalidArgument("accept 需要写明理由", id=id)
         self._accepted[(rule, id)] = str(reason)
+
+    # ---- escape hatch (SPEC §7.5) -------------------------------------------------------------
+    def raw(self, id):
+        """Read/override DXF attributes of an element's entities: ``d.raw(id).entities[k].dxf.color = 1``."""
+        el = self[id]
+        index = getattr(self, "_dxf_index", None)
+        if index is None:
+            raise InvalidArgument("还没有 DXF，先 lcad build", id=id)
+        return RawElement(self, el._id, index.get(el._id, []))
+
+    @mutator("raw")
+    def _raw_set(self, id, sub, attr, value):
+        el = self[id]
+        el._raw.append({"sub": sub, "attr": attr, "value": value})
+
+    @mutator("raw_add")
+    def raw_add(self, dxftype, **dxfattribs):
+        """Add a raw DXF entity in sheet coordinates → X.<n> (not laid out or checked)."""
+        import ezdxf
+
+        from .record import ser
+
+        dxftype = str(dxftype).upper()
+        attribs = ser(dxfattribs)
+        try:
+            ezdxf.new().modelspace().new_entity(dxftype, dict(attribs))
+        except Exception as e:
+            raise InvalidArgument(f"不能创建 {dxftype}：{e}", values={"dxftype": dxftype})
+        xid = self._alloc("X")
+        return self._add(RawEl(self, xid, {"dxftype": dxftype, "attribs": attribs}))
 
     # ---- sheet-level annotations ---------------------------------------------------------
     @property
@@ -477,3 +508,55 @@ def parse_scale(scale) -> tuple[str, float]:
         raise InvalidArgument(f"比例 {scale!r} 应写成 '1:2' 这样的形式", values={"scale": scale})
     a, b = float(m.group(1)), float(m.group(2))
     return f"{m.group(1)}:{m.group(2)}", a / b
+
+
+class RawEl(Element):
+    """An entity added through ``d.raw_add``."""
+
+    kind = "raw"
+
+
+class RawElement:
+    def __init__(self, d, eid, ents):
+        self.id = eid
+        self.entities = [RawEntity(d, eid, k, e) for k, e in enumerate(ents)]
+
+
+class RawEntity:
+    def __init__(self, d, eid, k, ent):
+        object.__setattr__(self, "_d", d)
+        object.__setattr__(self, "_eid", eid)
+        object.__setattr__(self, "_k", k)
+        object.__setattr__(self, "_ent", ent)
+
+    @property
+    def dxftype(self):
+        return self._ent.dxftype()
+
+    @property
+    def dxf(self):
+        return RawDxf(self)
+
+    def __getattr__(self, name):
+        raise UnknownAttribute(
+            f"raw 实体只支持 .dxftype 和 .dxf.<属性>，没有 {name}", candidates=["dxftype", "dxf"]
+        )
+
+    def __setattr__(self, name, value):
+        raise UnknownAttribute("raw 实体只能改 .dxf.<属性>", candidates=["dxf"])
+
+
+class RawDxf:
+    def __init__(self, ent):
+        object.__setattr__(self, "_e", ent)
+
+    def __getattr__(self, name):
+        return self._e._ent.dxf.get(name)
+
+    def __setattr__(self, name, value):
+        e = self._e
+        e._d._raw_set(e._eid, e._k, name, value)
+        try:
+            e._ent.dxf.set(name, value)
+        except Exception:
+            pass

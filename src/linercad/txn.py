@@ -1,0 +1,341 @@
+"""Transactions and git (SPEC §8): init / build / edit / undo.
+
+One successful modification = one commit ``eN · <user words>``; only this drawing's source
+files are committed; nothing is pushed. Any failure rolls back: the log is unchanged, there is
+no commit and the previous artifacts stay.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import shutil
+import subprocess
+from importlib import resources
+from pathlib import Path
+
+from . import record
+from .errors import DirtySource, GitError, InvalidArgument, NoOps, UndoError
+from .runtime import LOG, SRC, TMP_DIR, build, edit_number, run_script, write_artifacts
+
+SOURCES = (SRC, LOG, ".gitignore", ".gitattributes", "templates")
+GITIGNORE = ".linercad/\n"
+GITATTRIBUTES = "* text=auto eol=lf\n"
+EXAMPLES = ("shaft", "flange", "bracket")
+EDIT_RE = re.compile(r"^e(\d+) · ")
+KEEP_TMP = 20
+
+STARTER = '''"""Liner-CAD 图纸构建层。改完运行 `lcad build -m "<说明>"`。"""
+
+from linercad import Drawing, Param
+
+d = Drawing(sheet="{sheet}", std="GB", scale="1:1")
+P = d.params(
+    L=Param(100, min=10, max=400, unit="mm", label="长度"),
+    H=Param(50, min=5, max=200, unit="mm", label="高度"),
+)
+front = d.view("front")
+front.rect((0, 0), P.L, P.H, name="body")
+front.dim.linear("L", (0, 0), (P.L, 0), value=P.L, side="bottom")
+front.dim.linear("H", (0, 0), (0, P.H), value=P.H, side="left")
+d.title(name="未命名零件", material="")
+'''
+
+
+# ---- git ----------------------------------------------------------------------------------------------
+
+
+def git(dir, *args, check=True, input=None):
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(dir), *args],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            input=input,
+        )
+    except FileNotFoundError as e:
+        raise GitError("找不到 git 命令", hint="安装 git 并放进 PATH") from e
+    if check and r.returncode != 0:
+        raise GitError(
+            f"git {' '.join(args[:2])} 失败：{(r.stderr or r.stdout).strip()}",
+            values={"args": list(args)},
+        )
+    return r
+
+
+def repo_root(dir):
+    r = git(dir, "rev-parse", "--show-toplevel", check=False)
+    return Path(r.stdout.strip()) if r.returncode == 0 else None
+
+
+def _ident(dir):
+    name = git(dir, "config", "user.name", check=False).stdout.strip()
+    email = git(dir, "config", "user.email", check=False).stdout.strip()
+    out = []
+    if not name:
+        out += ["-c", "user.name=linercad"]
+    if not email:
+        out += ["-c", "user.email=linercad@localhost"]
+    return out
+
+
+def source_paths(dir):
+    return [p for p in SOURCES if (Path(dir) / p).exists()]
+
+
+def dirty_sources(dir):
+    paths = source_paths(dir)
+    r = git(dir, "status", "--porcelain", "--untracked-files=all", "--", *paths)
+    return [ln[3:] for ln in r.stdout.splitlines() if ln.strip()]
+
+
+def commit(dir, subject, body=None):
+    """Commit only this drawing's source files. Returns the short hash, or None if nothing changed."""
+    paths = source_paths(dir)
+    git(dir, "add", "--", *paths)
+    staged = git(dir, "diff", "--cached", "--name-only", "--", *paths).stdout.strip()
+    if not staged:
+        return None
+    msg = ["-m", subject] + (["-m", body] if body else [])
+    git(dir, *_ident(dir), "commit", "-q", *msg, "--", *paths)
+    return git(dir, "rev-parse", "--short", "HEAD").stdout.strip()
+
+
+def git_edits(dir):
+    """[(number, hash, subject, body)] of commits touching this drawing, newest first."""
+    r = git(dir, "log", "--format=%H%x1f%s%x1f%b%x1e", "--", ".", check=False)
+    out = []
+    for chunk in r.stdout.split("\x1e"):
+        chunk = chunk.strip("\n")
+        if not chunk:
+            continue
+        h, s, b = (chunk.split("\x1f") + ["", ""])[:3]
+        m = EDIT_RE.match(s)
+        if m:
+            out.append((int(m.group(1)), h, s, b))
+    return out
+
+
+def next_edit(dir, log_ops):
+    nums = [edit_number(r["edit"]) for r in log_ops] + [n for n, *_ in git_edits(dir)]
+    return f"e{max(nums + [-1]) + 1}"
+
+
+# ---- helpers ------------------------------------------------------------------------------------------
+
+
+def _write(path, text):
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+
+
+def prune_tmp(dir, keep=KEEP_TMP):
+    tmp = Path(dir) / TMP_DIR
+    if not tmp.is_dir():
+        return
+    files = sorted(
+        (p for p in tmp.iterdir() if p.is_file()),
+        key=lambda p: (p.stat().st_mtime, p.name),
+        reverse=True,
+    )
+    for p in files[keep:]:
+        try:
+            p.unlink()
+        except OSError:
+            pass
+
+
+def _warnings(findings, base=None):
+    seen = {(f["rule"], f.get("id")) for f in base} if base is not None else None
+    out = []
+    for f in findings:
+        f = dict(f)
+        if seen is not None and (f["rule"], f.get("id")) not in seen:
+            f["new"] = True
+        out.append(f)
+    return out
+
+
+# ---- commands -----------------------------------------------------------------------------------------
+
+
+def init(dir, from_=None, sheet="A3"):
+    dir = Path(dir)
+    if (dir / SRC).exists() or (dir / LOG).exists():
+        raise InvalidArgument(f"{dir} 里已经有图纸（{SRC} 或 {LOG}）", hint="换一个空目录")
+    if from_ is not None and from_ not in EXAMPLES:
+        raise InvalidArgument(f"没有范例 {from_!r}", candidates=list(EXAMPLES))
+    dir.mkdir(parents=True, exist_ok=True)
+    if from_:
+        src = resources.files("linercad") / "examples" / from_ / SRC
+        _write(dir / SRC, src.read_text(encoding="utf-8"))
+    else:
+        _write(dir / SRC, STARTER.format(sheet=sheet))
+    _write(dir / LOG, "")
+    if not (dir / ".gitignore").exists():
+        _write(dir / ".gitignore", GITIGNORE)
+    if not (dir / ".gitattributes").exists():
+        _write(dir / ".gitattributes", GITATTRIBUTES)
+    if repo_root(dir) is None:
+        git(dir, "init", "-q")
+    res = build(dir)
+    arts = write_artifacts(dir, res, "e0")
+    h = commit(dir, "e0 · init")
+    return {
+        "ok": True,
+        "edit": "e0",
+        "commit": h,
+        "dir": str(dir),
+        **arts,
+        "warnings": _warnings(res.findings),
+    }
+
+
+def build_commit(dir, msg=None):
+    dir = Path(dir)
+    res = build(dir)
+    edit = next_edit(dir, res.log_ops)
+    arts = write_artifacts(dir, res, None)
+    out = {"ok": True, "edit": None, "commit": None, **arts, "warnings": _warnings(res.findings)}
+    dirty = dirty_sources(dir)
+    if msg:
+        if dirty:
+            out["commit"] = commit(dir, f"{edit} · {msg}")
+            out["edit"] = edit
+        else:
+            out["note"] = "源文件没有改动，未提交"
+    elif dirty:
+        out["uncommitted"] = dirty
+        out["hint"] = '源文件有未提交改动；用 lcad build -m "<原话>" 提交'
+    return out
+
+
+def edit(dir, script, msg):
+    dir = Path(dir)
+    if not msg:
+        raise InvalidArgument('lcad edit 需要 -m "<用户原话>"')
+    log_path = dir / LOG
+    base = build(dir)
+    edit_id = next_edit(dir, base.log_ops)
+    ops = run_script(base.d, script, edit_id)
+    if not ops:
+        raise NoOps(
+            "脚本没有产生任何修改操作",
+            hint="确认 apply(d) 里调用了修改类 API（place/set/move/suppress/建图/标注）",
+        )
+    n0 = len(log_path.read_text(encoding="utf-8").splitlines()) if log_path.exists() else 0
+    numbered = [dict(op, _line=n0 + k + 1) for k, op in enumerate(ops)]
+    r1 = build(dir, numbered, current_edit=edit_id)
+    filled = record.fill_layout(numbered, r1.d)
+    r2 = build(dir, filled, current_edit=edit_id)
+    old = log_path.read_bytes() if log_path.exists() else b""
+    lines = "".join(record.dumps(op) + "\n" for op in filled)
+    prefix = old.decode("utf-8")
+    if prefix and not prefix.endswith("\n"):
+        prefix += "\n"
+    _write(log_path, prefix + lines)
+    try:
+        h = commit(dir, f"{edit_id} · {msg}")
+    except Exception:
+        log_path.write_bytes(old)
+        raise
+    arts = write_artifacts(dir, r2, edit_id)
+    prune_tmp(dir)
+    changed = []
+    for op in filled:
+        if op.get("id") and op["id"] not in changed:
+            changed.append(op["id"])
+    return {
+        "ok": True,
+        "edit": edit_id,
+        "commit": h,
+        "ops": [{k: v for k, v in op.items() if k != "_line"} for op in filled],
+        "changed": changed,
+        "warnings": _warnings(r2.findings, base.findings),
+        **arts,
+    }
+
+
+def undo(dir, target, msg=None):
+    dir = Path(dir)
+    if not re.fullmatch(r"e\d+", str(target)):
+        raise UndoError(f"编号 {target!r} 不合法，应写成 e7 这样")
+    if target == "e0":
+        raise UndoError("e0（init）不能撤销")
+    dirty = dirty_sources(dir)
+    if dirty:
+        raise DirtySource(
+            f"有未提交的源文件改动：{', '.join(dirty)}",
+            candidates=dirty,
+            hint='先 lcad build -m "<原话>" 提交，或手动还原',
+        )
+    edits = git_edits(dir)
+    hit = [e for e in edits if f"e{e[0]}" == target]
+    if not hit:
+        cands = [f"e{n}" for n, _, s, b in edits if n != 0 and "Undo-Of:" not in b]
+        raise UndoError(f"找不到修改 {target}", candidates=cands)
+    _, h, subject, body = hit[0]
+    if "Undo-Of:" in body:
+        raise UndoError(f"{target} 本身是一次撤销，M0 不支持撤销撤销", hint="重新做一次原来的修改")
+    log_path = dir / LOG
+    old_log = log_path.read_bytes() if log_path.exists() else b""
+    old_src = (dir / SRC).read_bytes()
+    keep = [
+        ln for ln in old_log.decode("utf-8").splitlines() if ln.strip() and not _is_edit(ln, target)
+    ]
+    removed = len([ln for ln in old_log.decode("utf-8").splitlines() if ln.strip()]) - len(keep)
+    root = repo_root(dir)
+    rel = Path(os.path.relpath(dir.resolve(), root.resolve())).as_posix()
+    srcs = [f"{rel}/{p}" if rel != "." else p for p in (SRC, "templates")]
+    patch = (
+        git(root, "diff", f"{h}^", h, "--", *srcs, check=False).stdout
+        if _has_parent(root, h)
+        else ""
+    )
+    try:
+        if patch.strip():
+            chk = git(root, "apply", "-R", "--check", "-", check=False, input=patch)
+            if chk.returncode != 0:
+                raise UndoError(
+                    f"撤销 {target} 对 drawing.py 的改动有冲突",
+                    values={"conflict": chk.stderr.strip()},
+                    hint="手动改 drawing.py 后 lcad build -m，或先撤销更晚的修改",
+                )
+            git(root, "apply", "-R", "-", input=patch)
+        _write(log_path, "".join(ln + "\n" for ln in keep))
+        res = build(dir)
+        new_id = next_edit(dir, res.log_ops)
+        c = commit(dir, f"{new_id} · {msg or 'undo ' + target}", body=f"Undo-Of: {target}")
+    except Exception:
+        log_path.write_bytes(old_log)
+        (dir / SRC).write_bytes(old_src)
+        raise
+    arts = write_artifacts(dir, res, new_id)
+    return {
+        "ok": True,
+        "edit": new_id,
+        "commit": c,
+        "undone": target,
+        "removed_ops": removed,
+        "warnings": _warnings(res.findings),
+        **arts,
+    }
+
+
+def _is_edit(line, target):
+    import json
+
+    try:
+        return json.loads(line).get("edit") == target
+    except json.JSONDecodeError:
+        return False
+
+
+def _has_parent(root, h):
+    return git(root, "rev-parse", "-q", "--verify", f"{h}^", check=False).returncode == 0
+
+
+def clean_tmp(dir):
+    shutil.rmtree(Path(dir) / TMP_DIR, ignore_errors=True)
