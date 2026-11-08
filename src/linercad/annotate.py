@@ -12,6 +12,7 @@ from .model import Element, check_name, num
 from .record import mutator
 
 ROLES_DIM = ("size", "position", "overall")
+LEADER_TYPES = ("chamfer", "groove", "hole", "spline")  # dimensions written on a leader
 SIDES = ("top", "bottom", "left", "right", "inside")
 SECTION_LOOK = ("left", "right", "up", "down")
 
@@ -137,7 +138,7 @@ class Dim(Element):
     @property
     def LAYOUT(self):  # noqa: N802 - per-instance layout fields
         t = self._intent["type"]
-        if t == "chamfer":
+        if t in LEADER_TYPES:
             return ("dir", "length")
         if t == "angle":
             return ("r",)
@@ -157,6 +158,9 @@ class Dim(Element):
         i["dev"], i["tail"] = None, ""
         if i.get("override") is not None:
             i["text"] = str(i["override"])
+            return
+        if i.get("designation"):
+            i["text"] = f"{i['prefix']}{i['designation']}{i['suffix']}"
             return
         dec = int(self._d.std["dim"].get("decimals", 3))
         if i["type"] == "angle":
@@ -195,7 +199,7 @@ class Dim(Element):
 
     def _retol(self):
         i = self._intent
-        if i["type"] in ("angle", "chamfer"):
+        if i["type"] in ("angle",) + LEADER_TYPES:
             i["tolerance"] = None
             return
         env = bool(i.get("envelope"))
@@ -725,6 +729,160 @@ class DimNS:
             {"dir": dir, "length": length},
             [e.id],
         )
+
+    # ---- designation dimensions of conventional features (SPEC M1 §4) --------------------------
+    def _conv(self, feature, types):
+        f = _el(self._d, feature, "feature")
+        if not isinstance(f, Feature) or f.type not in types:
+            raise InvalidArgument(
+                f"{f.id} 不是 {'/'.join(types)} 特征", id=f.id, candidates=list(types)
+            )
+        if f.view != self._view.name:
+            raise InvalidArgument(f"{f.id} 在视图 {f.view}，不在 {self._view.name}", id=f.id)
+        return f
+
+    def _leader(self, name, type_, anchor, measured, designation, refs, dir, length, extra=None):
+        p = {
+            "anchor": list(anchor),
+            "p1": list(anchor),
+            "p2": list(anchor),
+            "dir": type_,
+            "measured": measured,
+            **(extra or {}),
+        }
+        el = self._new(
+            name,
+            type_,
+            p,
+            None,
+            None,
+            "size",
+            None,
+            "",
+            "",
+            None,
+            {"dir": dir, "length": length},
+            refs,
+        )
+        el._intent["designation"] = designation
+        el._render_text()
+        return el
+
+    @mutator("dim.thread")
+    def thread(self, name=None, feature=None, side=None, row=None, offset=None, at=None):
+        """Thread designation on the major diameter: M20×1.5-6g (coarse pitch not written)."""
+        f = self._conv(feature, ("thread",))
+        i = f._intent
+        des = (
+            f"M{fmt_num(i['d'])}"
+            + ("" if i.get("coarse") else f"×{fmt_num(i['P'])}")
+            + f"-{i['cls']}"
+        )
+        if i.get("end_view"):
+            circ = [e for e in f.edges if e.shape == "circle"][0]
+            el = self.dia(name, circle=circ, at=at)
+        else:
+            xm, ax, r = (i["x0"] + i["x1"]) / 2, i["axis"], i["d"] / 2
+            el = self.dia(name, (xm, ax + r), (xm, ax - r), side=side, row=row, offset=offset)
+        el._intent["designation"] = des
+        el._intent["feature"] = f.id
+        el._refs.append(f.id)
+        el._render_text()
+        return el
+
+    @mutator("dim.groove")
+    def groove(self, name=None, groove=None, fmt="wd", dir=None, length=None):
+        """Undercut / overrun groove: width × diameter (wd) or width × depth (wh)."""
+        f = self._conv(groove, ("groove",))
+        i = f._intent
+        if fmt not in ("wd", "wh"):
+            raise InvalidArgument(
+                "fmt 只能是 'wd'（槽宽×直径）或 'wh'（槽宽×槽深）", candidates=["wd", "wh"]
+            )
+        des = (
+            f"{fmt_num(i['w'])}×Φ{fmt_num(i['d'])}"
+            if fmt == "wd"
+            else f"{fmt_num(i['w'])}×{fmt_num(i['r'] - i['rg'])}"
+        )
+        anchor = ((i["x0"] + i["x1"]) / 2, i["axis"] + i["rg"])
+        return self._leader(
+            name, "groove", anchor, i["w"], des, [f.id], dir, length, {"x0": i["x0"], "x1": i["x1"]}
+        )
+
+    @mutator("dim.hole")
+    def hole(self, name=None, feature=None, n=1, dir=None, length=None):
+        """Hole callout on a leader, e.g. 4×M8-6H↧16 (GB/T 16675.2 depth symbol)."""
+        f = self._conv(feature, ("tapped_hole", "thread"))
+        i = f._intent
+        des = (
+            ("" if int(n) == 1 else f"{int(n)}×")
+            + f"M{fmt_num(i['d'])}"
+            + ("" if i.get("coarse") else f"×{fmt_num(i['P'])}")
+            + f"-{i['cls']}"
+        )
+        if i.get("depth"):
+            des += f"↧{fmt_num(i['depth'])}"
+        if i.get("end_view"):
+            c, r = i["c"], i["d"] / 2
+            anchor = (c[0] + r * 0.7071, c[1] + r * 0.7071)
+        else:
+            anchor = tuple(i["points"][0])
+        return self._leader(name, "hole", anchor, i["d"], des, [f.id], dir, length)
+
+    @mutator("dim.spline")
+    def spline(self, name=None, feature=None, dir=None, length=None):
+        """Rectangular spline designation (GB/T 1144): ⨅ N×d f×D f×B f + standard."""
+        f = self._conv(feature, ("spline",))
+        i = f._intent
+        fd, fD, fB = i.get("fits") or ["f7", "a11", "d10"]
+        des = f"⨅{i['N']}×{fmt_num(i['d'])}{fd}×{fmt_num(i['D'])}{fD}×{fmt_num(i['B'])}{fB} {i.get('std') or ''}".strip()
+        if i.get("end_view"):
+            anchor = (i["c"][0], i["c"][1] + i["D"] / 2)
+        else:
+            anchor = ((i["x0"] + i["x1"]) / 2, i["axis"] + i["D"] / 2)
+        return self._leader(name, "spline", anchor, i["D"], des, [f.id], dir, length)
+
+    @mutator("dim.keyway")
+    def keyway(self, name=None, feature=None, what="b", side=None, row=None, offset=None):
+        """Keyway width b (N9 shaft / JS9 hub) or depth d−t1 / d+t2 with the GB/T 1095 deviations."""
+        f = self._conv(feature, ("shaft_cut", "keyway"))
+        i = f._intent
+        if what not in ("b", "depth"):
+            raise InvalidArgument("what 只能是 'b' 或 'depth'", candidates=["b", "depth"])
+        if f.type == "shaft_cut":
+            if not i.get("keyway"):
+                raise InvalidArgument(f"{f.id} 没有键槽", id=f.id)
+            kw = self._d[i["keyway"]]._intent
+            c, r, ang, hub = (0.0, 0.0), i["d"] / 2, i["notch_angle"], False
+        else:
+            kw = i
+            c, r, ang, hub = tuple(i["c"]), i["d"] / 2, 90.0, True
+            ang = (
+                math.degrees(math.atan2(*reversed([p - q for p, q in zip(i["points"][-2], c)])))
+                if False
+                else ang
+            )
+        u = (math.cos(math.radians(ang)), math.sin(math.radians(ang)))
+        t = (-u[1], u[0])
+        b = kw["b"]
+        if what == "b":
+            edge = math.sqrt(max(r * r - (b / 2) ** 2, 0.0))
+            depth = -kw["t2"] if hub else kw["t1"]
+            inner = edge - depth if depth > 0 else r - depth
+            p1 = (c[0] + u[0] * inner - t[0] * b / 2, c[1] + u[1] * inner - t[1] * b / 2)
+            p2 = (c[0] + u[0] * inner + t[0] * b / 2, c[1] + u[1] * inner + t[1] * b / 2)
+            tol = kw.get("tol_b") or ("JS9" if hub else "N9")
+            return self.linear(name, p1, p2, value=b, tol=tol, side=side, row=row, offset=offset)
+        far = (c[0] - u[0] * r, c[1] - u[1] * r)
+        if hub:
+            near = (c[0] + u[0] * (r + kw["t2"]), c[1] + u[1] * (r + kw["t2"]))
+            val, dev = 2 * r + kw["t2"], kw.get("t2_dev")
+            tol = None if not dev else (dev[0], 0.0)
+        else:
+            near = (c[0] + u[0] * (r - kw["t1"]), c[1] + u[1] * (r - kw["t1"]))
+            val, dev = 2 * r - kw["t1"], kw.get("t1_dev")
+            tol = None if not dev else (0.0, -dev[0])
+        return self.linear(name, far, near, value=val, tol=tol, side=side, row=row, offset=offset)
 
 
 class Note(Element):

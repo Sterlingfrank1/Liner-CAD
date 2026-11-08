@@ -11,6 +11,8 @@ from dataclasses import dataclass, replace
 
 from .errors import InvalidArgument
 from .text import text_size
+
+LEADER_TYPES = ("chamfer", "groove", "hole", "spline")
 from .views import wavy_points
 
 # ---- prims ----------------------------------------------------------------------------------
@@ -847,7 +849,7 @@ class _ViewLayout:
         )
         sx, sy = lay.get("shift") or (0.0, 0.0)
         h = nt["text_height"]
-        w, hh = text_size(i["text"], h, std)
+        w, hh = rich_size(i["text"], h, std)
         g = nt["shoulder_gap"]
         angles = [lay["dir"]] if lay.get("dir") is not None else list(NOTE_ANGLES)
         out = []
@@ -858,23 +860,19 @@ class _ViewLayout:
             sh = (e[0] + sg * (w + 2 * g), e[1])
             d = (A[0] - e[0], A[1] - e[1])
             L = math.hypot(*d) or 1.0
-            t = make_text(
-                i["text"],
-                (e[0] + sg * (g + w / 2), e[1] + std["dim"]["text_gap"] + hh / 2),
-                h,
-                std,
-                layer="text",
+            tp, tbox = rich_text(
+                i["text"], (e[0] + sg * (g + w / 2), e[1] + std["dim"]["text_gap"] + hh / 2), h, std
             )
             prims = [
                 Line(e, A, "thin"),
                 arrow(A, (d[0] / L, d[1] / L), std, "thin"),
                 Line(e, sh, "thin"),
-                t,
+                *tp,
             ]
             out.append(
                 {
                     "prims": prims,
-                    "boxes": [t.box],
+                    "boxes": [tbox],
                     "segs": [(e, A), (e, sh)],
                     "fields": {"dir": ang, "length": length},
                     "why": "",
@@ -928,7 +926,7 @@ class _ViewLayout:
         lin_t = ("linear", "dia", "rad", "aligned")
         linear = [e for e in dims if not e._intent.get("circle") and e._intent["type"] in lin_t]
         circular = [e for e in dims if e._intent.get("circle")]
-        others = [e for e in dims if e._intent["type"] in ("angle", "chamfer")]
+        others = [e for e in dims if e._intent["type"] in ("angle",) + LEADER_TYPES]
 
         def is_fixed(e):
             lay = e._layout
@@ -945,7 +943,7 @@ class _ViewLayout:
         notes = self.els("note")
 
         def fixed(e):
-            if e.kind == "note" or e._intent.get("type") == "chamfer":
+            if e.kind == "note" or e._intent.get("type") in LEADER_TYPES:
                 return e._layout.get("dir") is not None
             if e._intent.get("type") == "angle":
                 return e._layout.get("r") is not None
@@ -954,7 +952,7 @@ class _ViewLayout:
             return bool(is_fixed(e))
 
         def place(e):
-            if e.kind == "note" or e._intent.get("type") == "chamfer":
+            if e.kind == "note" or e._intent.get("type") in LEADER_TYPES:
                 auto = [f for f in ("dir", "length") if e._layout.get(f) is None]
                 self.choose(e, self.note_cands(e), auto)
             elif e._intent.get("type") == "angle":
@@ -978,6 +976,9 @@ class _ViewLayout:
         for e in [x for x in circular + others + notes if not fixed(x)]:
             place(e)
         # PMI leaders after the dimensions they may attach to (datum → gtol → roughness)
+        for e in self.els("feature"):
+            if e._intent.get("type") == "center_hole":
+                self.choose(e, center_hole_cands(self, e), [])
         for kind, fn in (("datum", datum_cands), ("gtol", gtol_cands), ("rough", rough_cands)):
             for e in self.els(kind):
                 cands = fn(self, e)
@@ -1319,10 +1320,13 @@ def layout(d):
 from .pmi_layout import (  # noqa: E402
     aligned_cands,
     angle_cands,
+    center_hole_cands,
     datum_cands,
     dim_label,
     gtol_cands,
     label_size,
+    rich_size,
+    rich_text,
     rough_cands,
     rough_default_prims,
 )

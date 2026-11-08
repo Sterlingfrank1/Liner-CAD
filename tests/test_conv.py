@@ -6,7 +6,7 @@ import math
 import pytest
 
 from linercad import Drawing, errors
-from linercad.layout import Arc, Circle, Line, Text, layout
+from linercad.layout import Text, layout
 
 
 def lines(d, fid, role=None):
@@ -79,10 +79,23 @@ def test_thread_designation_dimension(shaft):
 def test_tapped_holes_in_revolved_section():
     d = Drawing()
     f = d.view("front")
-    th = {"name": "tap", "r": 40, "d": 6.647, "x0": 0, "x1": 20, "tip": True, "thread": "M8", "depth": 15}
+    th = {
+        "name": "tap",
+        "r": 40,
+        "d": 6.647,
+        "x0": 0,
+        "x1": 20,
+        "tip": True,
+        "thread": "M8",
+        "depth": 15,
+    }
     f.turned("cv", [(0, 55), (25, 55)], bore=[(0, 20), (25, 20)], cut="full", holes=[th])
     fid = "F.front.cv"
-    major = [e for e in d[fid].edges if e.role == "thin" and abs(abs(e.start[1]) - 40) == pytest.approx(4)]
+    major = [
+        e
+        for e in d[fid].edges
+        if e.role == "thin" and abs(abs(e.start[1]) - 40) == pytest.approx(4)
+    ]
     assert len(major) == 4 and all("conv" in e.tags for e in major)
     tips = [e for e in d[fid].edges if e.shape == "line" and e.dir is None]
     assert len(tips) == 4  # 120° drill point, both halves
@@ -103,7 +116,11 @@ def test_center_hole_designation(shaft):
 def test_groove_dimension(shaft):
     d = Drawing()
     f = d.view("front")
-    f.turned("b", [(0, 10), (30, 10), (30, 15), (60, 15)], grooves=[{"name": "u1", "x": 30, "w": 3, "d": 17}])
+    f.turned(
+        "b",
+        [(0, 10), (30, 10), (30, 15), (60, 15)],
+        grooves=[{"name": "u1", "x": 30, "w": 3, "d": 17}],
+    )
     assert f.dim.groove("g", "F.front.u1").text == "3×Φ17"
     assert f.dim.groove("g2", "F.front.u1", fmt="wh").text == "3×1.5"
 

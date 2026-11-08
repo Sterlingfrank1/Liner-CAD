@@ -341,6 +341,7 @@ class View(Element):
         v = self.name
         intent = dict(intent)
         ename = intent.pop("name", None)
+        tags = intent.pop("tags", ())
         if feature is None:
             eid = self._d._alloc("E", (v,))
         elif ename is not None:
@@ -352,7 +353,7 @@ class View(Element):
         if feature is not None:
             intent["feature"] = feature
             refs.append(feature)
-        return self._d._add(Edge(self._d, eid, intent, refs=refs))
+        return self._d._add(Edge(self._d, eid, intent, refs=refs, tags=tags))
 
     def _feature(self, name, intent):
         fid = f"F.{self.name}.{check_name(name)}"
@@ -491,8 +492,8 @@ class View(Element):
         hl = []
         for h in holes or ():
             h = dict(h)
-            for k in ("r", "d", "x0", "x1"):
-                if k in h:
+            for k in ("r", "d", "x0", "x1", "depth"):
+                if h.get(k) is not None:
                     h[k] = num(h[k], f"holes.{k}")
             if h.get("name") is not None:
                 check_name(h["name"], "孔名")
@@ -513,6 +514,8 @@ class View(Element):
                 seg = e.get("seg")
                 if seg and seg[0] == "o" and seg[1] in names:
                     ei["name"] = names[seg[1]] + seg[2]
+                if e.get("tags"):
+                    ei["tags"] = e["tags"]
                 intents.append(ei)
         f = self._feature(
             name,
@@ -524,7 +527,7 @@ class View(Element):
                 "bore": [list(p) for p in bpts] or None,
                 "cut": cut,
                 "half": half,
-                "holes": hl,
+                "holes": [{k: v for k, v in h.items() if not k.startswith("_")} for h in hl],
                 "grooves": [g["name"] for g in gl],
                 "hidden": hidden,
                 "hatch": None,

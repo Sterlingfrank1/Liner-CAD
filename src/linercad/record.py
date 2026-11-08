@@ -43,6 +43,20 @@ CREATE_OPS = (
     "dim.aligned",
     "dim.angle",
     "dim.chamfer",
+    "thread",
+    "thread_end",
+    "tapped_hole",
+    "center_hole",
+    "keyway",
+    "keyway_end",
+    "shaft_cut",
+    "spline",
+    "spline_end",
+    "dim.thread",
+    "dim.groove",
+    "dim.hole",
+    "dim.keyway",
+    "dim.spline",
     "rough_default",
     "chain",
     "general_tol",
@@ -71,6 +85,20 @@ VIEW_SCOPED = (
     "dim.aligned",
     "dim.angle",
     "dim.chamfer",
+    "thread",
+    "thread_end",
+    "tapped_hole",
+    "center_hole",
+    "keyway",
+    "keyway_end",
+    "shaft_cut",
+    "spline",
+    "spline_end",
+    "dim.thread",
+    "dim.groove",
+    "dim.hole",
+    "dim.keyway",
+    "dim.spline",
 )
 DRAWING_CREATE = (
     "section",
@@ -215,7 +243,7 @@ class Recorder:
 def _layout_group(el):
     i = el._intent
     if el.kind == "dim":
-        if i["type"] == "chamfer":
+        if i["type"] in ("chamfer", "groove", "hole", "spline"):
             return LAYOUT_GROUPS["note"]
         if i["type"] == "angle":
             return LAYOUT_GROUPS["angle"]

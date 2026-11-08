@@ -6,6 +6,8 @@ All coordinates are (x along the axis, r from the axis); callers mirror with the
 
 from __future__ import annotations
 
+import math
+
 from .errors import InvalidArgument
 
 EPS = 1e-9
@@ -151,10 +153,12 @@ def build(outer, bore, cut, half, holes, hidden, role):
         for k in ("r", "d", "x0", "x1"):
             if k not in h:
                 raise InvalidArgument(f"holes 每项需要 r、d、x0、x1，缺 {k}", values=dict(h))
+    for h in holes:
+        _hole_geom(h, xs0, xs1)
     edges, loops, vert = [], [], {}
 
-    def add(p1, p2, rl, seg=None):
-        edges.append({"p1": list(p1), "p2": list(p2), "role": rl, "seg": seg})
+    def add(p1, p2, rl, seg=None, tags=()):
+        edges.append({"p1": list(p1), "p2": list(p2), "role": rl, "seg": seg, "tags": list(tags)})
 
     def vadd(x, a, b, rl):
         if b - a > 1e-6:
@@ -181,8 +185,7 @@ def build(outer, bore, cut, half, holes, hidden, role):
                     vadd(x, *sorted((0, s * max(rs))), "hidden")
             if hidden:
                 for h in holes_on(s):
-                    for rr in (h["r"] - h["d"] / 2, h["r"] + h["d"] / 2):
-                        add((h["x0"], s * rr), (h["x1"], s * rr), "hidden")
+                    _hole_edges(h, s, "hidden", "hidden", "hidden", add, vadd, xs0, xs1)
             continue
         # cut half: bore lines, cut-edge verticals, far edges across the hollow, hole walls
         for i, ((xa, ra), (xb, rb)) in enumerate(zip(bore, bore[1:])):
@@ -197,12 +200,7 @@ def build(outer, bore, cut, half, holes, hidden, role):
         for x, rs, _e, _st in _corners(bore):
             vadd(x, *sorted((0, s * max(rs))), role)
         for h in holes_on(s):
-            r0, r1 = h["r"] - h["d"] / 2, h["r"] + h["d"] / 2
-            for rr in (r0, r1):
-                add((h["x0"], s * rr), (h["x1"], s * rr), role)
-            for x in (h["x0"], h["x1"]):
-                if xs0 + EPS < x < xs1 - EPS:
-                    vadd(x, *sorted((s * r0, s * r1)), role)
+            _hole_edges(h, s, role, "thin", role, add, vadd, xs0, xs1)
         loops += [[[x, s * y] for x, y in lp] for lp in _region(outer, bore, holes_on(s), xs0, xs1)]
     for (x, rl), iv in sorted(vert.items()):
         merged = _merge(iv)
@@ -218,6 +216,47 @@ def build(outer, bore, cut, half, holes, hidden, role):
             if h in holes_on(s):
                 centers.append(((h["x0"], s * h["r"]), (h["x1"], s * h["r"]), h.get("name")))
     return edges, loops, centers
+
+
+def _hole_geom(h, xs0, xs1):
+    """Opening side, blind end and drill point of an axial hole (filled into the dict)."""
+    if h["x0"] <= xs0 + EPS:
+        h["_open"], h["_blind"], h["_sgn"] = h["x0"], (h["x1"] if h["x1"] < xs1 - EPS else None), 1
+    elif h["x1"] >= xs1 - EPS:
+        h["_open"], h["_blind"], h["_sgn"] = h["x1"], h["x0"], -1
+    else:
+        h["_open"], h["_blind"], h["_sgn"] = None, None, 1
+    h["_tip"] = (
+        h["d"] / 2 / math.tan(math.radians(60)) if h.get("tip") and h["_blind"] is not None else 0.0
+    )
+    if h.get("thread"):
+        from . import res
+
+        t = res.thread(h["thread"])
+        h["_D"] = t["d"]
+        h["_std"] = t.get("std")
+        if h.get("depth") is None or h["_open"] is None:
+            raise InvalidArgument(f"螺孔 {h.get('name')} 需要 depth（螺纹深度），且要从端面开口")
+
+
+def _hole_edges(h, s, wall, major, term, add, vadd, xs0, xs1):
+    """Walls, drill point, blind end and internal thread lines of one axial hole."""
+    r0, r1, rh = h["r"] - h["d"] / 2, h["r"] + h["d"] / 2, h["r"]
+    for rr in (r0, r1):
+        add((h["x0"], s * rr), (h["x1"], s * rr), wall)
+    for x in (h["x0"], h["x1"]):
+        if xs0 + EPS < x < xs1 - EPS:
+            vadd(x, *sorted((s * r0, s * r1)), wall)
+    if h["_tip"]:
+        xb, tip = h["_blind"], h["_blind"] + h["_sgn"] * h["_tip"]
+        add((xb, s * r0), (tip, s * rh), wall)
+        add((xb, s * r1), (tip, s * rh), wall)
+    if h.get("thread"):
+        R0, R1 = rh - h["_D"] / 2, rh + h["_D"] / 2
+        xe = h["_open"] + h["_sgn"] * h["depth"]
+        for rr in (R0, R1):
+            add((h["_open"], s * rr), (xe, s * rr), major, tags=["conv"])
+        add((xe, s * R0), (xe, s * R1), term, tags=["conv"])
 
 
 def _subtract(ivs, cuts):
@@ -251,11 +290,34 @@ def _bore_at(bore, x):
     return v or 0.0
 
 
+def _half_width(h, x, side):
+    """Hole half-width at x (drill point narrows to 0), None where the hole is absent."""
+    lo, hi = h["x0"], h["x1"]
+    tip = h.get("_tip") or 0.0
+    if tip:
+        if h["_sgn"] > 0:
+            hi = h["x1"] + tip
+        else:
+            lo = h["x0"] - tip
+    inside = lo - EPS <= x < hi - EPS if side == "right" else lo + EPS < x <= hi + EPS
+    if not inside:
+        return None
+    w = h["d"] / 2
+    if tip:
+        xb = h["_blind"]
+        past = (x - xb) * h["_sgn"]
+        if past > 0:
+            w *= max(0.0, 1 - past / tip)
+    return w
+
+
 def _region(outer, bore, holes, xs0, xs1):
     """Section region of one half in (x, r) as slab polygons, holes cut out."""
     bps = {x for x, _ in outer} | {x for x, _ in bore}
     for h in holes:
         bps |= {h["x0"], h["x1"]}
+        if h.get("_tip"):
+            bps.add(h["_blind"] + h["_sgn"] * h["_tip"])
     bps = sorted(x for x in bps if xs0 - EPS <= x <= xs1 + EPS)
     loops = []
     for a, b in zip(bps, bps[1:]):
@@ -267,15 +329,17 @@ def _region(outer, bore, holes, xs0, xs1):
             ia = ib = 0.0
         bands = [(ia, ib, oa, ob)]
         for h in sorted(holes, key=lambda h: h["r"]):
-            if h["x0"] - EPS <= a and b <= h["x1"] + EPS:
-                r0, r1 = h["r"] - h["d"] / 2, h["r"] + h["d"] / 2
-                nb = []
-                for lo_a, lo_b, hi_a, hi_b in bands:
-                    if r0 > max(lo_a, lo_b) and r1 < min(hi_a, hi_b):
-                        nb += [(lo_a, lo_b, r0, r0), (r1, r1, hi_a, hi_b)]
-                    else:
-                        nb.append((lo_a, lo_b, hi_a, hi_b))
-                bands = nb
+            wa, wb = _half_width(h, a, "right"), _half_width(h, b, "left")
+            if wa is None or wb is None:
+                continue
+            r0a, r0b, r1a, r1b = h["r"] - wa, h["r"] - wb, h["r"] + wa, h["r"] + wb
+            nb = []
+            for lo_a, lo_b, hi_a, hi_b in bands:
+                if min(r0a, r0b) > max(lo_a, lo_b) - EPS and max(r1a, r1b) < min(hi_a, hi_b) + EPS:
+                    nb += [(lo_a, lo_b, r0a, r0b), (r1a, r1b, hi_a, hi_b)]
+                else:
+                    nb.append((lo_a, lo_b, hi_a, hi_b))
+            bands = nb
         for lo_a, lo_b, hi_a, hi_b in bands:
             if hi_a - lo_a > 1e-6 or hi_b - lo_b > 1e-6:
                 loops.append([(a, lo_a), (b, lo_b), (b, hi_b), (a, hi_a)])

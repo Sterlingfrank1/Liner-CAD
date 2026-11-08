@@ -519,3 +519,107 @@ def rough_default_prims(el, std, right, bottom):
 
 def union_box(prims):
     return union([prims_bbox(prims)])
+
+
+# ---- rich text: drafting symbols drawn as geometry (depth ↧, spline ⨅) ---------------------------
+
+SYMBOLS = "↧⨅"
+
+
+def _symbol(ch, x, h):
+    """Symbol in an em box [x, x + 0.8h] centred on y = 0."""
+    w = 0.8 * h
+    m = x + w / 2
+    if ch == "↧":  # depth: stem down to a bar (GB/T 16675.2)
+        return [
+            Line((m, h * 0.45), (m, -h * 0.45), "text"),
+            Line((x + w * 0.15, -h * 0.45), (x + w * 0.85, -h * 0.45), "text"),
+        ]
+    # ⨅ rectangular spline symbol
+    return [
+        Line((x + w * 0.1, -h * 0.4), (x + w * 0.1, h * 0.4), "text"),
+        Line((x + w * 0.1, h * 0.4), (x + w * 0.9, h * 0.4), "text"),
+        Line((x + w * 0.9, h * 0.4), (x + w * 0.9, -h * 0.4), "text"),
+    ]
+
+
+def _runs(s):
+    out, cur = [], ""
+    for ch in s:
+        if ch in SYMBOLS:
+            if cur:
+                out.append(cur)
+                cur = ""
+            out.append(ch)
+        else:
+            cur += ch
+    if cur:
+        out.append(cur)
+    return out
+
+
+def rich_size(s, h, std):
+    w = 0.0
+    hh = text_size("M", h, std)[1]
+    for r in _runs(s):
+        if r in SYMBOLS:
+            w += 0.8 * h + 0.3
+        else:
+            tw, th = text_size(r, h, std)
+            w, hh = w + tw, max(hh, th)
+    return w, hh
+
+
+def rich_text(s, at, h, std, layer="text"):
+    """Text with drafting symbols, centred at ``at`` → (prims, box)."""
+    STD[0] = std
+    w, hh = rich_size(s, h, std)
+    x = -w / 2
+    prims = []
+    for r in _runs(s):
+        if r in SYMBOLS:
+            prims += _symbol(r, x + 0.15, h)
+            x += 0.8 * h + 0.3
+        else:
+            tw = text_size(r, h, std)[0]
+            prims.append(make_text(r, (x + tw / 2, 0.0), h, std, layer=layer))
+            x += tw
+    prims = transform(prims, 0, at[0], at[1])
+    return prims, (at[0] - w / 2, at[1] - hh / 2, at[0] + w / 2, at[1] + hh / 2)
+
+
+def center_hole_cands(vl, el):
+    """GB/T 4459.5 simplified representation: leader from the axis end, keep symbol, designation."""
+    i = el._intent
+    std = vl.std
+    h = std["dim"]["text_height"]
+    A = vl.P((i["x"], i["axis"]))
+    sg = -1 if i["end"] == "left" else 1
+    text = f"{i['mark_std']}-{i['designation']}"
+    w, hh = text_size(text, h, std)
+    out = []
+    for ang, L in [(a, L) for L in (8.0, 14.0, 20.0) for a in (60, 45, -60, -45)]:
+        u = (sg * math.cos(math.radians(ang)), math.sin(math.radians(ang)))
+        E = (A[0] + u[0] * L, A[1] + u[1] * L)
+        sym = 4.0 if i["keep"] is not None else 0.0
+        S = (E[0] + sg * (w + sym + 2), E[1])
+        prims = [Line(A, E, "thin"), arrow(A, (-u[0], -u[1]), std, "thin"), Line(E, S, "thin")]
+        if (
+            i["keep"] is not None
+        ):  # 60° mark opening toward the text; crossed when it must not remain
+            ap = (E[0] + sg * 0.8, E[1] + 1.2)
+            k = 3.0
+            p1 = (ap[0] + sg * k, ap[1] + k * math.tan(math.radians(30)))
+            p2 = (ap[0] + sg * k, ap[1] - k * math.tan(math.radians(30)))
+            prims += [Line(ap, p1, "thin"), Line(ap, p2, "thin")]
+            if i["keep"] is False:
+                prims.append(
+                    Line((ap[0] + sg * 1.5, ap[1] + 2), (ap[0] + sg * 1.5, ap[1] - 2), "thin")
+                )
+        prims.append(
+            make_text(
+                text, (E[0] + sg * (sym + 1 + w / 2), E[1] + 1 + hh / 2), h, std, layer="text"
+            )
+        )
+        out.append(_cand(prims, {"dir": ang, "length": L}))
+    return out
