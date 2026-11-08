@@ -1,0 +1,5 @@
+title = "隔套"
+
+[[view]]
+name = "front"
+mode = "full"
