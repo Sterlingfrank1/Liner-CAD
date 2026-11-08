@@ -199,7 +199,7 @@ def _anchor(vl, el, frac):
         u = ((b[0] - a[0]) / L, (b[1] - a[1]) / L)
         return (a, (-u[0], -u[1])) if frac == 0 else (b, u)
     if ref.kind == "feature":
-        es = [e for e in ref.edges if e.shape == "line"]
+        es = sorted(ref.edges, key=lambda e: e.shape != "line")  # a line, else a circle / arc
         if not es:
             return None
         ref = es[0]

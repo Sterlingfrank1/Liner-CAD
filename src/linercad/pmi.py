@@ -42,6 +42,14 @@ def _target(d, ref, view):
     if isinstance(el, Dim):
         if el.view != view:
             raise InvalidArgument(f"{el.id} 在视图 {el.view}，不在 {view}", id=el.id)
+        if el._intent["type"] in ("chamfer", "groove", "hole", "spline", "angle"):
+            edges = [r for r in el._refs if r.startswith(("E.", "F."))]
+            raise InvalidArgument(
+                f"{el.id} 是引线式标注，不能作被测要素",
+                id=el.id,
+                candidates=edges,
+                hint="ref 用被测的圆、边或特征（如孔的圆边），或一个直径 / 线性尺寸",
+            )
         return "axis", el.id
     if isinstance(el, (Edge, Feature)):
         if el.view != view:
