@@ -709,7 +709,8 @@ class _ViewLayout:
             fits = span >= w + 2 * al + 2 * gap
             positions = []
             if fits:
-                for f in (0.5, 0.75, 0.25):
+                # inside an outline the axis centre line runs through the middle: start above it
+                for f in (0.75, 0.25, 0.5) if side == "inside" else (0.5, 0.75, 0.25):
                     c = lo + span * f
                     if c - w / 2 >= lo + al + gap - 1e-9 and c + w / 2 <= hi - al - gap + 1e-9:
                         positions.append(("in", c))
