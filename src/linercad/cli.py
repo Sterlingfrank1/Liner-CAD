@@ -41,6 +41,7 @@ COMMANDS = {
     "render": "出 PNG 自检：lcad render [--focus ID]",
     "check": "全部检查结果，按规则包分组（drafting / dimensioning / tolerancing / surface / layout）",
     "skill": "打印 SKILL.md，或 lcad skill <零件族> 打印零件族卡片",
+    "view": "打开 Viewer（本机 127.0.0.1）：lcad view [--port 8765] [--no-open]",
     "template": '企业档：lcad template import <file.dxf> --name <名> → templates/<名>.toml，Drawing(overlay="<名>") 叠加',
 }
 
@@ -70,6 +71,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("-o", dest="out", default=None)
     s.add_argument("--dpi", type=int, default=None)
     sub.add_parser("check")
+    s = sub.add_parser("view")
+    s.add_argument("--port", type=int, default=8765)
+    s.add_argument("--no-open", action="store_true")
     s = sub.add_parser("skill")
     s.add_argument("family", nargs="?", default=None)
     s = sub.add_parser("template").add_subparsers(dest="action", parser_class=_Parser)
@@ -116,6 +120,11 @@ def _run(args, parser) -> int:
         out = txn.undo(d, args.edit, args.msg)
     elif args.cmd == "context":
         out = commands.context(d, args.ids)
+    elif args.cmd == "view":
+        from .viewer import serve
+
+        serve(d, args.port, not args.no_open)
+        return 0
     elif args.cmd == "check":
         out = commands.check(d)
     elif args.cmd == "skill":

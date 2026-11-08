@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .errors import InvalidArgument, NotFound
+from .errors import InvalidArgument, LinerError, NotFound
 from .model import check_name
 from .runtime import SRC, TMP_DIR, build
 
@@ -62,13 +62,35 @@ def _source(dir, e):
 
 def context(dir, ids=()):
     dir = Path(dir)
-    res = build(dir)
-    d = res.d
     if ids and ids[0] == "@sel":
         sel = dir / ".linercad" / "selection.json"
         if not sel.exists():
-            raise InvalidArgument("还没有 selection.json（Viewer 在 M2 提供）")
-        ids = json.loads(sel.read_text(encoding="utf-8")).get("ids", [])
+            raise InvalidArgument(
+                "还没有 selection.json", hint="在 lcad view 里点选元素后再用 @sel"
+            )
+        ids = json.loads(sel.read_text(encoding="utf-8")).get("ids", []) + list(ids[1:])
+        if not ids:
+            raise InvalidArgument("selection.json 里没有选中的元素", hint="在 Viewer 里点选")
+    try:
+        res = build(dir)
+    except (
+        LinerError
+    ) as e:  # fall back to the last good model.json (M2: context works while broken)
+        mp = dir / ".linercad" / "build" / "model.json"
+        if not mp.exists():
+            raise
+        m = json.loads(mp.read_text(encoding="utf-8"))
+        els = {x["id"]: x for x in m["elements"]}
+        items = [{"element": els[i]} for i in ids if i in els] if ids else []
+        return {
+            "ok": True,
+            "stale": True,
+            "build_error": e.to_dict(),
+            "items": items,
+            "elements": None if ids else sorted(els),
+            "hint": "构建失败，以上是上一版 model.json；先修好 drawing.py / 脚本",
+        }
+    d = res.d
     if not ids:
         groups = {}
         edges = {}
