@@ -59,6 +59,16 @@ front.dim.linear(
     "hb", (A, 0), (A, P.hb), value=P.hb, role="position", datum="E.front.outline.1", side="right"
 )
 front.dim.dia("D", circle="E.front.hole.1", value=P.D, tol="H8")
+front.dim.linear(
+    "xh",
+    (0, H),
+    (A / 2, P.hb),
+    dir="h",
+    value=A / 2,
+    role="position",
+    datum="E.front.outline.4",
+    side="top",
+)
 top.dim.linear("B", (A, 0), (A, B), value=B, role="overall", side="right")
 top.dim.linear(
     "pitch",
@@ -79,5 +89,5 @@ top.dim.dia("dh", circle="E.top.bh1.1", value=P.d, prefix="2×")
 left.dim.linear("t", (0, 0), (0, t), value=t, side="right")
 left.dim.linear("tw", (-B, H), (-yf, H), value=t, side="top")
 
-d.notes.tech(["未注圆角 R2。", "去除毛刺锐边。"])
+d.notes.tech(["未注尺寸公差按 GB/T 1804-m。", "去除毛刺锐边。"])
 d.title(name="支架", drawing_no="LC-BR-01", material="Q235", designer="Liner-CAD")

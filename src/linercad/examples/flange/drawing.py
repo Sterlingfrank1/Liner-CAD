@@ -38,7 +38,7 @@ for s, nm in ((1, "up"), (-1, "dn")):
 front.centerline((0, 0), (P.L, 0), name="axis")
 
 left.circle((0, 0), R, name="outer")
-left.circle((0, 0), Rh, name="boss")
+left.circle((0, 0), Rh, role="hidden", name="boss")  # 凸台在盘后面，左视图里不可见
 left.circle((0, 0), r0, name="bore")
 left.holes_on_circle("bolt", (0, 0), pcd=P.pcd, n=4, d=P.dh, start=90)
 left.center_mark((0, 0), R, name="axis")
@@ -53,5 +53,5 @@ front.dim.dia("d0", (P.L, r0), (P.L, -r0), value=P.d0, tol="H7", side="right")
 left.dim.dia("holes", circle="E.left.bolt.1", prefix="4×", suffix=" EQS")
 left.dim.dia("pcd", circle="C.left.bolt")
 
-d.notes.tech(["未注倒角 C1。", "铸件不得有砂眼、裂纹等缺陷。", "未注尺寸公差按 GB/T 1804-m。"])
+d.notes.tech(["铸件时效处理。", "铸件不得有砂眼、裂纹等缺陷。", "未注尺寸公差按 GB/T 1804-m。"])
 d.title(name="法兰盘", drawing_no="LC-FL-01", material="HT200", designer="Liner-CAD")

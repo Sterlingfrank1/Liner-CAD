@@ -22,7 +22,7 @@ Liner-CAD 是一个 2D 工程图 harness：你写 Python，它负责画法、布
    - 临时脚本：`lcad edit .linercad/tmp/x.py -m "<用户原话>"`
    - 只改了 drawing.py：`lcad build -m "<用户原话>"`
 4. 读输出：`ok`、`edit`（本轮编号 eN）、`changed`、`warnings`（`new: true` 是本轮新出现的问题）。有 warning 就改，再跑一轮。
-5. 自检：`lcad render` → `.linercad/tmp/render.png`；局部：`lcad render --focus D.L`（该元素画成红色）。用你的看图能力检查重叠、越界、表达是否合理。
+5. 自检：`lcad render` → `.linercad/tmp/render.png`；局部：`lcad render --focus D.L` → `.linercad/tmp/render-D.L.png`（该元素画成红色）。输出 JSON 的 `png` 字段就是文件路径。用你的看图能力检查重叠、越界、表达是否合理。
 6. 用户要撤销某一轮：`lcad undo e3 -m "<用户原话>"`。
 
 失败时（退出码 1）**什么都没改**：日志不变、没有 commit。按 `error.message / candidates / hint / where` 改脚本重试。
@@ -34,7 +34,7 @@ Liner-CAD 是一个 2D 工程图 harness：你写 Python，它负责画法、布
 def apply(d):
     d["D.L"].place(side="top")          # 换侧
     d["D.d1"].tol = "k6"                # 改公差文字
-    d["D.l2"].move(dy=-3)               # 微调：沿外法向挪 3 mm
+    d["D.l2"].move(dy=-3)               # 微调：下方的尺寸往外（往下）挪 3 mm；dx/dy 是图纸方向，右/上为正
     d["N.tech.2"].suppress()            # 删除元素
     d.notes.tech("去除毛刺锐边。")        # 加一条技术要求
     front = d.view("front")
@@ -44,6 +44,9 @@ def apply(d):
 - 脚本里的每个修改调用都会自动记进日志；查询到的元素记成具体 ID；`d.P.L` 这样的参数表达式记成表达式，改参数后重放仍然跟随。
 - 参数在脚本里只读（`d.P.L` 可读，赋值会报错并告诉你改 drawing.py 的哪一行）。
 - 脚本里读到的布局值（`.row` `.side`）是本轮修改之前的；本轮新建元素的布局值是 `None`。
+- 参数表达式可以直接运算：`value=d.P.L - d.P.T`、`(d.P.Dh / 2, 0)`，日志里记成表达式。
+- 脚本路径相对当前目录；`.linercad/tmp/` 由 `lcad init` 建好。`place(side=...)` 只改你给的字段，其余（如 `row`）保持原值。
+- Windows 下用管道读 lcad 输出时设 `PYTHONUTF8=1`（输出是 UTF-8）。
 
 ## 3. drawing.py 速查
 
@@ -92,7 +95,7 @@ front = d.view("front")      # 基本视图：front top bottom left right rear�
 - `value=P.L - P.l1` 让尺寸显示参数值并记录 `covers`；不给就显示几何实测值。
 - `role`：`size / position / overall`；**`position` 必须给 `datum=`**（基准元素 ID 或锚点）。
 - `tol` 是文字：`"k6"` `"H7"` `"±0.1"`；`text=` 可整串替换显示文字。
-- **布局字段**（不写就由引擎按制图习惯排）：`side` = `top/bottom/left/right/inside`；`row` = 第几排（1 起）；`offset` = 微调 mm；圆视图用 `at`（引出角度）；注释用 `dir/length`。写了的固定，没写的自动；`place/move` 改过的从此固定。
+- **布局字段**（不写就由引擎按制图习惯排）：`side` = `top/bottom/left/right/inside`；`row` = 第几排（1 起）；`offset` = 往外的微调 mm；圆视图用 `at`（引出角度，度，从 +x 逆时针，45 = 右上）；注释用 `dir`（同样的角度）/`length`。写了的固定，没写的自动；`place/move` 改过的从此固定。
 - 剖视：剖面轮廓（闭合 polygon）和剖面线你自己画，剖切符号、箭头、字母、`A-A` 由 harness 画。
 
 ## 4. 引用与查询
