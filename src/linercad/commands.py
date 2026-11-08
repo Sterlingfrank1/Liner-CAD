@@ -52,7 +52,7 @@ def _source(dir, e):
         lo, hi = max(1, n - 2), min(len(lines), n + 2)
         return [f"{k}: {lines[k - 1]}" for k in range(lo, hi + 1)]
     if src.get("edit"):
-        log = (Path(dir) / "drawing.actions.jsonl").read_text(encoding="utf-8").splitlines()
+        log = (Path(dir) / "drawing.actions.jsonl").read_text(encoding="utf-8-sig").splitlines()
         n = src.get("line")
         if n and 0 < n <= len(log):
             return [f"drawing.actions.jsonl:{n}: {log[n - 1]}"]

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import runpy
+import sys
 import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -55,7 +57,7 @@ def load_log(dir) -> list[dict]:
     if not p.exists():
         return []
     ops = []
-    for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+    for n, line in enumerate(p.read_text(encoding="utf-8-sig").splitlines(), 1):
         if not line.strip():
             continue
         try:
@@ -76,10 +78,11 @@ def run_drawing(dir):
     box = []
     tok = BUILD.set(box)
     try:
-        runpy.run_path(str(path), run_name="__lcad_drawing__")
+        with contextlib.redirect_stdout(sys.stderr):
+            runpy.run_path(str(path), run_name="__lcad_drawing__")
     except LinerError as e:
         raise attach_where(e, e, path)
-    except Exception as e:  # noqa: BLE001 - reported to the agent with drawing.py frames
+    except (Exception, SystemExit) as e:  # reported to the agent with drawing.py frames
         raise attach_where(BuildError(f"drawing.py 出错：{type(e).__name__}: {e}"), e, path) from e
     finally:
         BUILD.reset(tok)
@@ -118,17 +121,19 @@ def run_script(d, script, edit) -> list[dict]:
     rec = record.Recorder(d, edit)
     d._recorder, d._scope = rec, edit
     try:
-        ns = runpy.run_path(str(path), run_name="__lcad_script__")
+        with contextlib.redirect_stdout(sys.stderr):
+            ns = runpy.run_path(str(path), run_name="__lcad_script__")
         fn = ns.get("apply")
         if not callable(fn):
             raise ScriptError(
                 "临时脚本需要定义函数 apply(d)",
                 hint="def apply(d):\n    d['D.x'].place(side='top')",
             )
-        fn(d)
+        with contextlib.redirect_stdout(sys.stderr):
+            fn(d)
     except LinerError as e:
         raise attach_where(e, e, path)
-    except Exception as e:  # noqa: BLE001
+    except (Exception, SystemExit) as e:
         raise attach_where(ScriptError(f"{type(e).__name__}: {e}"), e, path) from e
     finally:
         d._recorder, d._scope = None, None

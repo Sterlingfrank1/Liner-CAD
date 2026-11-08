@@ -46,17 +46,17 @@ d.title(name="未命名零件", material="")
 
 
 def git(dir, *args, check=True, input=None):
+    """Run git; stdin/stdout as raw UTF-8 bytes (text mode would turn LF into CRLF on Windows)."""
     try:
         r = subprocess.run(
             ["git", "-C", str(dir), *args],
             capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            input=input,
+            input=None if input is None else input.encode("utf-8"),
         )
     except FileNotFoundError as e:
         raise GitError("找不到 git 命令", hint="安装 git 并放进 PATH") from e
+    r.stdout = r.stdout.decode("utf-8", errors="replace")
+    r.stderr = r.stderr.decode("utf-8", errors="replace")
     if check and r.returncode != 0:
         raise GitError(
             f"git {' '.join(args[:2])} 失败：{(r.stderr or r.stdout).strip()}",
@@ -87,8 +87,28 @@ def source_paths(dir):
 
 def dirty_sources(dir):
     paths = source_paths(dir)
-    r = git(dir, "status", "--porcelain", "--untracked-files=all", "--", *paths)
-    return [ln[3:] for ln in r.stdout.splitlines() if ln.strip()]
+    r = git(
+        dir,
+        "-c",
+        "core.quotePath=false",
+        "status",
+        "--porcelain",
+        "-z",
+        "--untracked-files=all",
+        "--",
+        *paths,
+    )
+    root = repo_root(dir)
+    out = []
+    for item in r.stdout.split("\0"):
+        if len(item) > 3:
+            full = (root / item[3:]).resolve() if root else Path(dir) / item[3:]
+            out.append(Path(os.path.relpath(full, Path(dir).resolve())).as_posix())
+    return out
+
+
+def _unstage(dir):
+    git(dir, "reset", "-q", "--", *source_paths(dir), check=False)
 
 
 def commit(dir, subject, body=None):
@@ -161,26 +181,57 @@ def _warnings(findings, base=None):
 # ---- commands -----------------------------------------------------------------------------------------
 
 
+def _artifacts(dir, res, edit):
+    """Write artifacts after a successful commit; a failure here is reported, not raised."""
+    try:
+        return write_artifacts(dir, res, edit)
+    except OSError as e:
+        return {
+            "artifacts_error": f"{type(e).__name__}: {e}",
+            "hint": "关闭占用产物的程序后 lcad build",
+        }
+
+
 def init(dir, from_=None, sheet="A3"):
     dir = Path(dir)
     if (dir / SRC).exists() or (dir / LOG).exists():
         raise InvalidArgument(f"{dir} 里已经有图纸（{SRC} 或 {LOG}）", hint="换一个空目录")
     if from_ is not None and from_ not in EXAMPLES:
         raise InvalidArgument(f"没有范例 {from_!r}", candidates=list(EXAMPLES))
+    existed = dir.exists()
     dir.mkdir(parents=True, exist_ok=True)
-    if from_:
-        src = resources.files("linercad") / "examples" / from_ / SRC
-        _write(dir / SRC, src.read_text(encoding="utf-8"))
-    else:
-        _write(dir / SRC, STARTER.format(sheet=sheet))
-    _write(dir / LOG, "")
-    if not (dir / ".gitignore").exists():
-        _write(dir / ".gitignore", GITIGNORE)
-    if not (dir / ".gitattributes").exists():
-        _write(dir / ".gitattributes", GITATTRIBUTES)
-    if repo_root(dir) is None:
-        git(dir, "init", "-q")
-    res = build(dir)
+    created = []
+    had_repo = repo_root(dir) is not None
+    try:
+        for name, text in (
+            (
+                SRC,
+                STARTER.format(sheet=sheet)
+                if not from_
+                else (resources.files("linercad") / "examples" / from_ / SRC).read_text(
+                    encoding="utf-8"
+                ),
+            ),
+            (LOG, ""),
+            (".gitignore", GITIGNORE),
+            (".gitattributes", GITATTRIBUTES),
+        ):
+            if not (dir / name).exists():
+                _write(dir / name, text)
+                created.append(dir / name)
+        if not had_repo:
+            git(dir, "init", "-q")
+        res = build(dir)
+    except BaseException:
+        for p in created:
+            p.unlink(missing_ok=True)
+        if not had_repo:
+            shutil.rmtree(dir / ".git", ignore_errors=True)
+        shutil.rmtree(dir / ".linercad", ignore_errors=True)
+        if not existed:
+            shutil.rmtree(dir, ignore_errors=True)
+        raise
+    (dir / TMP_DIR).mkdir(parents=True, exist_ok=True)
     arts = write_artifacts(dir, res, "e0")
     h = commit(dir, "e0 · init")
     return {
@@ -241,8 +292,9 @@ def edit(dir, script, msg):
         h = commit(dir, f"{edit_id} · {msg}")
     except Exception:
         log_path.write_bytes(old)
+        _unstage(dir)
         raise
-    arts = write_artifacts(dir, r2, edit_id)
+    arts = _artifacts(dir, r2, edit_id)
     prune_tmp(dir)
     changed = []
     for op in filled:
@@ -273,9 +325,16 @@ def undo(dir, target, msg=None):
             hint='先 lcad build -m "<原话>" 提交，或手动还原',
         )
     edits = git_edits(dir)
+    undone = {m.strip() for *_, b in edits for m in re.findall(r"Undo-Of:\s*(e\d+)", b)}
+    if target in undone:
+        raise UndoError(f"{target} 已经撤销过了", hint="重新做一次原来的修改")
     hit = [e for e in edits if f"e{e[0]}" == target]
     if not hit:
-        cands = [f"e{n}" for n, _, s, b in edits if n != 0 and "Undo-Of:" not in b]
+        cands = [
+            f"e{n}"
+            for n, _, s, b in edits
+            if n != 0 and "Undo-Of:" not in b and f"e{n}" not in undone
+        ]
         raise UndoError(f"找不到修改 {target}", candidates=cands)
     _, h, subject, body = hit[0]
     if "Undo-Of:" in body:
@@ -309,11 +368,14 @@ def undo(dir, target, msg=None):
         res = build(dir)
         new_id = next_edit(dir, res.log_ops)
         c = commit(dir, f"{new_id} · {msg or 'undo ' + target}", body=f"Undo-Of: {target}")
+        if c is None:
+            raise UndoError(f"撤销 {target} 没有产生任何改动")
     except Exception:
         log_path.write_bytes(old_log)
         (dir / SRC).write_bytes(old_src)
+        _unstage(dir)
         raise
-    arts = write_artifacts(dir, res, new_id)
+    arts = _artifacts(dir, res, new_id)
     return {
         "ok": True,
         "edit": new_id,

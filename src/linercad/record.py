@@ -164,6 +164,12 @@ class Recorder:
             args = dict(args)
             rid = args.pop("id")
             return {"edit": self.edit, "op": op, "id": rid, "args": args}
+        if op == "move":  # freeze the layout fields the move is relative to (SPEC 7.2)
+            args = dict(args)
+            for k in _layout_group(target):
+                v = target._layout.get(k, target._resolved.get(k))
+                if v is not None and k not in args:
+                    args[k] = v
         return {"edit": self.edit, "op": op, "id": target.id, "args": args}
 
 

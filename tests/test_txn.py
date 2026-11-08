@@ -201,3 +201,46 @@ def test_edit_scoped_names_survive_replay(part):
     assert code == 0 and out["changed"] == ["E.front.e1_1"]
     code, out = lcad(part, "context", "E.front.e1_1")
     assert code == 0 and out["items"][0]["element"]["src"] == {"edit": "e1", "line": 1}
+
+
+# ---- regressions from the PR #22 review ---------------------------------------------------------
+
+
+def test_undo_drawing_py_change_with_lf_file(part):
+    p = part / "drawing.py"
+    p.write_bytes(p.read_bytes().replace(b"H=Param(50", b"H=Param(60"))
+    assert b"\r" not in p.read_bytes()
+    lcad(part, "build", "-m", "高度 60")
+    code, out = lcad(part, "undo", "e1")
+    assert code == 0, out
+    assert b"H=Param(50" in p.read_bytes() and b"\r" not in p.read_bytes()
+
+
+def test_move_on_auto_placed_dim(part):
+    code, out = lcad(part, "edit", script(part, "m.py", 'd["D.L"].move(dy=-4)'), "-m", "往下挪 4")
+    assert code == 0, out
+    assert out["ops"][0]["args"]["side"] == "bottom"
+
+
+def test_undo_twice_refused_and_print_does_not_break_json(part):
+    lcad(part, "edit", script(part, "a.py", 'print("hello")\nd["D.H"].tol = "h7"'), "-m", "x")
+    lcad(part, "undo", "e1")
+    code, out = lcad(part, "undo", "e1")
+    assert code == 1 and out["error"]["code"] == "undo"
+    code, out = lcad(part, "edit", script(part, "b.py", "import sys\nsys.exit(3)"), "-m", "y")
+    assert code == 1 and out["error"]["code"] == "script"
+
+
+def test_failed_init_cleans_up(tmp_path):
+    code, out = lcad(tmp_path, "init", str(tmp_path / "w"), "--sheet", "A9")
+    assert code == 1 and not (tmp_path / "w").exists()
+    code, out = lcad(tmp_path, "init", str(tmp_path / "w"))
+    assert code == 0
+
+
+def test_bom_in_hand_edited_log(part):
+    lcad(part, "edit", script(part, "a.py", 'd["D.H"].tol = "h7"'), "-m", "x")
+    log = part / "drawing.actions.jsonl"
+    log.write_bytes(b"\xef\xbb\xbf" + log.read_bytes())
+    code, out = lcad(part, "build")
+    assert code == 0, out
