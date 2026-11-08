@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="lcad-token" content="__LCAD_TOKEN__">
+<title>Liner-CAD Viewer</title>
+<link rel="stylesheet" href="/viewer.css">
+</head>
+<body>
+<main id="app">
+  <section id="params" aria-label="参数">
+    <h2>参数</h2>
+    <div id="param-list"></div>
+    <div id="param-msg" class="msg"></div>
+    <div class="row">
+      <button id="btn-reset" type="button" disabled>撤回预览</button>
+    </div>
+  </section>
+  <section id="canvas-wrap" aria-label="图纸">
+    <div id="canvas"></div>
+    <div id="hint">滚轮缩放 · 拖动平移 · 单击选中 · Ctrl 多选 · Esc 清空 · F 适应</div>
+  </section>
+  <section id="inspector" aria-label="检查器">
+    <h2>检查器</h2>
+    <div id="insp-body"><p class="muted">点选图上的元素</p></div>
+  </section>
+  <footer id="status"><span id="st-text">加载中…</span><span id="st-extra"></span></footer>
+</main>
+<script src="/viewer.js"></script>
+</body>
+</html>
