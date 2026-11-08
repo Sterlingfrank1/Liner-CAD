@@ -18,15 +18,25 @@ R, Rh, r0, Rb = P.da / 2, P.Dh / 2, P.d0 / 2, P.pcd / 2
 front = d.view("front")  # 半剖：x 沿轴线，上半剖开
 left = d.view("left")  # 端面视图（看齿轮坯的盘面一侧）
 
-front.turned(
+body = front.turned(
     "body",
-    [(0, R - 1.5, "ch0"), (1.5, R, "rim"), (P.B - 1.5, R, "ch1"), (P.B, R - 1.5), (P.B, Rh, "hubf"), (P.L, Rh, "hub")],
+    [
+        (0, R - 1.5, "ch0"),
+        (1.5, R, "rim"),
+        (P.B - 1.5, R, "ch1"),
+        (P.B, R - 1.5),
+        (P.B, Rh, "hubf"),
+        (P.L, Rh, "hub"),
+    ],
     bore=[(0, r0), (P.L, r0)],
     cut="half",
     half="top",
     hub_keyway=True,
     holes=[{"name": "lh", "r": Rb, "d": P.dl, "x0": 0, "x1": P.B}],
 )
+
+# 几何对照：半剖的 HLR 在切口平面（过轴线）处多出一条沿轴线的边线，图上那里是细点画线，遮掉
+body._intent["mask"] = [[-1.0, -0.2], [float(P.L) + 1, -0.2], [float(P.L) + 1, 0.2], [-1.0, 0.2]]
 
 left.circle((0, 0), R, name="outer")
 left.circle((0, 0), R - 1.5, name="chamfer")
