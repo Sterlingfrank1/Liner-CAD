@@ -112,7 +112,7 @@ def _write(msp, pr, std, text_boxes):
     if isinstance(pr, Text):
         t = msp.add_text(
             pr.text,
-            height=dxf_height(pr.text, pr.height, std),
+            height=dxf_height(pr.text, pr.height, std, pr.cjk),
             rotation=pr.rot,
             dxfattribs={**lay, "style": "LC", "width": std["text"]["width_factor"]},
         )

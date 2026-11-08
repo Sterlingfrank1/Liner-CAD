@@ -21,16 +21,19 @@ def has_cjk(s: str) -> bool:
     return any(is_cjk(c) for c in s)
 
 
-def dxf_height(s: str, h: float, std: dict) -> float:
-    """DXF TEXT height for GB character height ``h``."""
-    return h / std["text"]["cjk_em"] if has_cjk(s) else h
+def dxf_height(s: str, h: float, std: dict, cjk=None) -> float:
+    """DXF TEXT height for GB character height ``h``. ``cjk`` forces the metric of a block of
+    lines that mixes Chinese and Latin text, so every line looks the same size."""
+    return h / std["text"]["cjk_em"] if (has_cjk(s) if cjk is None else cjk) else h
 
 
-def text_size(s: str, h: float, std: dict) -> tuple[float, float]:
+def text_size(s: str, h: float, std: dict, cjk=None) -> tuple[float, float]:
     """(width, height) of the text box for GB character height ``h``."""
     t = std["text"]
-    dh = dxf_height(s, h, std)
+    dh = dxf_height(s, h, std, cjk)
     cw = t["char_width"]
     w = sum(cw["other"] if ord(c) < 128 else cw["cjk"] for c in s) * dh * t["width_factor"]
-    box_h = h * 1.05 if has_cjk(s) else dh * 1.25  # CJK body vs cap height + descender
+    box_h = (
+        h * 1.05 if (has_cjk(s) if cjk is None else cjk) else dh * 1.25
+    )  # CJK body vs cap height + descender
     return w, box_h
