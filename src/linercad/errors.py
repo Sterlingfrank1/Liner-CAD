@@ -58,6 +58,10 @@ class InvalidArgument(LinerError):
     code = "invalid_arg"
 
 
+class UnknownAttribute(InvalidArgument, AttributeError):
+    """Unknown method or field on an API object; lists what is available."""
+
+
 class DuplicateId(LinerError):
     code = "duplicate_id"
 

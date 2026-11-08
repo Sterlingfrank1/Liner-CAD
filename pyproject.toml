@@ -28,6 +28,7 @@ extend-exclude = ["*.md"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["B904", "B905", "E501"]  # chaining, zip(strict=), long strings: formatter owns line length
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
