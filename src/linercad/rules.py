@@ -266,14 +266,14 @@ def missing(d):
         for x in sorted(xs):
             groups.setdefault(uf.find(x), []).append(x)
         if len(groups) > 1:
-            parts = sorted(groups.values(), key=lambda g: g[0])
-            gaps = "；".join(f"{g[-1]:g} ↔ {h[0]:g}" for g, h in zip(parts, parts[1:]))
+            parts = sorted(groups.values(), key=len, reverse=True)
+            loose = "；".join("x=" + "、".join(f"{x:g}" for x in g) for g in parts[1:])
             out.append(
                 _f(
                     "missing",
                     f.id,
-                    f"{f.id} 的轴向台阶没有全部定位：{gaps}",
-                    candidates=[f"x={g[0]:g}" for g in parts],
+                    f"{f.id} 有轴向台阶没有尺寸连到其余台阶：{loose}（已连通：x={parts[0][0]:g}…{parts[0][-1]:g}）",
+                    candidates=[f"x={g[0]:g}" for g in parts[1:]],
                 )
             )
     return out

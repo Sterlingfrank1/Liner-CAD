@@ -57,7 +57,7 @@ def test_closed_loop_and_missing(shaft):
     d["D.l1"].suppress()
     d["D.l2"].suppress()
     miss = by_rule(run(d), "missing")
-    assert miss and miss[0]["id"] == "F.front.b" and "40" in miss[0]["message"]
+    assert miss and miss[0]["id"] == "F.front.b" and "x=40" in miss[0]["message"]
 
 
 def test_duplicate_and_param_cover(shaft):
