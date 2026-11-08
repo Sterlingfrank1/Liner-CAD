@@ -278,3 +278,18 @@ def test_review_fixes_float_noise_and_gtol_datum_refs():
     g = f.gtol("p", "parallelism", 0.02, datums=["A"], ref="E.front.b.2")
     g.set(datums=["B"])
     assert g.intent["datum_refs"] == ["DT.B"]
+
+
+def test_pmi_on_leader_dim_is_rejected_and_on_circle_feature_is_drawn():
+    d = Drawing()
+    left = d.view("left")
+    left.circle((0, 0), 50, name="o")
+    left.center_mark((0, 0), 50, name="ax")
+    left.thread_end("t1", (0, 30), "M8", kind="int")
+    left.dim.hole("tap", "F.left.t1", n=3)
+    with pytest.raises(errors.InvalidArgument) as e:
+        left.gtol("pos", "position", 0.2, zone="dia", ref="D.tap")
+    assert "F.left.t1" in e.value.candidates
+    g = left.gtol("pos", "position", 0.2, zone="dia", ref="F.left.t1")
+    layout(d)
+    assert g._prims

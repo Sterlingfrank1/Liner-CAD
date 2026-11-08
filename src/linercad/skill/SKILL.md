@@ -73,7 +73,7 @@ front = d.view("front")      # 基本视图：front top bottom left right rear�
 |---|---|
 | `v.line(p1, p2, role=, name=)` / `v.polyline` / `v.polygon` / `v.rect((x, y), w, h)` | 特征 `F.<视图>.<名>`，边 `E.<视图>.<名>.<k>` |
 | `v.circle(c, r)` / `v.arc(c, r, start, end)` | 角度制逆时针 |
-| `v.turned(name, [(x, r, "名"?), ...], axis=0, bore=None, cut=None, half="top", holes=[], grooves=[])` | **回转体**（轴、套、盘、盖）：给上半外轮廓。`bore` 内孔轮廓；`cut="full"` 全剖、`"half"` 半剖（自动剖面区域、剖面线 `H.<v>.<name>`、孔后可见线）；`holes=[{"name","r","d","x0","x1","tip":True,"thread":"M8","depth":16}]` 轴向孔/螺孔；`grooves=[{"name","x","w","d","side":"left"}]` 退刀槽拼进轮廓；`hub_keyway=True` 剖视里的轮毂键槽。轮廓点第三项给名字 → 稳定边 `E.<v>.<name>.<名>`（下半 `<名>_lo`），PMI 引用它 |
+| `v.turned(name, [(x, r, "名"?), ...], axis=0, bore=None, cut=None, half="top", holes=[], grooves=[])` | **回转体**（轴、套、盘、盖）：给上半外轮廓。`bore` 内孔轮廓；`cut="full"` 全剖、`"half"` 半剖（自动剖面区域、剖面线 `H.<v>.<name>`、孔后可见线）；`holes=[{"name","r","d","x0","x1","tip":True,"thread":"M8","depth":16}]` 轴向孔/螺孔；`grooves=[{"name","x","w","d","side":"left"}]` 退刀槽拼进轮廓；`hub_keyway=True` 剖视里的轮毂键槽。轮廓点第三项给名字（只用于外轮廓 profile；`bore` 点不能起名，内孔边用 `d.q.lines(...)` 选）→ 稳定边 `E.<v>.<name>.<名>`（下半 `<名>_lo`），PMI 引用它 |
 | `v.centerline(p1, p2)` / `v.center_mark(c, r)` / `v.holes_on_circle(name, c, pcd, n, d, start=90)` | 中心线 / 十字中心线 / 均布孔 |
 | `v.wavy(name, [p1, p2, ...])` | 局部剖、断裂的波浪线 |
 | `v.hatch(name, loops=[...], outline=None)` | 剖面线；嵌套环是孤岛；`outline="thin"` = 重合断面 |
@@ -115,7 +115,7 @@ front = d.view("front")      # 基本视图：front top bottom left right rear�
 
 - `value=P.L - P.l1` 让尺寸显示参数值并记录 `covers`；不给就显示几何实测值。`role="position"` 必须给 `datum=`。
 - **公差**：`tol="k6"`（查 GB/T 1800 得偏差）、`"±0.1"`、`"+0.021/0"`；`tol_show="code"/"dev"/"both"` 三种注法；`envelope=True` 包容要求；`el.fit = "g6"` 同 `tol`。
-- **布局字段**（不写就由引擎排）：`side` = `top/bottom/left/right/inside`；`row` = 第几排；`offset` 微调；圆视图 `at`（引出角度）；引线类 `dir`/`length`；PMI `at`（沿被测边的位置 0–1）/`length`。写了的固定，没写的自动。
+- **布局字段**（不写就由引擎排）：`side` = `top/bottom/left/right/inside`；`row` = 第几排；`offset` 微调；圆视图 `at`（引出角度）；引线类 `dir`/`length`；PMI `at`（沿被测边的位置 0–1；被测要素是尺寸时 1 / 0 = 尺寸线两端）/`length`（引线长 mm，框格放在被测面外法向一侧）。写了的固定，没写的自动。
 
 **PMI**（语义元素，字段分存，关联被测几何）：
 

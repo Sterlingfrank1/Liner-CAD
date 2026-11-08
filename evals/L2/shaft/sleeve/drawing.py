@@ -40,7 +40,7 @@ front.note("bch", "2×C1", anchor=(C / 2, r + C / 2))
 
 # PMI：内孔轴线为基准 A
 front.datum("A", ref="D.d")
-front.gtol("coax", "concentricity", 0.03, datums=["A"], ref="D.D")
+front.gtol("coax", "concentricity", 0.03, datums=["A"], zone="dia", ref="D.D")
 front.gtol("perp", "perpendicularity", 0.02, datums=["A"], ref="E.front.cv.7")
 front.rough("bore", 0.8, ref="E.front.cv.2", process="铰")
 front.rough("od", 1.6, ref="E.front.cv.od", process="磨")

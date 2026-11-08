@@ -145,3 +145,12 @@ def test_forbidden_datum_letter(shaft):
     d, P, f = shaft
     f.datum("I", ref="D.D")
     assert [x for x in by_rule(run(d), "datum_letter") if x["severity"] == "error"]
+
+
+def test_coaxiality_on_axis_needs_dia_zone(shaft):
+    d, P, f = shaft
+    f.datum("A", ref="D.D")
+    f.gtol("co", "concentricity", 0.03, datums=["A"], ref="D.D2")
+    assert ("gtol_syntax", "G.co") in rules(run(d))
+    d["G.co"].set(zone="dia")
+    assert ("gtol_syntax", "G.co") not in rules(run(d))

@@ -311,6 +311,19 @@ def dev_order(d):
 def gtol_syntax(d):
     out = []
     for e in _els(d, "gtol"):
+        i = e._intent
+        if (
+            i["char"] in ("concentricity", "position")
+            and i["target"] == "axis"
+            and i["zone"] is None
+        ):
+            out.append(
+                _f(
+                    "gtol_syntax",
+                    e.id,
+                    f"{e.id}：被测要素是轴线时公差带为圆柱，公差值前应加 Φ（zone='dia'）",
+                )
+            )
         missing_ = [r for r in e._intent.get("datum_refs", []) if r not in d._els]
         if missing_:
             out.append(
