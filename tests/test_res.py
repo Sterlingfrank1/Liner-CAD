@@ -102,3 +102,117 @@ def test_general_tol_errors_have_candidates():
         with pytest.raises(InvalidArgument) as err:
             res.general_tol(*args, **kw)
         assert err.value.candidates or err.value.hint, args
+
+
+# ---------------------------------------------------------------------- threads (196 / 193 / 197)
+
+
+@pytest.mark.parametrize(
+    "spec, d2, d1, pitch, coarse",
+    [("M10", 9.026, 8.376, 1.5, True), ("M20x1.5", 19.026, 18.376, 1.5, False),
+     ("M20×1.5", 19.026, 18.376, 1.5, False), ("M6", 5.350, 4.917, 1, True),
+     ("M12", 10.863, 10.106, 1.75, True), ("M16", 14.701, 13.835, 2, True),
+     ("M24", 22.051, 20.752, 3, True), ("M30", 27.727, 26.211, 3.5, True),
+     ("M8x1", 7.350, 6.917, 1, False), ("M1.6", 1.373, 1.221, 0.35, True),
+     ("M64", 60.103, 57.505, 6, True), ("M20x2.5", 18.376, 17.294, 2.5, True)],
+)
+def test_thread_dimensions(spec, d2, d1, pitch, coarse):
+    got = res.thread(spec)
+    assert (got["P"], got["d2"], got["d1"], got["coarse"]) == (pitch, d2, d1, coarse)
+    assert got["std"] == "GB/T 196-2003"
+
+
+def test_thread_series_membership():
+    assert res.thread("M10")["first"] and not res.thread("M14")["first"]
+    for spec in ("M10x1.2", "M5.5", "M70", "M10x"):
+        with pytest.raises(InvalidArgument) as err:
+            res.thread(spec)
+        assert err.value.candidates, spec
+    with pytest.raises(InvalidArgument) as err:
+        res.thread("M10x1.2")
+    assert "M10x1.25" in err.value.candidates
+
+
+def test_thread_classes():
+    assert {"4h", "6h", "6g", "6f", "6e", "8g", "5g6g", "7g6g"} <= set(res.thread_classes("ext"))
+    assert {"4H", "5H", "6H", "7H", "6G"} <= set(res.thread_classes("int"))
+    assert res.thread("M10", cls="6g")["cls"] == "6g"
+    assert res.thread("M10", cls="6H")["cls"] == "6H"
+    with pytest.raises(InvalidArgument) as err:
+        res.thread("M10", cls="6z")
+    assert "6g" in err.value.candidates
+    with pytest.raises(InvalidArgument):
+        res.thread_classes("both")
+
+
+# ---------------------------------------------------------------------------- keys (1095)
+
+
+@pytest.mark.parametrize(
+    "d, b, h, t1, t2, rng",
+    [(32, 10, 8, 5.0, 3.3, [30, 38]), (30, 8, 7, 4.0, 3.3, [22, 30]), (8, 2, 2, 1.2, 1.0, [6, 8]),
+     (8.1, 3, 3, 1.8, 1.4, [8, 10]), (45, 14, 9, 5.5, 3.8, [44, 50]), (60, 18, 11, 7.0, 4.4, [58, 65]),
+     (100, 28, 16, 10.0, 6.4, [95, 110]), (130, 32, 18, 11.0, 7.4, [110, 130])],
+)
+def test_key_values(d, b, h, t1, t2, rng):
+    got = res.key(d)
+    assert (got["b"], got["h"], got["t1"], got["t2"], got["d_range"]) == (b, h, t1, t2, rng)
+    assert got["std"] == "GB/T 1095-2003"
+
+
+def test_key_depth_deviations_and_derived_dimensions():
+    small, big = res.key(8), res.key(32)
+    assert (small["t1_dev"], small["t2_dev"]) == ([0.1, 0.0], [0.1, 0.0])
+    assert big["t1_dev"] == [0.2, 0.0]
+    assert big["d_t1"] == {"nominal": 27.0, "upper": 0.0, "lower": -0.2}
+    assert big["d_t2"] == {"nominal": 35.3, "upper": 0.2, "lower": 0.0}
+    assert (big["width_fit"]["normal"], big["width_fit"]["close"]) == (
+        {"shaft": "N9", "hub": "JS9"}, {"shaft": "P9", "hub": "P9"})
+
+
+def test_key_table_is_contiguous_and_depths_add_up():
+    sizes = [6, 8, 10, 12, 17, 22, 30, 38, 44, 50, 58, 65, 75, 85, 95, 110, 130]
+    for lo, hi in zip(sizes, sizes[1:]):
+        got = res.key(hi)
+        assert got["d_range"] == [lo, hi]
+        assert 0.19 <= got["t1"] + got["t2"] - got["h"] <= 0.41  # keyway depths leave 0.2-0.4 clearance
+    for bad in (5.9, 131):
+        with pytest.raises(InvalidArgument):
+            res.key(bad)
+
+
+# ------------------------------------------------------------------- splines, datums, roughness
+
+
+@pytest.mark.parametrize(
+    "spec, n, d, big_d, b, series",
+    [("6x23x26x6", 6, 23, 26, 6, "light"), ("6×23×28×6", 6, 23, 28, 6, "medium"),
+     ("8x56x65x10", 8, 56, 65, 10, "medium"), ("10x112x120x18", 10, 112, 120, 18, "light"),
+     ("6x13x16x3.5", 6, 13, 16, 3.5, "medium"), ("8x42x46x8", 8, 42, 46, 8, "light")],
+)
+def test_spline(spec, n, d, big_d, b, series):
+    got = res.spline(spec)
+    assert (got["N"], got["d"], got["D"], got["B"], got["series"]) == (n, d, big_d, b, series)
+    assert got["std"] == "GB/T 1144-2001"
+    assert got["tol"]["hole"] == {"d": "H7", "D": "H10", "B": ["H9", "H11"]}
+    assert got["tol"]["shaft"]["sliding"] == {"d": "f7", "D": "a11", "B": "d10"}
+
+
+def test_spline_unknown_gives_candidates():
+    with pytest.raises(InvalidArgument) as err:
+        res.spline("6x23x27x6")
+    assert "6x23x26x6" in err.value.candidates
+
+
+def test_datum_excluded_letters_and_roughness_series():
+    iso = res.datum_excluded("ISO")
+    assert iso["letters"] == ["I", "O", "Q", "X"] and "5459" in iso["std"] and iso["source"]
+    assert res.datum_excluded("GB")["std"].startswith("GB/T 1182")
+    with pytest.raises(InvalidArgument):
+        res.datum_excluded("DIN")
+    ra = res.rough_series()
+    assert {0.025, 0.1, 0.4, 0.8, 1.6, 3.2, 6.3, 12.5, 25, 50} <= set(ra["preferred"])
+    assert ra["param"] == "Ra" and ra["std"] == "GB/T 1031-2009"
+    with pytest.raises(InvalidArgument) as err:
+        res.rough_series("Rq")
+    assert "Ra" in err.value.candidates
