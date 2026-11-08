@@ -79,7 +79,8 @@ def _overlaps(d):
                 if o is not e:
                     osegs, oboxes = shapes[o._id]
                     obstacles += oboxes + [
-                        (min(p[0], q[0]), min(p[1], q[1]), max(p[0], q[0]), max(p[1], q[1])) for p, q in osegs
+                        (min(p[0], q[0]), min(p[1], q[1]), max(p[0], q[0]), max(p[1], q[1]))
+                        for p, q in osegs
                     ]
             findings.append(
                 {
@@ -87,7 +88,9 @@ def _overlaps(d):
                     "severity": "warn",
                     "id": e._id,
                     "message": f"{e._id} 的文字与 {'、'.join(sorted(viol))} 重叠",
-                    "violations": [{"with": k, "overlap": round(v, 3)} for k, v in sorted(viol.items())],
+                    "violations": [
+                        {"with": k, "overlap": round(v, 3)} for k, v in sorted(viol.items())
+                    ],
                     "corridors": _corridors(boxes[0], obstacles),
                     "std": STD_OVERLAP,
                 }

@@ -131,7 +131,7 @@ def test_circle_view_dia_and_rad():
     d = Drawing()
     left = d.view("left")
     c = left.circle((0, 0), 30, name="outer")
-    a = left.arc((0, 0), 10, 0, 90, name="corner")
+    left.arc((0, 0), 10, 0, 90, name="corner")
     dia = left.dim.dia("Do", circle=c, at=45)
     assert dia.text == "Φ60" and dia.LAYOUT == ("at",) and dia.at == 45
     assert dia.intent["circle"] == "E.left.outer.1"
@@ -219,11 +219,18 @@ def test_section_and_default_look():
 
 
 def test_default_look_first_and_third_angle():
-    std = {"views": {"projection": "first", "positions": {"first": {"top": [0, -1], "left": [1, 0], "right": [-1, 0]}}}}
+    std = {
+        "views": {
+            "projection": "first",
+            "positions": {"first": {"top": [0, -1], "left": [1, 0], "right": [-1, 0]}},
+        }
+    }
     assert default_look(std, "front", "left") == "left"
     assert default_look(std, "front", "top") == "up"
     assert default_look(std, "left", "front") == "right"
-    std3 = {"views": {"projection": "third", "positions": {"third": {"top": [0, 1], "right": [1, 0]}}}}
+    std3 = {
+        "views": {"projection": "third", "positions": {"third": {"top": [0, 1], "right": [1, 0]}}}
+    }
     assert default_look(std3, "front", "top") == "up"
     assert default_look(std3, "front", "right") == "right"
 

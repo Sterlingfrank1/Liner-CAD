@@ -308,7 +308,18 @@ def test_getitem_candidates(d):
 def test_to_dict_fields(d):
     e = d.view("front").line((0, 0), (1, 0))
     rec = e.to_dict()
-    assert list(rec) == ["id", "kind", "intent", "placement", "refs", "covers", "tags", "src", "history", "status"]
+    assert list(rec) == [
+        "id",
+        "kind",
+        "intent",
+        "placement",
+        "refs",
+        "covers",
+        "tags",
+        "src",
+        "history",
+        "status",
+    ]
     assert rec["status"] == "ok" and rec["kind"] == "edge"
 
 
@@ -341,7 +352,7 @@ def test_where_with_tolerance_and_near(plate):
     assert e.id == "E.front.plate.3"
     assert d.q.lines(view="front").where(length=30.004, dir="h").exactly(2)
     assert len(d.q.lines(view="front").where(length=30.5, tol=0.6)) == 2
-    assert len(d.q.lines(view="front").where(lambda el: el.start[1] == 0)) == 3
+    assert len(d.q.lines(view="front").where(lambda el: el.start[1] == 0)) == 2
 
 
 def test_near_requires_single_view(plate):

@@ -340,7 +340,12 @@ class Drawing:
     def __getitem__(self, id):
         el = self._els.get(id)
         if el is None:
-            raise NotFound(f"找不到元素 {id}", id=id, candidates=self._close_ids(id), hint="用 lcad context 查看全部 ID")
+            raise NotFound(
+                f"找不到元素 {id}",
+                id=id,
+                candidates=self._close_ids(id),
+                hint="用 lcad context 查看全部 ID",
+            )
         return el
 
     def __contains__(self, id):

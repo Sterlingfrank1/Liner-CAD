@@ -12,7 +12,9 @@ from __future__ import annotations
 
 def is_cjk(ch: str) -> bool:
     o = ord(ch)
-    return o >= 0x2E80 and not (0xFF61 <= o <= 0xFFDC)  # CJK and full-width forms, not half-width kana
+    return o >= 0x2E80 and not (
+        0xFF61 <= o <= 0xFFDC
+    )  # CJK and full-width forms, not half-width kana
 
 
 def has_cjk(s: str) -> bool:

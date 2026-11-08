@@ -36,12 +36,17 @@ def _setup(doc, std):
         if not isinstance(lt, dict):
             continue
         pat = list(lt["pattern"])
-        doc.linetypes.add(name, pattern=[sum(abs(x) for x in pat), *pat], description=lt.get("description", ""))
-    for role, spec in std["lines"].items():
+        doc.linetypes.add(
+            name, pattern=[sum(abs(x) for x in pat), *pat], description=lt.get("description", "")
+        )
+    for _role, spec in std["lines"].items():
         if not isinstance(spec, dict):
             continue
         doc.layers.add(
-            spec["layer"], color=spec["color"], lineweight=int(round(spec["width"] * 100)), linetype=spec["linetype"]
+            spec["layer"],
+            color=spec["color"],
+            lineweight=int(round(spec["width"] * 100)),
+            linetype=spec["linetype"],
         )
     style = doc.styles.add("LC", font=std["text"]["font"])
     style.dxf.width = std["text"]["width_factor"]
@@ -77,7 +82,14 @@ def _islands(hatch, text_boxes):
         corners = [(b[0], b[1]), (b[2], b[1]), (b[2], b[3]), (b[0], b[3])]
         if all(_in_region(c, hatch.loops) for c in corners):
             m = 0.5
-            out.append([(b[0] - m, b[1] - m), (b[2] + m, b[1] - m), (b[2] + m, b[3] + m), (b[0] - m, b[3] + m)])
+            out.append(
+                [
+                    (b[0] - m, b[1] - m),
+                    (b[2] + m, b[1] - m),
+                    (b[2] + m, b[3] + m),
+                    (b[0] - m, b[3] + m),
+                ]
+            )
     return out
 
 
@@ -152,10 +164,16 @@ def to_doc(d):
                     raise InvalidArgument(f"{ent.dxftype()} 没有 DXF 属性 {attr}")
                 ent.dxf.set(attr, ov["value"])
             except Exception as ex:  # an override that cannot apply is a stale op, never a crash
-                failures.append({
-                    "edit": ov.get("edit"), "line": ov.get("line"), "op": "raw", "id": e.id,
-                    "reason": str(ex), "candidates": [],
-                })
+                failures.append(
+                    {
+                        "edit": ov.get("edit"),
+                        "line": ov.get("line"),
+                        "op": "raw",
+                        "id": e.id,
+                        "reason": str(ex),
+                        "candidates": [],
+                    }
+                )
         index[e.id] = ents
     return doc, index, failures
 
@@ -177,23 +195,26 @@ def save_doc(doc, path):
 
 def model_dict(d, findings=(), edit=None) -> dict:
     tpl = d.template
-    views = {
-        v.name: {"origin": v._resolved.get("origin"), "scale": d.scale}
-        for v in d.views()
-    }
+    views = {v.name: {"origin": v._resolved.get("origin"), "scale": d.scale} for v in d.views()}
     P = d.P
     from .model import _round
 
-    return _round({
-        "schema": SCHEMA,
-        "drawing": {
-            "sheet": d.sheet, "std": d.std_name, "scale": d.scale_text, "edit": edit,
-            "frame": list(tpl["frame"]), "views": views,
-        },
-        "params": [P[n].to_dict(n) for n in P.names()],
-        "elements": [e.to_dict() for e in d._els.values()],
-        "findings": list(findings),
-    })
+    return _round(
+        {
+            "schema": SCHEMA,
+            "drawing": {
+                "sheet": d.sheet,
+                "std": d.std_name,
+                "scale": d.scale_text,
+                "edit": edit,
+                "frame": list(tpl["frame"]),
+                "views": views,
+            },
+            "params": [P[n].to_dict(n) for n in P.names()],
+            "elements": [e.to_dict() for e in d._els.values()],
+            "findings": list(findings),
+        }
+    )
 
 
 def write_text_atomic(path, text):
@@ -207,4 +228,6 @@ def write_text_atomic(path, text):
 
 
 def write_model(d, path, findings=(), edit=None):
-    return write_text_atomic(path, json.dumps(model_dict(d, findings, edit), ensure_ascii=False, indent=1) + "\n")
+    return write_text_atomic(
+        path, json.dumps(model_dict(d, findings, edit), ensure_ascii=False, indent=1) + "\n"
+    )

@@ -61,7 +61,7 @@ def test_dimension_is_several_entities_one_id():
 def test_layers_linetypes_and_style_from_std():
     d = make()
     doc, *_ = to_doc(d)
-    for role, spec in d.std["lines"].items():
+    for _role, spec in d.std["lines"].items():
         if not isinstance(spec, dict):
             continue
         lay = doc.layers.get(spec["layer"])
@@ -118,11 +118,26 @@ def test_model_json_shape(tmp_path):
     p = write_model(d, tmp_path / "model.json", f, "e2")
     m = json.loads(p.read_text(encoding="utf-8"))
     assert m["schema"] == "linercad.model/0"
-    assert m["drawing"]["edit"] == "e2" and m["drawing"]["sheet"] == "A3" and m["drawing"]["scale"] == "1:1"
+    assert (
+        m["drawing"]["edit"] == "e2"
+        and m["drawing"]["sheet"] == "A3"
+        and m["drawing"]["scale"] == "1:1"
+    )
     assert set(m["drawing"]["views"]) == {"front", "left"}
     assert [p["name"] for p in m["params"]] == ["D", "d0", "T", "L"]
     rec = {e["id"]: e for e in m["elements"]}["D.L"]
-    assert list(rec) == ["id", "kind", "intent", "placement", "refs", "covers", "tags", "src", "history", "status"]
+    assert list(rec) == [
+        "id",
+        "kind",
+        "intent",
+        "placement",
+        "refs",
+        "covers",
+        "tags",
+        "src",
+        "history",
+        "status",
+    ]
     assert rec["placement"]["resolved"]["bbox"] and rec["covers"] == ["L"]
     assert m["findings"] == f
     assert model_dict(d, f, "e2") == m

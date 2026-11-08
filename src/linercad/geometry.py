@@ -13,7 +13,9 @@ EPS = 1e-9
 
 def _role(role):
     if role not in ROLES:
-        raise InvalidArgument(f"线型角色 {role!r} 不存在", candidates=list(ROLES), values={"role": role})
+        raise InvalidArgument(
+            f"线型角色 {role!r} 不存在", candidates=list(ROLES), values={"role": role}
+        )
     return role
 
 
@@ -195,7 +197,11 @@ class CenterLine(Element):
         i = self._intent
         if i["type"] == "line":
             (x1, y1), (x2, y2) = i["p1"], i["p2"]
-            return {"start": tuple(i["p1"]), "end": tuple(i["p2"]), "mid": ((x1 + x2) / 2, (y1 + y2) / 2)}
+            return {
+                "start": tuple(i["p1"]),
+                "end": tuple(i["p2"]),
+                "mid": ((x1 + x2) / 2, (y1 + y2) / 2),
+            }
         return {"center": tuple(i["c"])}
 
     def _apply_move(self, dx, dy):
@@ -222,7 +228,9 @@ class View(Element):
 
     def _apply_move(self, dx, dy):
         n = self.name
-        if (n in ("top", "bottom") and abs(dx) > 1e-9) or (n in ("left", "right", "rear") and abs(dy) > 1e-9):
+        if (n in ("top", "bottom") and abs(dx) > 1e-9) or (
+            n in ("left", "right", "rear") and abs(dy) > 1e-9
+        ):
             free = "dy" if n in ("top", "bottom") else "dx"
             raise InvalidArgument(
                 f"{self._id} 只能沿 {free} 方向移动，否则破坏投影对齐",
@@ -328,7 +336,9 @@ class View(Element):
     @mutator("line")
     def line(self, p1, p2, role="thick", name=None):
         a, b = self._p(p1, "p1"), self._p(p2, "p2")
-        return self._single(name, "line", {"shape": "line", "p1": _pt(a), "p2": _pt(b), "role": _role(role)})
+        return self._single(
+            name, "line", {"shape": "line", "p1": _pt(a), "p2": _pt(b), "role": _role(role)}
+        )
 
     @mutator("polyline")
     def polyline(self, points, role="thick", name=None):
@@ -366,7 +376,14 @@ class View(Element):
         c, r = self._p(center, "center"), num(r, "r")
         if r <= 0:
             raise InvalidArgument("圆弧的半径必须为正", values={"r": r})
-        ei = {"shape": "arc", "c": _pt(c), "r": r, "start": num(start, "start"), "end": num(end, "end"), "role": _role(role)}
+        ei = {
+            "shape": "arc",
+            "c": _pt(c),
+            "r": r,
+            "start": num(start, "start"),
+            "end": num(end, "end"),
+            "role": _role(role),
+        }
         return self._single(name, "arc", ei)
 
     @mutator("turned")
@@ -377,16 +394,24 @@ class View(Element):
             raise InvalidArgument("turned 的 profile 至少要 2 个点", values={"n": len(pts)})
         for (x0, _), (x1, _) in zip(pts, pts[1:]):
             if x1 < x0 - EPS:
-                raise InvalidArgument("turned 的 profile 中 x 必须单调不减", values={"x0": x0, "x1": x1})
+                raise InvalidArgument(
+                    "turned 的 profile 中 x 必须单调不减", values={"x0": x0, "x1": x1}
+                )
         if any(r <= 0 for _, r in pts):
-            raise InvalidArgument("turned 的 profile 中 r 必须为正", values={"r": [r for _, r in pts]})
+            raise InvalidArgument(
+                "turned 的 profile 中 r 必须为正", values={"r": [r for _, r in pts]}
+            )
         ax = num(axis, "axis")
         role = _role(role)
         top, bottom = [], []
         for (x0, r0), (x1, r1) in zip(pts, pts[1:]):
             if abs(x1 - x0) > EPS:
-                top.append({"shape": "line", "p1": [x0, ax + r0], "p2": [x1, ax + r1], "role": role})
-                bottom.append({"shape": "line", "p1": [x0, ax - r0], "p2": [x1, ax - r1], "role": role})
+                top.append(
+                    {"shape": "line", "p1": [x0, ax + r0], "p2": [x1, ax + r1], "role": role}
+                )
+                bottom.append(
+                    {"shape": "line", "p1": [x0, ax - r0], "p2": [x1, ax - r1], "role": role}
+                )
         verticals = []
         xs = sorted({x for x, _ in pts})
         for x in xs:
@@ -400,10 +425,14 @@ class View(Element):
                 cross = (xb - xa) * (rc - rb) - (rb - ra) * (xc - xb)
                 corner = abs(cross) > 1e-9
             if corner:
-                verticals.append({"shape": "line", "p1": [x, ax - rmax], "p2": [x, ax + rmax], "role": role})
+                verticals.append(
+                    {"shape": "line", "p1": [x, ax - rmax], "p2": [x, ax + rmax], "role": role}
+                )
         f = self._feature(name, {"type": "turned", "profile": [list(p) for p in pts], "axis": ax})
         self._feature_edges(f, top + bottom + verticals)
-        c = self._center(name, {"type": "line", "p1": [pts[0][0], ax], "p2": [pts[-1][0], ax]}, refs=[f.id])
+        c = self._center(
+            name, {"type": "line", "p1": [pts[0][0], ax], "p2": [pts[-1][0], ax]}, refs=[f.id]
+        )
         f._intent["centers"] = [c.id]
         return f
 
@@ -425,7 +454,9 @@ class View(Element):
         pcd, dd, start = num(pcd, "pcd"), num(d, "d"), num(start, "start")
         n = int(num(n, "n"))
         if n < 1 or pcd <= 0 or dd <= 0:
-            raise InvalidArgument("holes_on_circle 需要 n≥1、pcd>0、d>0", values={"n": n, "pcd": pcd, "d": dd})
+            raise InvalidArgument(
+                "holes_on_circle 需要 n≥1、pcd>0、d>0", values={"n": n, "pcd": pcd, "d": dd}
+            )
         R = pcd / 2
         centers = []
         for k in range(n):
@@ -434,7 +465,13 @@ class View(Element):
         f = self._feature(
             name, {"type": "holes", "c": _pt(c), "pcd": pcd, "n": n, "d": dd, "start": start}
         )
-        self._feature_edges(f, [{"shape": "circle", "c": [x, y], "r": dd / 2, "role": _role(role)} for x, y, _ in centers])
+        self._feature_edges(
+            f,
+            [
+                {"shape": "circle", "c": [x, y], "r": dd / 2, "role": _role(role)}
+                for x, y, _ in centers
+            ],
+        )
         cids = [self._center(name, {"type": "circle", "c": _pt(c), "r": R}, refs=[f.id]).id]
         for k, (x, y, a) in enumerate(centers, 1):
             ux, uy = math.cos(a), math.sin(a)
@@ -442,7 +479,12 @@ class View(Element):
             cl = CenterLine(
                 self._d,
                 f"C.{self.name}.{name}.{k}",
-                {"view": self.name, "type": "line", "p1": [x - h * ux, y - h * uy], "p2": [x + h * ux, y + h * uy]},
+                {
+                    "view": self.name,
+                    "type": "line",
+                    "p1": [x - h * ux, y - h * uy],
+                    "p2": [x + h * ux, y + h * uy],
+                },
                 refs=[self._id, f.id],
             )
             cids.append(self._d._add(cl).id)

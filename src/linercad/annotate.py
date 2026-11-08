@@ -95,10 +95,14 @@ class Dim(Element):
                 i["override"] = None if v is None else str(v)
             elif k == "role":
                 if v not in ROLES_DIM:
-                    raise InvalidArgument(f"尺寸角色 {v!r} 不存在", id=self._id, candidates=list(ROLES_DIM))
+                    raise InvalidArgument(
+                        f"尺寸角色 {v!r} 不存在", id=self._id, candidates=list(ROLES_DIM)
+                    )
                 if v == "position" and not i.get("datum"):
                     raise InvalidArgument(
-                        f"{self._id} 改成定位尺寸需要先给 datum", id=self._id, hint="set(role='position', datum=...)"
+                        f"{self._id} 改成定位尺寸需要先给 datum",
+                        id=self._id,
+                        hint="set(role='position', datum=...)",
                     )
                 i["role"] = v
             elif k == "datum":
@@ -122,7 +126,9 @@ class Dim(Element):
         if side is None:
             raise InvalidArgument(f"{self._id} 还没有布局结果，先 lcad build", id=self._id)
         normal = {"top": (0, 1), "bottom": (0, -1), "left": (-1, 0), "right": (1, 0)}.get(side)
-        if normal is None:  # inside: the dimension line moves across, along x for v-dims, y for h-dims
+        if (
+            normal is None
+        ):  # inside: the dimension line moves across, along x for v-dims, y for h-dims
             normal = (1, 0) if self._intent["dir"] == "v" else (0, 1)
         along = dx * normal[1] - dy * normal[0]
         if abs(along) > 1e-9:
@@ -133,13 +139,17 @@ class Dim(Element):
                 hint="换侧用 place(side=...)，换排用 place(row=...)",
             )
         off = dx * normal[0] + dy * normal[1]
-        self._layout["offset"] = (self._layout.get("offset") or self._resolved.get("offset") or 0) + off
+        self._layout["offset"] = (
+            self._layout.get("offset") or self._resolved.get("offset") or 0
+        ) + off
 
 
 def _check_layout(eid, fields, intent):
     if "side" in fields and fields["side"] is not None:
         s = fields["side"]
-        allowed = ("top", "bottom", "inside") if intent.get("dir") == "h" else ("left", "right", "inside")
+        allowed = (
+            ("top", "bottom", "inside") if intent.get("dir") == "h" else ("left", "right", "inside")
+        )
         if s not in allowed:
             raise InvalidArgument(
                 f"{eid} 是{'水平' if intent.get('dir') == 'h' else '竖直'}尺寸，side 不能是 {s!r}",
@@ -176,7 +186,22 @@ class DimNS:
         self._d = view._d
         self._view = view
 
-    def _new(self, name, type_, p, value, tol, role, datum, prefix, suffix, text, layout, refs, covers_extra=()):
+    def _new(
+        self,
+        name,
+        type_,
+        p,
+        value,
+        tol,
+        role,
+        datum,
+        prefix,
+        suffix,
+        text,
+        layout,
+        refs,
+        covers_extra=(),
+    ):
         d, v = self._d, self._view.name
         if role not in ROLES_DIM:
             raise InvalidArgument(f"尺寸角色 {role!r} 不存在", candidates=list(ROLES_DIM))
@@ -246,7 +271,9 @@ class DimNS:
             raise InvalidArgument(f"dir 只能是 'h' 或 'v'，收到 {dir!r}", candidates=["h", "v"])
         measured = abs(b[0] - a[0]) if dir == "h" else abs(b[1] - a[1])
         if measured < 1e-9:
-            raise InvalidArgument("两点在测量方向上重合，尺寸为 0", values={"p1": list(a), "p2": list(b)})
+            raise InvalidArgument(
+                "两点在测量方向上重合，尺寸为 0", values={"p1": list(a), "p2": list(b)}
+            )
         return {"p1": list(a), "p2": list(b), "dir": dir, "measured": measured}, refs
 
     def _circle(self, circle, kinds):
@@ -267,31 +294,103 @@ class DimNS:
         raise InvalidArgument(f"circle 应为{'或'.join(kinds)}，{e.id} 不是", id=e.id)
 
     @mutator("dim.linear")
-    def linear(self, name=None, p1=None, p2=None, dir=None, value=None, tol=None, role="size",
-               datum=None, prefix="", suffix="", text=None, side=None, row=None, offset=None, ref=None):
+    def linear(
+        self,
+        name=None,
+        p1=None,
+        p2=None,
+        dir=None,
+        value=None,
+        tol=None,
+        role="size",
+        datum=None,
+        prefix="",
+        suffix="",
+        text=None,
+        side=None,
+        row=None,
+        offset=None,
+        ref=None,
+    ):
         p, refs = self._two_points(p1, p2, dir, ref)
-        return self._new(name, "linear", p, value, tol, role, datum, prefix, suffix, text,
-                         {"side": side, "row": row, "offset": offset}, refs)
+        return self._new(
+            name,
+            "linear",
+            p,
+            value,
+            tol,
+            role,
+            datum,
+            prefix,
+            suffix,
+            text,
+            {"side": side, "row": row, "offset": offset},
+            refs,
+        )
 
     @mutator("dim.dia")
-    def dia(self, name=None, p1=None, p2=None, circle=None, at=None, value=None, tol=None, role="size",
-            datum=None, prefix="", suffix="", text=None, side=None, row=None, offset=None, ref=None):
+    def dia(
+        self,
+        name=None,
+        p1=None,
+        p2=None,
+        circle=None,
+        at=None,
+        value=None,
+        tol=None,
+        role="size",
+        datum=None,
+        prefix="",
+        suffix="",
+        text=None,
+        side=None,
+        row=None,
+        offset=None,
+        ref=None,
+    ):
         if circle is not None:
             cid, c, r = self._circle(circle, ("circle", "arc"))
             p = {"circle": cid, "c": c, "r": r, "measured": 2 * r}
-            return self._new(name, "dia", p, value, tol, role, datum, prefix, suffix, text, {"at": at}, [cid])
+            return self._new(
+                name, "dia", p, value, tol, role, datum, prefix, suffix, text, {"at": at}, [cid]
+            )
         p, refs = self._two_points(p1, p2, None, ref)
-        return self._new(name, "dia", p, value, tol, role, datum, prefix, suffix, text,
-                         {"side": side, "row": row, "offset": offset}, refs)
+        return self._new(
+            name,
+            "dia",
+            p,
+            value,
+            tol,
+            role,
+            datum,
+            prefix,
+            suffix,
+            text,
+            {"side": side, "row": row, "offset": offset},
+            refs,
+        )
 
     @mutator("dim.rad")
-    def rad(self, name=None, circle=None, at=None, value=None, tol=None, role="size", datum=None,
-            prefix="", suffix="", text=None):
+    def rad(
+        self,
+        name=None,
+        circle=None,
+        at=None,
+        value=None,
+        tol=None,
+        role="size",
+        datum=None,
+        prefix="",
+        suffix="",
+        text=None,
+    ):
         if circle is None:
             raise InvalidArgument("半径尺寸需要 circle=圆弧边")
         cid, c, r = self._circle(circle, ("arc",))
         p = {"circle": cid, "c": c, "r": r, "measured": r}
-        return self._new(name, "rad", p, value, tol, role, datum, prefix, suffix, text, {"at": at}, [cid])
+        return self._new(
+            name, "rad", p, value, tol, role, datum, prefix, suffix, text, {"at": at}, [cid]
+        )
 
 
 class Note(Element):
@@ -396,7 +495,9 @@ class Section(Element):
 
     def _apply_set(self, fields):
         if fields["look"] not in SECTION_LOOK:
-            raise InvalidArgument(f"look 只能是 {SECTION_LOOK}", id=self._id, candidates=list(SECTION_LOOK))
+            raise InvalidArgument(
+                f"look 只能是 {SECTION_LOOK}", id=self._id, candidates=list(SECTION_LOOK)
+            )
         a, b = self._intent["through"]
         _check_look(fields["look"], a, b)
         self._intent["look"] = fields["look"]
@@ -446,7 +547,9 @@ def _loop_of(d, item, view):
             return {"ref": e.id}
         if not isinstance(e, Feature) or not e.closed:
             raise InvalidArgument(
-                f"{e.id} 不是闭合特征，不能作剖面线边界", id=e.id, hint="用 polygon/rect/circle 建闭合特征"
+                f"{e.id} 不是闭合特征，不能作剖面线边界",
+                id=e.id,
+                hint="用 polygon/rect/circle 建闭合特征",
             )
         if e.view != view:
             raise InvalidArgument(f"{e.id} 在视图 {e.view}，不在 {view}", id=e.id)
@@ -487,7 +590,13 @@ def drawing_section(self, letter, view, cut_in, through, look=None):
     elif look not in SECTION_LOOK:
         raise InvalidArgument(f"look 只能是 {SECTION_LOOK}", candidates=list(SECTION_LOOK))
     _check_look(look, a, b)
-    intent = {"letter": letter, "view": view, "cut_in": cut_in, "through": [list(a), list(b)], "look": look}
+    intent = {
+        "letter": letter,
+        "view": view,
+        "cut_in": cut_in,
+        "through": [list(a), list(b)],
+        "look": look,
+    }
     return d._add(Section(d, f"S.{letter}", intent, refs=[f"V.{view}", f"V.{cut_in}"]))
 
 
@@ -506,4 +615,10 @@ def init_sheet(d):
     d._add(Frame(d, "T.frame", {"sheet": d.sheet, "size": list(d.template["size"])}))
     for field, spec in tb["fields"].items():
         text = d.scale_text if field == "scale" else spec.get("default", "")
-        d._add(Cell(d, f"T.title.{field}", {"field": field, "label": spec.get("label", field), "text": text}))
+        d._add(
+            Cell(
+                d,
+                f"T.title.{field}",
+                {"field": field, "label": spec.get("label", field), "text": text},
+            )
+        )

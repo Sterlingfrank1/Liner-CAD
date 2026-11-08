@@ -45,7 +45,9 @@ def test_width_estimate_not_below_ezdxf_measurement(shaft):
         pytest.skip("simfang.ttf not installed")
     for s in ["技术要求", "Φ30h7", "4×Φ12 EQS", "调质处理220~250HBW。", "A-A", "R5", "1234567890"]:
         dh = dxf_height(s, 3.5, std)
-        f = fonts.make_font(std["text"]["font"], cap_height=dh, width_factor=std["text"]["width_factor"])
+        f = fonts.make_font(
+            std["text"]["font"], cap_height=dh, width_factor=std["text"]["width_factor"]
+        )
         assert text_size(s, 3.5, std)[0] >= f.text_width(s) - 1e-6, s
 
 
@@ -294,9 +296,14 @@ def test_section_symbols_and_label():
     assert len(strokes) == 2
     lo = d.view("left")._resolved["origin"]
     for st in strokes:  # outside the circle, on the vertical through the centre
-        assert st.p[0] == pytest.approx(lo[0]) and abs(st.p[1] - lo[1]) >= 60 + d.std["section"]["stroke_gap"] - 1e-9
+        assert (
+            st.p[0] == pytest.approx(lo[0])
+            and abs(st.p[1] - lo[1]) >= 60 + d.std["section"]["stroke_gap"] - 1e-9
+        )
     heads = [p for p in s._prims if isinstance(p, Solid)]
-    assert len(heads) == 2 and all(h.pts[0][0] < strokes[0].p[0] for h in heads)  # arrows point left
+    assert len(heads) == 2 and all(
+        h.pts[0][0] < strokes[0].p[0] for h in heads
+    )  # arrows point left
     label = [t for t in texts(s) if t.text == "A-A"]
     assert len(label) == 1
     assert label[0].box[1] > d["D.T"].bbox[3]
@@ -335,7 +342,16 @@ def test_out_of_frame_check():
 
 def test_stale_findings_and_accept():
     d = Drawing()
-    stale = [{"edit": "e3", "line": 4, "op": "set", "id": "D.gone", "reason": "目标不存在", "candidates": ["D.g"]}]
+    stale = [
+        {
+            "edit": "e3",
+            "line": 4,
+            "op": "set",
+            "id": "D.gone",
+            "reason": "目标不存在",
+            "candidates": ["D.g"],
+        }
+    ]
     f = checks.run(d, stale)
     assert f[0]["rule"] == "stale_op" and f[0]["edit"] == "e3" and f[0]["candidates"] == ["D.g"]
     d.accept("stale_op", "D.gone", "已知")

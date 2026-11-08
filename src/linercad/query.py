@@ -60,7 +60,11 @@ def _match(el, conds, tol):
         if isinstance(want, bool) or isinstance(have, bool):
             if have != want:
                 return False
-        elif isinstance(want, (int, float)) or hasattr(want, "__float__") and not isinstance(want, str):
+        elif (
+            isinstance(want, (int, float))
+            or hasattr(want, "__float__")
+            and not isinstance(want, str)
+        ):
             try:
                 if abs(float(have) - float(want)) > tol:
                     return False
@@ -152,9 +156,13 @@ class Query:
                 "near() 用视图局部坐标，先用 view=... 限定到一个视图",
                 candidates=sorted(v for v in views if v),
             )
-        scored = sorted(((model_dist(e, p), k, e) for k, e in enumerate(self._els)), key=lambda t: t[:2])
+        scored = sorted(
+            ((model_dist(e, p), k, e) for k, e in enumerate(self._els)), key=lambda t: t[:2]
+        )
         out = [e for dist, _, e in scored if dist <= r]
-        return Query(self._d, out, f"{self._label}.near({p[0]}, {p[1]})", self._view, (p, r, scored))
+        return Query(
+            self._d, out, f"{self._label}.near({p[0]}, {p[1]})", self._view, (p, r, scored)
+        )
 
     def exactly(self, n):
         if len(self._els) != n:
@@ -162,7 +170,9 @@ class Query:
             values = {"expected": n, "found": len(self._els)}
             if self._near is not None:
                 p, r, scored = self._near
-                cands += [f"{describe(e)} dist={round(dist, 3)}" for dist, _, e in scored[:5] if dist > r]
+                cands += [
+                    f"{describe(e)} dist={round(dist, 3)}" for dist, _, e in scored[:5] if dist > r
+                ]
                 values["near"] = list(p)
             raise CountMismatch(
                 f"{self._label} 期望 {n} 个，实际 {len(self._els)} 个",
@@ -211,7 +221,8 @@ class QueryRoot:
             els = [
                 e
                 for e in self._d._els.values()
-                if (kind is None or e.kind == kind) and (shape is None or e._intent.get("shape") == shape)
+                if (kind is None or e.kind == kind)
+                and (shape is None or e._intent.get("shape") == shape)
             ]
             q = Query(self._d, els, f"q.{name}()", view=conds.get("view"))
             return q.where(**conds) if conds else q

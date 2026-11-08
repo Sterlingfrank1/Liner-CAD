@@ -91,7 +91,10 @@ def _arc_pts(c, r, a0, a1, n=None):
     sweep = (a1 - a0) % 360 or 360
     n = n or max(4, int(math.ceil(sweep / 7.5)))
     return [
-        (c[0] + r * math.cos(math.radians(a0 + sweep * k / n)), c[1] + r * math.sin(math.radians(a0 + sweep * k / n)))
+        (
+            c[0] + r * math.cos(math.radians(a0 + sweep * k / n)),
+            c[1] + r * math.sin(math.radians(a0 + sweep * k / n)),
+        )
         for k in range(n + 1)
     ]
 
@@ -142,7 +145,12 @@ def union(boxes):
     boxes = [b for b in boxes if b]
     if not boxes:
         return None
-    return (min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes))
+    return (
+        min(b[0] for b in boxes),
+        min(b[1] for b in boxes),
+        max(b[2] for b in boxes),
+        max(b[3] for b in boxes),
+    )
 
 
 def prims_bbox(prims):
@@ -304,7 +312,9 @@ class _ViewLayout:
         return (p[0] * self.s, p[1] * self.s)
 
     def els(self, kind):
-        return [e for e in self.d._els.values() if e.kind == kind and e._intent.get("view") == self.name]
+        return [
+            e for e in self.d._els.values() if e.kind == kind and e._intent.get("view") == self.name
+        ]
 
     def put(self, el, prims, obstacle=True):
         self.parts.setdefault(el._id, []).extend(prims)
@@ -341,8 +351,10 @@ class _ViewLayout:
             elif i["type"] == "mark":
                 c, h = self.P(i["c"]), i["r"] * self.s + ext
                 # four pieces from the centre outwards: the crossing falls on long dashes
-                prims = [center_piece(c, (c[0] + dx * h, c[1] + dy * h), self.std)
-                         for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))]
+                prims = [
+                    center_piece(c, (c[0] + dx * h, c[1] + dy * h), self.std)
+                    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))
+                ]
             else:
                 c, r = self.P(i["c"]), i["r"] * self.s
                 pat = self.std["linetypes"]["LC_CENTER"]["pattern"]
@@ -401,7 +413,10 @@ class _ViewLayout:
                 prims.append(arrow(tip, n, self.std, "thin"))
                 w, hh = text_size(i["letter"], lh, self.std)
                 off = max(w, hh) / 2 + 1.5
-                at = (p1[0] + n[0] * al / 2 + u[0] * sgn * off, p1[1] + n[1] * al / 2 + u[1] * sgn * off)
+                at = (
+                    p1[0] + n[0] * al / 2 + u[0] * sgn * off,
+                    p1[1] + n[1] * al / 2 + u[1] * sgn * off,
+                )
                 prims.append(make_text(i["letter"], at, lh, self.std, layer="text"))
             self.put(e, prims)
 
@@ -421,7 +436,11 @@ class _ViewLayout:
         dir = i["dir"]
         side = lay.get("side") or self._side_for(a, b, dir)
         off = lay.get("offset") or 0.0
-        rows = [None] if side == "inside" else ([lay["row"]] if lay.get("row") else range(1, int(dm["max_rows"]) + 1))
+        rows = (
+            [None]
+            if side == "inside"
+            else ([lay["row"]] if lay.get("row") else range(1, int(dm["max_rows"]) + 1))
+        )
         h = dm["text_height"]
         w, hh = text_size(i["text"], h, std)
         al, gap = dm["arrow_length"], 1.0
@@ -438,7 +457,12 @@ class _ViewLayout:
             else:
                 dist = dm["first_row"] + (row - 1) * dm["row_pitch"] + off
                 G = self.G
-                level = {"top": G[3] + dist, "bottom": G[1] - dist, "right": G[2] + dist, "left": G[0] - dist}[side]
+                level = {
+                    "top": G[3] + dist,
+                    "bottom": G[1] - dist,
+                    "right": G[2] + dist,
+                    "left": G[0] - dist,
+                }[side]
                 ext_pts = [a, b]
             span = hi - lo
             fits = span >= w + 2 * al + 2 * gap
@@ -450,7 +474,11 @@ class _ViewLayout:
                         positions.append(("in", c))
             positions += [("out_hi", hi + al + 2 + w / 2), ("out_lo", lo - al - 2 - w / 2)]
             for pos, c in positions:
-                out.append(self._linear_geom(el, dir, side, row, off, level, lo, hi, ext_pts, pos, c, w, hh))
+                out.append(
+                    self._linear_geom(
+                        el, dir, side, row, off, level, lo, hi, ext_pts, pos, c, w, hh
+                    )
+                )
         return out
 
     def _linear_geom(self, el, dir, side, row, off, level, lo, hi, ext_pts, pos, c, w, hh):
@@ -474,7 +502,11 @@ class _ViewLayout:
         d_lo = (-d_hi[0], -d_hi[1])
         if pos == "in":
             line = (pt(lo, level), pt(hi, level))
-            prims += [Line(*line, "dim"), arrow(pt(lo, level), d_lo, self.std), arrow(pt(hi, level), d_hi, self.std)]
+            prims += [
+                Line(*line, "dim"),
+                arrow(pt(lo, level), d_lo, self.std),
+                arrow(pt(hi, level), d_hi, self.std),
+            ]
         else:
             x0, x1 = lo - al - 2, hi + al + 2
             if pos == "out_hi":
@@ -482,19 +514,34 @@ class _ViewLayout:
             else:
                 x0 = c - w / 2
             line = (pt(x0, level), pt(x1, level))
-            prims += [Line(*line, "dim"), arrow(pt(lo, level), d_hi, self.std), arrow(pt(hi, level), d_lo, self.std)]
+            prims += [
+                Line(*line, "dim"),
+                arrow(pt(lo, level), d_hi, self.std),
+                arrow(pt(hi, level), d_lo, self.std),
+            ]
         segs.append(line)
         tg = dm["text_gap"]
         if dir == "h":
             t = make_text(el._intent["text"], (c, level + tg + hh / 2), dm["text_height"], self.std)
         else:
-            t = make_text(el._intent["text"], (level - tg - hh / 2, c), dm["text_height"], self.std, rot=90)
+            t = make_text(
+                el._intent["text"], (level - tg - hh / 2, c), dm["text_height"], self.std, rot=90
+            )
         prims.append(t)
         fields = {"side": side, "row": row, "offset": off}
-        why = {"in": "", "out_hi": "文字放不下，移到界线外", "out_lo": "文字放不下，移到界线外"}[pos]
+        why = {"in": "", "out_hi": "文字放不下，移到界线外", "out_lo": "文字放不下，移到界线外"}[
+            pos
+        ]
         if pos == "in" and abs(c - (lo + hi) / 2) > 1e-6:
             why = "文字避让，沿尺寸线移位"
-        return {"prims": prims, "boxes": [t.box], "segs": segs, "dimline": line, "fields": fields, "why": why}
+        return {
+            "prims": prims,
+            "boxes": [t.box],
+            "segs": segs,
+            "dimline": line,
+            "fields": fields,
+            "why": why,
+        }
 
     def circle_cands(self, el):
         i, lay = el._intent, el._layout
@@ -536,10 +583,14 @@ class _ViewLayout:
                     segs.append((p1, e))
             prims.append(Line(e, sh, "dim"))
             segs.append((e, sh))
-            t = make_text(i["text"], (e[0] + sg * (1 + w / 2), e[1] + dm["text_gap"] + hh / 2), h, std)
+            t = make_text(
+                i["text"], (e[0] + sg * (1 + w / 2), e[1] + dm["text_gap"] + hh / 2), h, std
+            )
             prims.append(t)
             why = "引线加长以避开轮廓" if lead > al + LEADS[0] else ""
-            out.append({"prims": prims, "boxes": [t.box], "segs": segs, "fields": {"at": ang}, "why": why})
+            out.append(
+                {"prims": prims, "boxes": [t.box], "segs": segs, "fields": {"at": ang}, "why": why}
+            )
         return out
 
     def note_cands(self, el):
@@ -561,10 +612,28 @@ class _ViewLayout:
             sh = (e[0] + sg * (w + 2 * g), e[1])
             d = (A[0] - e[0], A[1] - e[1])
             L = math.hypot(*d) or 1.0
-            t = make_text(i["text"], (e[0] + sg * (g + w / 2), e[1] + std["dim"]["text_gap"] + hh / 2), h, std, layer="text")
-            prims = [Line(e, A, "thin"), arrow(A, (d[0] / L, d[1] / L), std, "thin"), Line(e, sh, "thin"), t]
-            out.append({"prims": prims, "boxes": [t.box], "segs": [(e, A), (e, sh)],
-                        "fields": {"dir": ang, "length": length}, "why": ""})
+            t = make_text(
+                i["text"],
+                (e[0] + sg * (g + w / 2), e[1] + std["dim"]["text_gap"] + hh / 2),
+                h,
+                std,
+                layer="text",
+            )
+            prims = [
+                Line(e, A, "thin"),
+                arrow(A, (d[0] / L, d[1] / L), std, "thin"),
+                Line(e, sh, "thin"),
+                t,
+            ]
+            out.append(
+                {
+                    "prims": prims,
+                    "boxes": [t.box],
+                    "segs": [(e, A), (e, sh)],
+                    "fields": {"dir": ang, "length": length},
+                    "why": "",
+                }
+            )
         return out
 
     def choose(self, el, cands, auto_fields):
@@ -581,16 +650,27 @@ class _ViewLayout:
         el._resolved.update(cand["fields"])
         el._auto = [f for f in auto_fields if f in cand["fields"]]
         reasons = []
-        if "row" in el._auto and cand["fields"].get("row", 1) and cand["fields"]["row"] > 1 and not conf:
+        if (
+            "row" in el._auto
+            and cand["fields"].get("row", 1)
+            and cand["fields"]["row"] > 1
+            and not conf
+        ):
             reasons.append(f"前面的排有冲突，外推到第 {cand['fields']['row']} 排")
         if cand["why"]:
             reasons.append(cand["why"])
         if conf:
-            reasons.append("所有候选都有冲突，取冲突最少的：与 " + "、".join(o for o, _ in conf) + " 冲突")
+            reasons.append(
+                "所有候选都有冲突，取冲突最少的：与 " + "、".join(o for o, _ in conf) + " 冲突"
+            )
         el._reason = "；".join(reasons)
         self.put(el, cand["prims"], obstacle=False)
-        self.obst.add(el._id, segs=cand["segs"], boxes=cand["boxes"],
-                      dimlines=[cand["dimline"]] if cand.get("dimline") else ())
+        self.obst.add(
+            el._id,
+            segs=cand["segs"],
+            boxes=cand["boxes"],
+            dimlines=[cand["dimline"]] if cand.get("dimline") else (),
+        )
 
     def annotations(self):
         dims = self.els("dim")
@@ -608,7 +688,9 @@ class _ViewLayout:
             side = e._layout.get("side") or self._side_for(a, b, i["dir"])
             return (SIDE_ORDER.index(side), i["measured"], decl[e._id])
 
-        for e in [x for x in linear if is_fixed(x)] + sorted([x for x in linear if not is_fixed(x)], key=key):
+        for e in [x for x in linear if is_fixed(x)] + sorted(
+            [x for x in linear if not is_fixed(x)], key=key
+        ):
             auto = [f for f in ("side", "row") if e._layout.get(f) is None]
             self.choose(e, self.linear_cands(e), auto)
         for e in [x for x in circular if x._layout.get("at") is not None] + [
@@ -681,14 +763,19 @@ class _Layout:
                 d._els[eid]._prims += [move_prim(p, ox, oy) for p in prims]
             v = vl.view
             full = vl.full
-            v._resolved.update(origin=[ox, oy], scale=d.scale,
-                               bbox=[full[0] + ox, full[1] + oy, full[2] + ox, full[3] + oy])
+            v._resolved.update(
+                origin=[ox, oy],
+                scale=d.scale,
+                bbox=[full[0] + ox, full[1] + oy, full[2] + ox, full[3] + oy],
+            )
         for e in d._els.values():
             if e._prims:
                 e._resolved["bbox"] = list(prims_bbox(e._prims))
         for e in d._els.values():  # features: union of their edges
             if e.kind == "feature":
-                b = union([d._els[i]._resolved.get("bbox") for i in e._intent["edges"] if i in d._els])
+                b = union(
+                    [d._els[i]._resolved.get("bbox") for i in e._intent["edges"] if i in d._els]
+                )
                 if b:
                     e._resolved["bbox"] = list(b)
 
@@ -702,9 +789,23 @@ class _Layout:
         prims = [Line(a, b, "thin") for a, b in _rect((0, 0, W, H))]
         prims += [Line(a, b, "thick") for a, b in _rect(F)]
         for ln in tb["lines"]:
-            prims.append(Line((ox + ln["p1"][0], oy + ln["p1"][1]), (ox + ln["p2"][0], oy + ln["p2"][1]), ln.get("role", "thin")))
+            prims.append(
+                Line(
+                    (ox + ln["p1"][0], oy + ln["p1"][1]),
+                    (ox + ln["p2"][0], oy + ln["p2"][1]),
+                    ln.get("role", "thin"),
+                )
+            )
         for lb in tb.get("labels", []):
-            prims.append(make_text(lb["text"], (ox + lb["at"][0], oy + lb["at"][1]), lb["height"], std, layer="text"))
+            prims.append(
+                make_text(
+                    lb["text"],
+                    (ox + lb["at"][0], oy + lb["at"][1]),
+                    lb["height"],
+                    std,
+                    layer="text",
+                )
+            )
         d._els["T.frame"]._prims = prims
         TB = (ox, oy, ox + tb["size"][0], oy + tb["size"][1])
         for e in d._els.values():
@@ -719,7 +820,9 @@ class _Layout:
             w, _ = text_size(text, h, std)
             if w > (x1 - x0) - 1:
                 h = max(2.5, h * ((x1 - x0) - 1) / w)
-            e._prims = [make_text(text, (ox + (x0 + x1) / 2, oy + (y0 + y1) / 2), h, std, layer="text")]
+            e._prims = [
+                make_text(text, (ox + (x0 + x1) / 2, oy + (y0 + y1) / 2), h, std, layer="text")
+            ]
         tn = std["tech_notes"]
         notes = [e for e in d._els.values() if e.kind == "note" and e._intent.get("tech")]
         TN = None
@@ -732,12 +835,24 @@ class _Layout:
             for k, e in enumerate(notes, 1):
                 s = f"{k}. {e._intent['text']}"
                 w, _ = text_size(s, tn["height"], std)
-                t = make_text(s, (x0 + w / 2, top - tn["title_height"] * 1.6 - (k - 0.5) * lh), tn["height"], std, layer="text")
+                t = make_text(
+                    s,
+                    (x0 + w / 2, top - tn["title_height"] * 1.6 - (k - 0.5) * lh),
+                    tn["height"],
+                    std,
+                    layer="text",
+                )
                 e._prims = [t]
                 boxes.append(t.box)
             title = tn["title"]
             w, _ = text_size(title, tn["title_height"], std)
-            t = make_text(title, (x0 + w / 2, top - tn["title_height"] * 0.8), tn["title_height"], std, layer="text")
+            t = make_text(
+                title,
+                (x0 + w / 2, top - tn["title_height"] * 0.8),
+                tn["title_height"],
+                std,
+                layer="text",
+            )
             notes[0]._prims.insert(0, t)
             boxes.append(t.box)
             TN = union(boxes)
@@ -745,7 +860,7 @@ class _Layout:
 
     # -- view placement ----------------------------------------------------------------------------
     def arrange(self, vls, sheet):
-        d, std = self.d, self.std
+        _d, std = self.d, self.std
         if not vls:
             return {}
         gap = std["views"]["gap"]
@@ -761,7 +876,9 @@ class _Layout:
             o = origins[n]
             return (f[0] + o[0], f[1] + o[1], f[2] + o[0], f[3] + o[1])
 
-        rest = sorted([n for n in names if n != base], key=lambda n: (abs(pos[n][0]), ORDER.index(n)))
+        rest = sorted(
+            [n for n in names if n != base], key=lambda n: (abs(pos[n][0]), ORDER.index(n))
+        )
         for n in rest:
             col, row = pos[n]
             f = vls[n].full
@@ -773,7 +890,9 @@ class _Layout:
                 y = origins[base][1]
                 ylo, yhi = f[1] + y, f[3] + y
                 others = [placed_box(m) for m in origins]
-                others = [b for b in others if b[1] < yhi + gap and b[3] > ylo - gap] or [placed_box(base)]
+                others = [b for b in others if b[1] < yhi + gap and b[3] > ylo - gap] or [
+                    placed_box(base)
+                ]
                 if col > 0:
                     x = max(b[2] for b in others) + gap - f[0]
                 else:
