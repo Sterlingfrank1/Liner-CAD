@@ -33,7 +33,7 @@ ROUNDS = {
         (
             "在主视图标注凸台长度",
             "edit",
-            'd.view("front").dim.linear("hub", "E.front.up_in.3:start", "E.front.up_in.3:end", side="top")',
+            'd.view("front").dim.linear("hub", "E.front.body.hub:start", "E.front.body.ch:end", dir="h", side="top")',
         ),
         ("删掉第 3 条技术要求", "edit", 'd["N.tech.3"].suppress()'),
         ("外径加大 10", "param", ("D=Param(120", "D=Param(130")),

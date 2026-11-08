@@ -16,7 +16,7 @@ def test_example_builds_clean(tmp_path, name):
 def test_flange_full_section(tmp_path):
     txn.init(tmp_path / "f", from_="flange")
     d = build(tmp_path / "f").d
-    assert [e.id for e in d.q.hatches()] == ["H.front.up", "H.front.dn"]
+    assert [e.id for e in d.q.hatches()] == ["H.front.body"]
     s = d["S.A"]
     texts = sorted(p.text for p in s._prims if hasattr(p, "text"))
     assert texts == ["A", "A", "A-A"]
