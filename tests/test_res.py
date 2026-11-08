@@ -301,3 +301,11 @@ def test_datum_excluded_letters_and_roughness_series():
     with pytest.raises(InvalidArgument) as err:
         res.rough_series("Rq")
     assert "Ra" in err.value.candidates
+
+
+def test_center_hole_type_a():
+    c = res.center_hole("A", 2.5)
+    assert (c["D"], c["t"], c["designation"]) == (5.3, 2.2, "A2.5/5.3")
+    assert res.center_hole("A", 4)["D"] == 8.5 and res.center_hole("A", 10)["D"] == 21.2
+    with pytest.raises(InvalidArgument):
+        res.center_hole("B", 2.5)

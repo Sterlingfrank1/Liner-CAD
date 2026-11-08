@@ -8,6 +8,8 @@ from .dxfout import APPID
 
 FULL_DPI = 150
 FOCUS_DPI = 300
+# PNG only: widen lines so the 2:1 thick/thin ratio survives rasterising (DXF widths unchanged)
+LINEWEIGHT_SCALING = 1.8
 
 
 def _xid(entity):
@@ -31,7 +33,10 @@ def render_png(doc, sheet_size, out, *, focus_bbox=None, focus_id=None, dpi=None
     x0, y0, x1, y1 = focus_bbox or (0.0, 0.0, W, H)
     dpi = dpi or (FOCUS_DPI if focus_bbox else FULL_DPI)
     cfg = Configuration(
-        background_policy=BackgroundPolicy.WHITE, lineweight_policy=LineweightPolicy.ABSOLUTE
+        background_policy=BackgroundPolicy.WHITE,
+        lineweight_policy=LineweightPolicy.ABSOLUTE,
+        lineweight_scaling=LINEWEIGHT_SCALING,
+        min_lineweight=0.05,
     )
     fig = plt.figure(figsize=((x1 - x0) / 25.4, (y1 - y0) / 25.4))
     ax = fig.add_axes([0, 0, 1, 1])

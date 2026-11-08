@@ -7,6 +7,7 @@ no commit and the previous artifacts stay.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -16,12 +17,18 @@ from pathlib import Path
 
 from . import record
 from .errors import DirtySource, GitError, InvalidArgument, NoOps, UndoError
-from .runtime import LOG, SRC, TMP_DIR, build, edit_number, run_script, write_artifacts
+from .runtime import BUILD_DIR, LOG, SRC, TMP_DIR, build, edit_number, run_script, write_artifacts
 
 SOURCES = (SRC, LOG, ".gitignore", ".gitattributes", "templates")
 GITIGNORE = ".linercad/\n"
 GITATTRIBUTES = "* text=auto eol=lf\n"
-EXAMPLES = ("shaft", "flange", "bracket")
+EXAMPLES = tuple(  # every package example directory with a drawing.py (adding one needs no code)
+    sorted(
+        p.name
+        for p in resources.files("linercad").joinpath("examples").iterdir()
+        if p.is_dir() and (p / "drawing.py").is_file()
+    )
+)
 EDIT_RE = re.compile(r"^e(\d+) · ")
 KEEP_TMP = 20
 
@@ -167,6 +174,10 @@ def prune_tmp(dir, keep=KEEP_TMP):
             pass
 
 
+def _errors(findings):
+    return sum(1 for f in findings if f.get("severity") == "error")
+
+
 def _warnings(findings, base=None):
     seen = {(f["rule"], f.get("id")) for f in base} if base is not None else None
     out = []
@@ -240,15 +251,46 @@ def init(dir, from_=None, sheet="A3"):
         "commit": h,
         "dir": str(dir),
         **arts,
+        "errors": _errors(res.findings),
         "warnings": _warnings(res.findings),
     }
 
 
+def _model_sig(dir):
+    """{id: intent+refs} of the last written model.json (empty when there is none)."""
+    p = Path(dir) / BUILD_DIR / "model.json"
+    try:
+        m = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {
+        e["id"]: json.dumps([e.get("intent"), e.get("refs")], sort_keys=True)
+        for e in m.get("elements", [])
+    }
+
+
+def changed_ids(before, d):
+    """Element IDs added, removed or whose intent / refs changed since ``before``."""
+    after = {}
+    for e in d._els.values():
+        x = e.to_dict()
+        after[e.id] = json.dumps([x["intent"], x["refs"]], sort_keys=True)
+    return sorted(i for i in set(before) | set(after) if before.get(i) != after.get(i))
+
+
 def build_commit(dir, msg=None):
     dir = Path(dir)
+    before = _model_sig(dir)
     res = build(dir)
     edit = next_edit(dir, res.log_ops)
-    out = {"ok": True, "edit": None, "commit": None, "warnings": _warnings(res.findings)}
+    out = {
+        "ok": True,
+        "edit": None,
+        "commit": None,
+        "changed": changed_ids(before, res.d) if before else [],
+        "errors": _errors(res.findings),
+        "warnings": _warnings(res.findings),
+    }
     dirty = dirty_sources(dir)
     if msg:
         if dirty:
@@ -306,6 +348,7 @@ def edit(dir, script, msg):
         "commit": h,
         "ops": [{k: v for k, v in op.items() if k != "_line"} for op in filled],
         "changed": changed,
+        "errors": _errors(r2.findings),
         "warnings": _warnings(r2.findings, base.findings),
         **arts,
     }
@@ -382,6 +425,7 @@ def undo(dir, target, msg=None):
         "commit": c,
         "undone": target,
         "removed_ops": removed,
+        "errors": _errors(res.findings),
         "warnings": _warnings(res.findings),
         **arts,
     }

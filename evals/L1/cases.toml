@@ -1,0 +1,5 @@
+# L1: one conventional representation per case, generated from evals/L1/templates/<template>.py
+[[case]]
+id = "thread_ext_M20"
+template = "thread_ext"
+params = { spec = "M20" }

@@ -17,6 +17,24 @@ VIEW_AXES = {
     "right": ((1, "Y"), (1, "Z")),
     "rear": ((-1, "X"), (1, "Z")),
 }
+# rule → pack (SPEC M1 §7); the standard number of each rule comes from the profile's [checks]
+RULES = {
+    "overlap": "layout",
+    "out_of_frame": "layout",
+    "view_align": "layout",
+    "stale_op": "layout",
+}
+
+
+def _v1_rules():
+    from .rules import PACKS
+
+    for pack, fns in PACKS.items():
+        for fn in fns:
+            RULES[fn.__name__] = pack
+
+
+_v1_rules()
 AXIS_NAME = {"X": "长对正", "Z": "高平齐", "Y": "宽相等"}
 MAX_CORRIDOR = 50.0
 OWN_ZONE = ("frame", "table.cell")
@@ -206,7 +224,17 @@ def _stale(stale_ops):
 
 def run(d, stale_ops=()):
     """All M0 checks; sets element status; returns findings not accepted."""
+    from .rules import PACKS
+
     raw = _overlaps(d) + _out_of_frame(d) + _view_align(d) + _stale(stale_ops)
+    for fns in PACKS.values():
+        for fn in fns:
+            raw += fn(d)
+    stds = d.std.get("checks", {})
+    for f in raw:
+        f["pack"] = RULES.get(f["rule"], "layout")
+        f.setdefault("severity", "warn")
+        f["std"] = stds.get(f["rule"]) or f.get("std") or "DESIGN §4.5"
     accepted = getattr(d, "_accepted", {})
     findings = []
     for e in d._els.values():
@@ -219,6 +247,6 @@ def run(d, stale_ops=()):
                 el._status = f"accepted({reason})"
             continue
         findings.append(f)
-        if el is not None and not el._status.startswith("accepted"):
-            el._status = "warn"
+        if el is not None and not el._status.startswith("accepted") and el._status != "error":
+            el._status = f["severity"]
     return findings

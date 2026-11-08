@@ -89,5 +89,6 @@ top.dim.dia("dh", circle="E.top.bh1.1", value=P.d, prefix="2×")
 left.dim.linear("t", (0, 0), (0, t), value=t, side="right")
 left.dim.linear("tw", (-B, H), (-yf, H), value=t, side="top")
 
-d.notes.tech(["未注尺寸公差按 GB/T 1804-m。", "去除毛刺锐边。"])
+d.general_tol("m")
+d.notes.tech(["去除毛刺锐边。"])
 d.title(name="支架", drawing_no="LC-BR-01", material="Q235", designer="Liner-CAD")

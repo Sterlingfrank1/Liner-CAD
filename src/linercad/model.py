@@ -267,10 +267,14 @@ class Drawing:
     @mutator("accept")
     def accept(self, rule, id, reason):
         """Let an intended warning pass: status becomes ``accepted(reason)``."""
-        rules = ("overlap", "out_of_frame", "view_align", "stale_op")
+        from .checks import RULES
+
+        rules = tuple(RULES)
         if rule not in rules:
             raise InvalidArgument(f"没有检查规则 {rule!r}", candidates=list(rules))
-        if rule != "stale_op":
+        if str(id).startswith("P."):
+            self.P._param(str(id)[2:])
+        elif rule != "stale_op":
             self[id]
         if not str(reason or "").strip():
             raise InvalidArgument("accept 需要写明理由", id=id)
@@ -324,6 +328,48 @@ class Drawing:
         from .annotate import drawing_section
 
         return drawing_section(self, letter, view, cut_in, through, look)
+
+    @mutator("removed_section")
+    def removed_section(self, letter, parent, through, look=None):
+        """Removed section ``V.<letter>`` cut along ``through`` in ``parent`` (SPEC M1 §5)."""
+        from .views import removed_section
+
+        return removed_section(self, letter, parent, through, look)
+
+    @mutator("detail")
+    def detail(self, letter, parent, center, r, scale="2:1"):
+        """Detail view ``V.<letter>``: parent geometry inside the circle, redrawn at ``scale``."""
+        from .views import detail
+
+        return detail(self, letter, parent, center, r, scale)
+
+    @mutator("oblique")
+    def oblique(self, letter, parent, at, look, rotate=False):
+        """Oblique (auxiliary) view ``V.<letter>``; arrow at ``at`` pointing along ``look`` (deg)."""
+        from .views import oblique
+
+        return oblique(self, letter, parent, at, look, rotate)
+
+    @mutator("rough_default")
+    def rough_default(self, value, param="Ra", removal="required"):
+        """Roughness for all other surfaces → R.default, near the title block (GB/T 131-2006)."""
+        from .pmi import drawing_rough_default
+
+        return drawing_rough_default(self, value, param, removal)
+
+    @mutator("chain")
+    def chain(self, name, closing, increase=(), decrease=(), require=None):
+        """Dimension chain → K.<name>: closing link by worst case and RSS (SPEC M1 §3.3)."""
+        from .pmi import drawing_chain
+
+        return drawing_chain(self, name, closing, increase, decrease, require)
+
+    @mutator("general_tol")
+    def general_tol(self, cls="m"):
+        """General tolerance class (GB/T 1804 f/m/c/v) → a technical-requirement line."""
+        from .pmi import drawing_general_tol
+
+        return drawing_general_tol(self, cls)
 
     # ---- parameters -----------------------------------------------------------------
     def params(self, **params):

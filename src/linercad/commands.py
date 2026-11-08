@@ -148,3 +148,42 @@ def render(dir, focus=None, out=None, dpi=None):
         "bbox": list(bbox) if bbox else [0, 0, W, H],
         "warnings": res.findings,
     }
+
+
+def check(dir):
+    """All findings of a fresh build, grouped by rule pack."""
+    from .checks import RULES
+    from .runtime import build
+
+    res = build(dir)
+    packs = {p: [] for p in ("drafting", "dimensioning", "tolerancing", "surface", "layout")}
+    for f in res.findings:
+        packs.setdefault(f.get("pack") or RULES.get(f["rule"], "layout"), []).append(f)
+    errors = sum(1 for f in res.findings if f.get("severity") == "error")
+    return {"ok": True, "errors": errors, "warnings": len(res.findings) - errors, "packs": packs}
+
+
+def skill(family=None):
+    """SKILL.md, or a part-family card from skill/families/<family>.md."""
+    from importlib import resources
+
+    from .errors import NotFound
+
+    base = resources.files("linercad") / "skill"
+    if family is None:
+        return {
+            "ok": True,
+            "path": "SKILL.md",
+            "text": (base / "SKILL.md").read_text(encoding="utf-8"),
+        }
+    fam = base / "families"
+    names = (
+        sorted(p.name[:-3] for p in fam.iterdir() if p.name.endswith(".md")) if fam.is_dir() else []
+    )
+    if family not in names:
+        raise NotFound(f"没有零件族卡片 {family!r}", candidates=names)
+    return {
+        "ok": True,
+        "path": f"families/{family}.md",
+        "text": (fam / f"{family}.md").read_text(encoding="utf-8"),
+    }

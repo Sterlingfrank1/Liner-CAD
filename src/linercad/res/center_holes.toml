@@ -1,0 +1,13 @@
+# Centre holes, type A (without protecting chamfer, 60°)
+[meta]
+std = "GB/T 145-2001"
+iso = "ISO 866:1975 Annex, Table 2"
+source = "ISO 866:1975 preview (standards.iteh.ai sample), Annex Table 2, method 1: d nominal, D nominal, t reference value; GB/T 145-2001 type A uses the same d / D pairs"
+unit = "mm"
+note = "Bracketed sizes of the standard (0.5, 0.63, 0.8, 1.25, 5.0, 8.0) are kept with avoid = true. Type B (ISO 2540) is not recorded."
+
+[A]
+d     = [0.5,  0.63, 0.8,  1.0,  1.25, 1.6,  2.0,  2.5,  3.15, 4.0,  5.0,   6.3,   8.0,   10.0]
+D     = [1.06, 1.32, 1.70, 2.12, 2.65, 3.35, 4.25, 5.30, 6.70, 8.50, 10.60, 13.20, 17.00, 21.20]
+t     = [0.5,  0.6,  0.7,  0.9,  1.1,  1.4,  1.8,  2.2,  2.8,  3.5,  4.4,   5.5,   7.0,   8.7]
+avoid = [true, true, true, false, true, false, false, false, false, false, true, false, true, false]

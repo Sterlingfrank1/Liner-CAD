@@ -33,6 +33,33 @@ CREATE_OPS = (
     "hatch",
     "section",
     "raw_add",
+    "removed_section",
+    "detail",
+    "oblique",
+    "wavy",
+    "datum",
+    "gtol",
+    "rough",
+    "dim.aligned",
+    "dim.angle",
+    "dim.chamfer",
+    "thread",
+    "thread_end",
+    "tapped_hole",
+    "center_hole",
+    "keyway",
+    "keyway_end",
+    "shaft_cut",
+    "spline",
+    "spline_end",
+    "dim.thread",
+    "dim.groove",
+    "dim.hole",
+    "dim.keyway",
+    "dim.spline",
+    "rough_default",
+    "chain",
+    "general_tol",
 )
 MODIFY_OPS = ("place", "move", "set", "suppress", "accept", "raw")
 VIEW_SCOPED = (
@@ -51,8 +78,45 @@ VIEW_SCOPED = (
     "dim.rad",
     "note",
     "hatch",
+    "wavy",
+    "datum",
+    "gtol",
+    "rough",
+    "dim.aligned",
+    "dim.angle",
+    "dim.chamfer",
+    "thread",
+    "thread_end",
+    "tapped_hole",
+    "center_hole",
+    "keyway",
+    "keyway_end",
+    "shaft_cut",
+    "spline",
+    "spline_end",
+    "dim.thread",
+    "dim.groove",
+    "dim.hole",
+    "dim.keyway",
+    "dim.spline",
 )
-LAYOUT_GROUPS = {"linear": ("side", "row"), "circle": ("at",), "note": ("dir", "length")}
+DRAWING_CREATE = (
+    "section",
+    "raw_add",
+    "removed_section",
+    "detail",
+    "oblique",
+    "rough_default",
+    "chain",
+    "general_tol",
+)
+LAYOUT_GROUPS = {
+    "linear": ("side", "row"),
+    "circle": ("at",),
+    "note": ("dir", "length"),
+    "leader": ("at", "length"),
+    "angle": ("r",),
+}
 
 
 def mutator(op: str):
@@ -179,7 +243,13 @@ class Recorder:
 def _layout_group(el):
     i = el._intent
     if el.kind == "dim":
+        if i["type"] in ("chamfer", "groove", "hole", "spline"):
+            return LAYOUT_GROUPS["note"]
+        if i["type"] == "angle":
+            return LAYOUT_GROUPS["angle"]
         return LAYOUT_GROUPS["circle"] if i.get("circle") else LAYOUT_GROUPS["linear"]
+    if el.kind in ("datum", "gtol", "rough") and not i.get("default"):
+        return LAYOUT_GROUPS["leader"]
     if el.kind == "note" and not i.get("tech"):
         return LAYOUT_GROUPS["note"]
     return ()
@@ -194,12 +264,10 @@ def apply_op(d, rec):
         d._forced_id = rid
         if op == "view":
             d._new_view(**args)
-        elif op == "section":
-            d.section(**args)
+        elif op in DRAWING_CREATE:
+            getattr(d, op)(**args)
         elif op == "notes.tech":
             d.notes._tech_one(**args)
-        elif op == "raw_add":
-            d.raw_add(**args)
         else:
             view = args.pop("view")
             v = d._els.get(f"V.{view}")

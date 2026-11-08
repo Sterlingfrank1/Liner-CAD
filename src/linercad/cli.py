@@ -33,12 +33,14 @@ class _Parser(argparse.ArgumentParser):
 
 
 COMMANDS = {
-    "init": "新建图纸目录：lcad init <dir> [--from shaft|flange|bracket] [--sheet A3]",
+    "init": "新建图纸目录：lcad init <dir> [--from <范例>] [--sheet A3]（范例见 lcad skill 的零件族卡片）",
     "build": '重建产物；-m "<原话>" 时提交源文件改动',
     "edit": '事务执行临时脚本：lcad edit <script.py> -m "<用户原话>"',
     "undo": "撤销某一轮：lcad undo eK [-m ...]",
     "context": "图纸摘要，或 lcad context <ID>... 看元素详情",
     "render": "出 PNG 自检：lcad render [--focus ID]",
+    "check": "全部检查结果，按规则包分组（drafting / dimensioning / tolerancing / surface / layout）",
+    "skill": "打印 SKILL.md，或 lcad skill <零件族> 打印零件族卡片",
 }
 
 
@@ -66,6 +68,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--focus", default=None)
     s.add_argument("-o", dest="out", default=None)
     s.add_argument("--dpi", type=int, default=None)
+    sub.add_parser("check")
+    s = sub.add_parser("skill")
+    s.add_argument("family", nargs="?", default=None)
     return p
 
 
@@ -106,6 +111,10 @@ def _run(args, parser) -> int:
         out = txn.undo(d, args.edit, args.msg)
     elif args.cmd == "context":
         out = commands.context(d, args.ids)
+    elif args.cmd == "check":
+        out = commands.check(d)
+    elif args.cmd == "skill":
+        out = commands.skill(args.family)
     else:
         out = commands.render(d, args.focus, args.out, args.dpi)
     emit(out)

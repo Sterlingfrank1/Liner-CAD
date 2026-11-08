@@ -110,3 +110,53 @@ title_height = 5.0
 height = 3.5
 line_spacing = 1.6
 gap = 5.0
+
+[wavy]
+basis = "convention（GB/T 4457.4-2002 波浪线为细实线、徒手绘制，未规定波形；取振幅 0.8、波长 6）"
+amplitude = 0.8
+wavelength = 6.0
+
+[tolerancing]
+basis = "GB/T 4458.5-2003（公差注法：偏差数字比基本尺寸数字小一号）；GB/T 1804-2000（未注公差）；GB/T 1182-2018（几何公差框格高 2h）；尺寸 convention"
+general_note = "未注尺寸公差按 GB/T 1804-{cls}。"
+gtol_std = "GB/T 1182-2018"
+tol_height = 2.5
+frame_height = 7.0
+leader_lengths = [6.0, 10.0, 15.0, 20.0, 28.0]
+
+[datum]
+basis = "GB/T 1182-2018（基准符号：方框内大写字母，连线与涂黑三角形）；尺寸 convention（方框边长 2h）"
+box = 7.0
+triangle = 3.5
+
+[rough]
+basis = "GB/T 131-2006（↔ ISO 1302:2002，新版 ISO 21920-1:2021）：h=3.5 时 H1=5、H2=10.5，符号两边与表面成 60°"
+std = "GB/T 131-2006"
+h1 = 5.0
+h2 = 10.5
+
+[checks]  # rule → standard number reported with each finding (SPEC M1 §7)
+basis = "各规则依据的标准见各项（如 GB/T 4458.4-2003）；ISO 档覆盖为对应 ISO 标准号"
+overlap = "GB/T 4458.4-2003"
+out_of_frame = "GB/T 14689-2008"
+view_align = "GB/T 4458.1-2002"
+stale_op = "DESIGN §3.2"
+line_width = "GB/T 4457.4-2002"
+text_height = "GB/T 14691-1993"
+scale = "GB/T 14690-1993"
+sheet = "GB/T 14689-2008"
+conv_dim = "GB/T 4459.1-1995 / 4459.3-2000 / 1095-2003 / 4458.4-2003"
+section_ref = "GB/T 4458.6-2002 / 4458.1-2002"
+center_mark = "GB/T 4457.4-2002"
+duplicate = "GB/T 4458.4-2003"
+closed_loop = "GB/T 4458.4-2003"
+missing = "GB/T 4458.4-2003"
+param_cover = "DESIGN §4.4"
+dev_order = "GB/T 1800.1-2020"
+gtol_syntax = "GB/T 1182-2018"
+datum_letter = "GB/T 1182-2018"
+general_tol = "GB/T 1804-2000"
+chain_limit = "GB/T 5847-2004"
+rough_syntax = "GB/T 131-2006 / GB/T 1031-2009"
+rough_default = "GB/T 131-2006"
+rough_fit = "GB/T 131-2006"
