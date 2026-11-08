@@ -82,7 +82,7 @@ def test_gtol_datum_must_exist_and_rough_rules(shaft):
     assert not by_rule(run(d), "gtol_syntax")
     f.rough("r1", 3.0, ref="E.front.b.collar")  # not in the GB/T 1031 series
     found = run(d)
-    assert [x for x in by_rule(found, "rough_syntax") if x["severity"] == "error"]
+    assert by_rule(found, "rough_syntax")
     assert by_rule(found, "rough_default")
     d["R.r1"].set(value=3.2)
     d.rough_default(6.3)

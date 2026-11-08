@@ -402,8 +402,8 @@ def rough_syntax(d):
                 _f(
                     "rough_syntax",
                     e.id,
-                    f"{e.id} 的 {i['param']} {v:g} 不在 GB/T 1031 系列内",
-                    "error",
+                    f"{e.id} 的 {i['param']} {v:g} 不在 GB/T 1031 优选系列内（资源库只录了优选系列）",
+                    "warn",
                     candidates=[str(x) for x in first],
                 )
             )

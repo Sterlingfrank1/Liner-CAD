@@ -315,3 +315,33 @@ def rough_series(param: str = "Ra") -> dict:
         "unit": data["meta"]["unit"],
         "std": data["meta"]["std"],
     }
+
+
+# ---------------------------------------------------------------------- GB/T 145 centre holes
+
+
+def center_hole(type: str = "A", d: float = 2.5) -> dict:
+    """Centre hole of ``type`` (only A is recorded) with pilot diameter ``d`` mm:
+    ``{"type", "d", "D", "t", "designation", "std"}``; designation as in GB/T 4459.5 ("A2.5/5.3")."""
+    data = _table("center_holes")
+    if type not in data or type == "meta":
+        raise InvalidArgument(
+            f"中心孔型式 {type!r} 未录入（只录了 A 型，ISO 866）",
+            candidates=[k for k in data if k != "meta"],
+        )
+    row = data[type]
+    for k, dv in enumerate(row["d"]):
+        if abs(dv - d) < 1e-9:
+            D = row["D"][k]
+            return {
+                "type": type,
+                "d": dv,
+                "D": D,
+                "t": row["t"][k],
+                "avoid": row["avoid"][k],
+                "designation": f"{type}{dv:g}/{D:g}",
+                "std": data["meta"]["std"],
+            }
+    raise InvalidArgument(
+        f"A 型中心孔没有 d = {d}", candidates=[f"{v:g}" for v in row["d"]], values={"d": d}
+    )

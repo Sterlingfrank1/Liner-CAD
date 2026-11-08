@@ -126,7 +126,7 @@ d.chain("axial", closing="l5", increase=["D.L"], decrease=["D.l1", "D.l2", "D.l3
 | drafting | `line_width`（粗细 2:1、在系列内）、`text_height`（不在 GB/T 14691 字高系列 → error；尺寸文字不等于档内字高 → warn）、`scale`（优先 / 允许系列）、`sheet`（基本幅面）、`conv_dim`（螺纹、花键、键槽、退刀槽、中心孔特征都有代号或必需尺寸）、`section_ref`（剖切标记与目标视图配对、字母不重）、`center_mark`（整圆有中心线） | error / error·warn / warn / error / error / error / warn | GB/T 4457.4、14691、14690、14689、4459.1/.3/.5、1095、4458.6 |
 | dimensioning | `position_datum`（M0 声明期）、`duplicate`（同视图同测量对象）、`closed_loop`（每视图每方向的尺寸图有环，参考尺寸除外）、`missing`（回转体轴向台阶面没有全部连通）、`param_cover`、`text_30`（对齐尺寸在 30° 禁区） | — / warn / warn / warn / warn / warn | GB/T 4458.4、16675.2 |
 | tolerancing | `fit_code`（声明期）、`dev_order`（上偏差 ≥ 下偏差）、`gtol_syntax`（形状公差不带基准；方向 / 跳动 / 同轴 / 对称必须带基准；基准字母已定义；值 > 0）、`datum_letter`（重复字母；禁用字母集取自资源库）、`general_tol`（有未注公差尺寸但没有未注公差说明）、`chain_limit` | — / error / error / error / warn / error | GB/T 1800.1、1182、17851、1804 |
-| surface | `rough_syntax`（参数合法；数值不在 GB/T 1031 第一、补充系列 → error，只在补充系列 → warn）、`rough_default`（有粗糙度但没有通用符号且未全标）、`rough_fit`（IT ≤ 7 的配合面没有粗糙度） | error·warn / warn / warn | GB/T 131、1031 |
+| surface | `rough_syntax`（参数合法；数值不在 GB/T 1031 优选系列 → warn（资源库只录了优选系列））、`rough_default`（有粗糙度但没有通用符号且未全标）、`rough_fit`（IT ≤ 7 的配合面没有粗糙度） | error·warn / warn / warn | GB/T 131、1031 |
 | layout | `overlap`、`out_of_frame`、`view_align`、`stale_op`（M0） | warn | GB/T 4458.4、14689、4458.1 |
 
 `closed_loop` / `missing` 的图：每个视图、每个方向（h/v）一个图，节点是尺寸端点坐标，边是线性尺寸、倒角注、退刀槽注；`missing` 的节点取回转体轮廓的台阶 x 坐标。
