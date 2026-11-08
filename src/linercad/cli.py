@@ -33,7 +33,7 @@ class _Parser(argparse.ArgumentParser):
 
 
 COMMANDS = {
-    "init": "新建图纸目录：lcad init <dir> [--from shaft|flange|bracket] [--sheet A3]",
+    "init": "新建图纸目录：lcad init <dir> [--from <范例>] [--sheet A3]（范例见 lcad skill 的零件族卡片）",
     "build": '重建产物；-m "<原话>" 时提交源文件改动',
     "edit": '事务执行临时脚本：lcad edit <script.py> -m "<用户原话>"',
     "undo": "撤销某一轮：lcad undo eK [-m ...]",

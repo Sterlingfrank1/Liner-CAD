@@ -22,7 +22,13 @@ from .runtime import BUILD_DIR, LOG, SRC, TMP_DIR, build, edit_number, run_scrip
 SOURCES = (SRC, LOG, ".gitignore", ".gitattributes", "templates")
 GITIGNORE = ".linercad/\n"
 GITATTRIBUTES = "* text=auto eol=lf\n"
-EXAMPLES = ("shaft", "flange", "bracket")
+EXAMPLES = tuple(  # every package example directory with a drawing.py (adding one needs no code)
+    sorted(
+        p.name
+        for p in resources.files("linercad").joinpath("examples").iterdir()
+        if p.is_dir() and (p / "drawing.py").is_file()
+    )
+)
 EDIT_RE = re.compile(r"^e(\d+) · ")
 KEEP_TMP = 20
 
