@@ -1,0 +1,61 @@
+# ISO general-purpose metric screw threads: diameter and pitch series and tolerance classes.
+# Lengths in mm. d2 and d1 are computed from the formulas below (GB/T 196-2003 = ISO 724) and rounded to 3 decimals.
+# One entry per nominal diameter: first = first-choice size; coarse = coarse pitch; fine = fine pitches.
+size = [
+  { d = 1, first = true, coarse = 0.25, fine = [0.2] },
+  { d = 1.2, first = true, coarse = 0.25, fine = [0.2] },
+  { d = 1.4, first = false, coarse = 0.3, fine = [0.2] },
+  { d = 1.6, first = true, coarse = 0.35, fine = [0.2] },
+  { d = 1.8, first = false, coarse = 0.35, fine = [0.2] },
+  { d = 2, first = true, coarse = 0.4, fine = [0.25] },
+  { d = 2.5, first = true, coarse = 0.45, fine = [0.35] },
+  { d = 3, first = true, coarse = 0.5, fine = [0.35] },
+  { d = 3.5, first = false, coarse = 0.6, fine = [0.35] },
+  { d = 4, first = true, coarse = 0.7, fine = [0.5] },
+  { d = 5, first = true, coarse = 0.8, fine = [0.5] },
+  { d = 6, first = true, coarse = 1, fine = [0.75] },
+  { d = 7, first = false, coarse = 1, fine = [0.75] },
+  { d = 8, first = true, coarse = 1.25, fine = [0.75, 1] },
+  { d = 10, first = true, coarse = 1.5, fine = [0.75, 1, 1.25] },
+  { d = 12, first = true, coarse = 1.75, fine = [1, 1.25, 1.5] },
+  { d = 14, first = false, coarse = 2, fine = [1, 1.25, 1.5] },
+  { d = 16, first = true, coarse = 2, fine = [1, 1.5] },
+  { d = 18, first = false, coarse = 2.5, fine = [1, 1.5, 2] },
+  { d = 20, first = true, coarse = 2.5, fine = [1, 1.5, 2] },
+  { d = 22, first = false, coarse = 2.5, fine = [1, 1.5, 2] },
+  { d = 24, first = true, coarse = 3, fine = [1, 1.5, 2] },
+  { d = 27, first = false, coarse = 3, fine = [1, 1.5, 2] },
+  { d = 30, first = true, coarse = 3.5, fine = [1, 1.5, 2, 3] },
+  { d = 33, first = false, coarse = 3.5, fine = [1.5, 2, 3] },
+  { d = 36, first = true, coarse = 4, fine = [1.5, 2, 3] },
+  { d = 39, first = false, coarse = 4, fine = [1.5, 2, 3] },
+  { d = 42, first = true, coarse = 4.5, fine = [1.5, 2, 3, 4] },
+  { d = 45, first = false, coarse = 4.5, fine = [1.5, 2, 3, 4] },
+  { d = 48, first = true, coarse = 5, fine = [1.5, 2, 3, 4] },
+  { d = 52, first = false, coarse = 5, fine = [1.5, 2, 3, 4] },
+  { d = 56, first = true, coarse = 5.5, fine = [1.5, 2, 3, 4] },
+  { d = 60, first = false, coarse = 5.5, fine = [1.5, 2, 3, 4] },
+  { d = 64, first = true, coarse = 6, fine = [1.5, 2, 3, 4] },
+]
+
+[meta]
+std = "GB/T 196-2003"
+series_std = "GB/T 193-2003"
+classes_std = "GB/T 197-2018"
+iso = "ISO 724:1993"
+series_iso = "ISO 261:1998 / ISO 262:1998"
+classes_iso = "ISO 965-1"
+unit = "mm"
+source = """Diameter and pitch series (M1-M64, first and second choice): coarse and fine pitches cross-checked between en.wikipedia.org/wiki/ISO_metric_screw_thread (ISO 262 selected sizes; first choice = R10 sizes) \
+and engineeringtoolbox.com/amp/metric-threads-d_777.html (ISO 724 fine-pitch list). Both are ISO sources; GB/T 193-2003 is a modified adoption of ISO 261 and was not read directly. \
+Third-choice sizes (M1.1, M2.2, M4.5, M5.5, M9, M11, M15, ...) are not recorded. \
+Formulas d2 = d - 0.649519 P and d1 = d - 1.082532 P (3*sqrt(3)/8 and 5*sqrt(3)/8): en.wikipedia.org/wiki/ISO_metric_screw_thread. \
+Tolerance classes: ISO 965 selected classes as listed on roymech.org/Useful_Tables/Screws/Thread_tol.html; GB/T 197-2018 (ISO 965-1:2013) itself was not read, so a class added by the 2018 revision may be missing."""
+
+[formula]
+d2 = 0.649519
+d1 = 1.082532
+
+[classes]
+ext = ["3h4h", "4h", "5h4h", "5g6g", "6g", "7g6g", "5h6h", "6h", "7h6h", "8g", "9g8g", "6e", "7e6e", "6f"]
+int = ["4H", "5H", "6H", "7H", "8H", "5G", "6G", "7G", "8G"]

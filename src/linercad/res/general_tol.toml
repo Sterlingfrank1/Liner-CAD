@@ -1,0 +1,39 @@
+# General tolerances for dimensions without a tolerance indication. Classes f (fine), m (medium),
+# c (coarse), v (very coarse). `upto` holds the upper bounds of the size bands ("over a, up to and including b");
+# a table with one more value per class than `upto` entries has an open last band. 0 = not defined.
+[meta]
+std = "GB/T 1804-2000"
+iso = "ISO 2768-1:1989"
+source = """Linear table: matched against the GB/T 1804-2000 table in a textbook (Tsinghua Univ. Press, Gong Cha Pei He Yu Ce Liang, 3rd ed., table 2.13) and amesweb.info/fits-tolerances/iso-2768-linear-dimensions-tolerances.aspx. \
+Chamfer/radius and angular tables: ISO 2768-1 tables 2 and 3 as printed at modulusmetal.com/iso-2768-1-and-iso-2768-2-tolerances (f, c, v angular; f, c chamfer) and the textbook (table 2.14, f and c; its m and v cells are merged with f and c). \nClass m is recorded equal to f in both tables and v equal to c in the chamfer table (merged cells in the sources; angular m = f also quoted in ISO 2768-1 excerpts returned by web search, not fetched directly). \nThe textbook splits the chamfer band over 6 mm at 30 mm (f/m 1 and 2; c/v 2 and 4); ISO 2768-1 has one band over 6 mm, which is what is recorded here."""
+
+# Linear dimensions, mm, deviation is +- value. Size bands: 0.5-3, >3-6, >6-30, >30-120, >120-400, >400-1000, >1000-2000, >2000-4000.
+[linear]
+unit = "mm"
+min = 0.5
+upto = [3, 6, 30, 120, 400, 1000, 2000, 4000]
+f = [0.05, 0.05, 0.1, 0.15, 0.2, 0.3, 0.5, 0]
+m = [0.1, 0.1, 0.2, 0.3, 0.5, 0.8, 1.2, 2]
+c = [0.2, 0.3, 0.5, 0.8, 1.2, 2, 3, 4]
+v = [0, 0.5, 1, 1.5, 2.5, 4, 6, 8]
+
+# External radii and chamfer heights, mm. Size bands: 0.5-3, >3-6, >6.
+[chamfer]
+unit = "mm"
+min = 0.5
+upto = [3, 6]
+f = [0.2, 0.5, 1]
+m = [0.2, 0.5, 1]
+c = [0.4, 1, 2]
+v = [0.4, 1, 2]
+
+# Angular dimensions; the size is the length of the shorter leg in mm; values in arc minutes.
+# Bands: up to 10, >10-50, >50-120, >120-400, >400.
+[angle]
+unit = "arcmin"
+min = 0
+upto = [10, 50, 120, 400]
+f = [60, 30, 20, 10, 5]
+m = [60, 30, 20, 10, 5]
+c = [90, 60, 30, 15, 10]
+v = [180, 120, 60, 30, 20]
