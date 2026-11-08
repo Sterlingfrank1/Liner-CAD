@@ -197,8 +197,7 @@ def build_commit(dir, msg=None):
     dir = Path(dir)
     res = build(dir)
     edit = next_edit(dir, res.log_ops)
-    arts = write_artifacts(dir, res, None)
-    out = {"ok": True, "edit": None, "commit": None, **arts, "warnings": _warnings(res.findings)}
+    out = {"ok": True, "edit": None, "commit": None, "warnings": _warnings(res.findings)}
     dirty = dirty_sources(dir)
     if msg:
         if dirty:
@@ -209,6 +208,8 @@ def build_commit(dir, msg=None):
     elif dirty:
         out["uncommitted"] = dirty
         out["hint"] = '源文件有未提交改动；用 lcad build -m "<原话>" 提交'
+    current = out["edit"] or f"e{int(edit[1:]) - 1}"  # model.json records the version it shows
+    out.update(write_artifacts(dir, res, current))
     return out
 
 
