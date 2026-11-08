@@ -19,7 +19,6 @@ front.dim.dia("D", (0, R), (0, -R), value=2 * R, side="left")
 front.dim.dia("d0", (T, r0), (T, -r0), value=bore, side="right")
 left.dim.keyway("kb", "F.left.kw", what="b", side="inside")
 left.dim.keyway("kd", "F.left.kw", what="depth")
-d.accept("conv_dim", "F.left.kw", "键槽宽 D.kb、深 D.kd 已标（dim.keyway 的尺寸没有关联到端视图键槽特征）")
 d.general_tol("m")
 """
 

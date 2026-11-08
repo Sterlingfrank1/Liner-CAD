@@ -18,7 +18,7 @@ R, Rh, r0, Rb = P.da / 2, P.Dh / 2, P.d0 / 2, P.pcd / 2
 front = d.view("front")  # 半剖：x 沿轴线，上半剖开
 left = d.view("left")  # 端面视图（看齿轮坯的盘面一侧）
 
-body = front.turned(
+front.turned(
     "body",
     [
         (0, R - 1.5, "ch0"),
@@ -34,9 +34,6 @@ body = front.turned(
     hub_keyway=True,
     holes=[{"name": "lh", "r": Rb, "d": P.dl, "x0": 0, "x1": P.B}],
 )
-
-# 几何对照：半剖的 HLR 在切口平面（过轴线）处多出一条沿轴线的边线，图上那里是细点画线，遮掉
-body._intent["mask"] = [[-1.0, -0.2], [float(P.L) + 1, -0.2], [float(P.L) + 1, 0.2], [-1.0, 0.2]]
 
 left.circle((0, 0), R, name="outer")
 left.circle((0, 0), R - 1.5, name="chamfer")
@@ -64,11 +61,6 @@ front.gtol("run", "circular_runout", 0.03, datums=["A"], ref="E.front.body.rim_l
 front.rough("bore", 1.6, ref="D.d0", at=1)
 front.rough("rim", 3.2, ref="E.front.body.rim")
 d.rough_default(6.3)
-d.accept(
-    "conv_dim",
-    "F.left.kw",
-    "键槽宽 D.kb、深 D.kd 已标（dim.keyway 的尺寸没有关联到端视图键槽特征）",
-)
 
 d.notes.tech(["正火处理 170~217HBW。", "未注倒角 C1.5。", "齿坯各面不得有裂纹、夹渣。"])
 d.general_tol("m")
