@@ -1,0 +1,10 @@
+# Surface roughness parameter values (micrometres).
+[meta]
+std = "GB/T 1031-2009"
+iso = "ISO 4287 / ISO 1302 (N grades)"
+unit = "um"
+source = """Ra preferred values 0.025 ... 50 (the ISO N1 ... N12 grades) as tabulated at en.wikipedia.org/wiki/Surface_roughness. \
+GB/T 1031-2009 first series also has 0.012 and 100, and has a supplementary series and an Rz series; none of these could be verified and they are not recorded."""
+
+[Ra]
+preferred = [0.025, 0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2, 6.3, 12.5, 25, 50]

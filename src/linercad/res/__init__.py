@@ -17,7 +17,17 @@ from importlib import resources
 
 from ..errors import InvalidArgument
 
-__all__ = ["fit", "general_tol", "it"]
+__all__ = [
+    "datum_excluded",
+    "fit",
+    "general_tol",
+    "it",
+    "key",
+    "rough_series",
+    "spline",
+    "thread",
+    "thread_classes",
+]
 
 
 @cache
@@ -145,3 +155,152 @@ def general_tol(cls: str, size: float, kind: str = "linear") -> dict:
     degrees, minutes = divmod(value, 60)
     text = f"±{degrees}°" + (f"{minutes}'" if minutes else "")
     return out | {"upper": value / 60, "lower": -value / 60, "unit": "deg", "text": text}
+
+
+# ------------------------------------------------------------------ threads (193 / 196 / 197)
+
+_THREAD = re.compile(r"M(\d+(?:\.\d+)?)(?:[x×X](\d+(?:\.\d+)?))?")
+
+
+def thread_classes(kind: str = "ext") -> list[str]:
+    """Selectable tolerance classes (GB/T 197) of external ("ext") or internal ("int") threads."""
+    classes = _table("threads")["classes"]
+    if kind not in classes:
+        raise InvalidArgument(f"未知螺纹类别 {kind!r}", candidates=list(classes))
+    return list(classes[kind])
+
+
+def thread(spec: str, cls: str | None = None) -> dict:
+    """Dimensions of the metric thread ``spec`` ("M10" coarse, "M20x1.5" or "M20×1.5" fine) as
+    ``{"designation", "d", "P", "d2", "d1", "coarse", "first", "std"}``; with ``cls`` ("6g", "6H") the
+    class is checked and returned as ``cls`` / ``cls_kind``."""
+    data = _table("threads")
+    sizes = {row["d"]: row for row in data["size"]}
+    match = _THREAD.fullmatch(spec) if isinstance(spec, str) else None
+    if not match:
+        raise InvalidArgument(
+            f"螺纹规格 {spec!r} 不是 M直径 或 M直径x螺距（如 M10、M20x1.5）",
+            candidates=[f"M{d:g}" for d in sizes],
+        )
+    row = sizes.get(float(match.group(1)))
+    if row is None:
+        near = sorted(sizes, key=lambda d: abs(d - float(match.group(1))))[:4]
+        raise InvalidArgument(
+            f"{spec} 的直径不在 GB/T 193 的第一、二选择直径系列（M1–M64）",
+            candidates=[f"M{d:g}" for d in sorted(near)],
+        )
+    pitch = float(match.group(2)) if match.group(2) else row["coarse"]
+    if pitch != row["coarse"] and pitch not in row["fine"]:
+        raise InvalidArgument(
+            f"M{row['d']:g} 没有螺距 {pitch:g}",
+            candidates=[f"M{row['d']:g}x{p:g}" for p in [row["coarse"], *row["fine"]]],
+            hint=f"粗牙螺距 {row['coarse']:g}，写 M{row['d']:g}",
+        )
+    d, formula = row["d"], data["formula"]
+    out = {
+        "designation": f"M{d:g}" if pitch == row["coarse"] and not match.group(2) else f"M{d:g}x{pitch:g}",
+        "d": d,
+        "P": pitch,
+        "d2": round(d - formula["d2"] * pitch, 3),
+        "d1": round(d - formula["d1"] * pitch, 3),
+        "coarse": pitch == row["coarse"],
+        "first": row["first"],
+        "std": data["meta"]["std"],
+    }
+    if cls is not None:
+        kinds = {c: kind for kind, names in data["classes"].items() for c in names}
+        if cls not in kinds:
+            raise InvalidArgument(f"未知螺纹公差带 {cls!r}", candidates=list(kinds))
+        out |= {"cls": cls, "cls_kind": kinds[cls], "cls_std": data["meta"]["classes_std"]}
+    return out
+
+
+# ------------------------------------------------------------------------- keys (GB/T 1095)
+
+
+def key(d: float) -> dict:
+    """Parallel key and keyways for a shaft of diameter ``d`` mm (over 6, up to and including 130):
+    ``b h t1 t2``, ``d_range`` = [over, upto], the deviations ``t1_dev`` / ``t2_dev`` = [upper, lower],
+    the dimensions ``d_t1`` / ``d_t2`` with their deviations, and the key width fits."""
+    data = _table("keys")
+    row = next((r for r in data["key"] if r["over"] < d <= r["upto"]), None)
+    if row is None:
+        first, last = data["key"][0]["over"], data["key"][-1]["upto"]
+        raise InvalidArgument(
+            f"轴径 {d} mm 不在平键表范围内",
+            values={"d": d},
+            hint=f"表格覆盖轴径大于 {first} 至 {last} mm",
+        )
+    tol = row["tol"]
+    return {
+        "b": row["b"],
+        "h": row["h"],
+        "t1": row["t1"],
+        "t2": row["t2"],
+        "d_range": [row["over"], row["upto"]],
+        "t1_dev": [tol, 0.0],
+        "t2_dev": [tol, 0.0],
+        "d_t1": {"nominal": round(d - row["t1"], 4), "upper": 0.0, "lower": -tol},
+        "d_t2": {"nominal": round(d + row["t2"], 4), "upper": tol, "lower": 0.0},
+        "width_fit": {name: dict(fit) for name, fit in data["width_fit"].items()},
+        "std": data["meta"]["std"],
+    }
+
+
+# ---------------------------------------------------------------- splines (GB/T 1144)
+
+_SPLINE = re.compile(r"(\d+)[x×X](\d+)[x×X](\d+)[x×X](\d+(?:\.\d+)?)")
+
+
+def spline(spec: str) -> dict:
+    """Rectangular spline "NxdxDxB" (e.g. "6x23x26x6"): ``N d D B``, ``series`` ("light" / "medium") and
+    the general-use tolerance classes ``tol``."""
+    data = _table("splines")
+    names = {f"{s['N']}x{s['d']}x{s['D']}x{s['B']:g}": s for s in data["spline"]}
+    match = _SPLINE.fullmatch(spec) if isinstance(spec, str) else None
+    got = match and names.get("x".join(f"{float(g):g}" for g in match.groups()))
+    if not got:
+        same_d = [n for n, s in names.items() if match and s["d"] == int(match.group(2))]
+        raise InvalidArgument(
+            f"花键规格 {spec!r} 不在 GB/T 1144 轻、中系列中",
+            candidates=same_d or list(names),
+            hint="格式 键数x小径x大径x键宽，如 6x23x26x6",
+        )
+    meta = data["meta"]
+    return {
+        "designation": f"{got['N']}x{got['d']}x{got['D']}x{got['B']:g}",
+        **got,
+        "tol": {
+            "hole": dict(data["tol"]["hole"]),
+            "shaft": {fit: dict(c) for fit, c in data["tol"]["shaft"].items()},
+        },
+        "std": meta["std"],
+        "iso": meta["iso"],
+    }
+
+
+# ---------------------------------------------------------------- datum letters, roughness
+
+
+def datum_excluded(std: str = "GB") -> dict:
+    """Letters that must not be datum letters under ``std`` ("GB" or "ISO"): ``{"std", "letters",
+    "verified", "source"}``; ``verified`` False = the list could not be checked against the standard."""
+    data = _table("datum")
+    if std not in data:
+        raise InvalidArgument(f"未知标准档 {std!r}", candidates=list(data))
+    return {**data[std], "letters": list(data[std]["letters"])}
+
+
+def rough_series(param: str = "Ra") -> dict:
+    """Preferred values (um) of the roughness parameter ``param``: ``{"param", "preferred", "unit", "std"}``."""
+    data = _table("rough")
+    if param not in data or param == "meta":
+        raise InvalidArgument(
+            f"资源库没有粗糙度参数 {param!r} 的数值系列", candidates=[k for k in data if k != "meta"]
+        )
+    return {
+        "param": param,
+        "preferred": list(data[param]["preferred"]),
+        "unit": data["meta"]["unit"],
+        "std": data["meta"]["std"],
+    }
