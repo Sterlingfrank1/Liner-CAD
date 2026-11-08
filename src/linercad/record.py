@@ -360,7 +360,7 @@ def fill_layout(ops, d):
                         v = el._resolved.get(k)
                         if v is not None:
                             rec["args"][k] = v
-                if rec["op"] == "place" and el.kind == "dim" and not el._intent.get("circle"):
+                if rec["op"] == "place" and el.kind == "dim" and "offset" in el.LAYOUT:
                     if rec["args"].get("offset") is None:
                         rec["args"]["offset"] = el._resolved.get("offset", 0) or 0
         out.append(rec)

@@ -311,6 +311,9 @@ def edit(dir, script, msg):
     if not msg:
         raise InvalidArgument('lcad edit 需要 -m "<用户原话>"')
     log_path = dir / LOG
+    script = Path(script)
+    if not script.is_absolute() and not script.exists() and (dir / script).exists():
+        script = dir / script  # relative to the drawing directory given with -C
     base = build(dir)
     edit_id = next_edit(dir, base.log_ops)
     ops = run_script(base.d, script, edit_id)

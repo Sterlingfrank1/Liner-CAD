@@ -248,3 +248,14 @@ def test_bom_in_hand_edited_log(part):
     log.write_bytes(b"\xef\xbb\xbf" + log.read_bytes())
     code, out = lcad(part, "build")
     assert code == 0, out
+
+
+def test_place_on_a_leader_dimension_replays(tmp_path):
+    from linercad import txn as t
+
+    p = tmp_path / "s"
+    t.init(p, from_="shaft")
+    s = p / ".linercad" / "tmp" / "g.py"
+    s.write_text('def apply(d):\n    d["D.ug"].place(dir=135, length=30)\n', encoding="utf-8")
+    out = t.edit(p, ".linercad/tmp/g.py", "退刀槽标注挪开")  # relative to the drawing directory
+    assert out["ok"], out
