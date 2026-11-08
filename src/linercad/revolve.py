@@ -119,7 +119,7 @@ def _merge(intervals):
     return [(a, b) for a, b in out if b - a > 1e-6]
 
 
-def build(outer, bore, cut, half, holes, hidden, role):
+def build(outer, bore, cut, half, holes, hidden, role, keyway=None):
     """Edges (dicts: p1, p2 in (x, y) with y about axis 0, role, seg) and section loops.
 
     Returns (edges, loops, hole_centers) where ``seg`` = index of the outer/bore profile segment
@@ -188,6 +188,13 @@ def build(outer, bore, cut, half, holes, hidden, role):
                     _hole_edges(h, s, "hidden", "hidden", "hidden", add, vadd, xs0, xs1)
             continue
         # cut half: bore lines, cut-edge verticals, far edges across the hollow, hole walls
+        full_bore = bore
+        if keyway and s > 0:  # hub keyway in the upper half: the cut runs through its bottom
+            bore = [(x, r + keyway["t2"]) for x, r in full_bore]
+            for (xa, ra), (xb, _rb) in zip(full_bore, full_bore[1:]):
+                if xb - xa > EPS:  # keyway side walls meet the bore: visible far edge
+                    h = math.sqrt(max(ra * ra - (keyway["b"] / 2) ** 2, 0.0))
+                    add((xa, h), (xb, h), role)
         for i, ((xa, ra), (xb, rb)) in enumerate(zip(bore, bore[1:])):
             if xb - xa > EPS:
                 add((xa, s * ra), (xb, s * rb), role, ("b", i, sl))
@@ -202,6 +209,7 @@ def build(outer, bore, cut, half, holes, hidden, role):
         for h in holes_on(s):
             _hole_edges(h, s, role, "thin", role, add, vadd, xs0, xs1)
         loops += [[[x, s * y] for x, y in lp] for lp in _region(outer, bore, holes_on(s), xs0, xs1)]
+        bore = full_bore
     for (x, rl), iv in sorted(vert.items()):
         merged = _merge(iv)
         if rl == "hidden":  # visible lines win where both fall on the same x

@@ -455,6 +455,7 @@ class View(Element):
         holes=(),
         grooves=(),
         hidden=True,
+        hub_keyway=False,
     ):
         """Turned (revolved) part from the upper half profile [(x, r) or (x, r, "name"), ...].
         ``bore`` inner profile, ``cut`` None/"full"/"half", ``holes`` axial holes, ``grooves``
@@ -502,7 +503,22 @@ class View(Element):
             intents = self._turned_m0(pts, ax, role, names)
             loops, hcs = [], []
         else:
-            edges, loops, hcs = revolve.build(pts, bpts, cut, half, hl, hidden, role)
+            kw = None
+            if hub_keyway:
+                from . import res
+
+                if not (bpts and cut):
+                    raise InvalidArgument("hub_keyway 需要 bore 和 cut（剖视里画轮毂键槽）")
+                k = res.key(2 * bpts[0][1])
+                kw = {
+                    "b": k["b"],
+                    "t2": k["t2"],
+                    "t1": k["t1"],
+                    "h": k["h"],
+                    "d": 2 * bpts[0][1],
+                    "std": k.get("std"),
+                }
+            edges, loops, hcs = revolve.build(pts, bpts, cut, half, hl, hidden, role, kw)
             intents = []
             for e in edges:
                 ei = {
@@ -531,6 +547,7 @@ class View(Element):
                 "grooves": [g["name"] for g in gl],
                 "hidden": hidden,
                 "hatch": None,
+                "hub_keyway": kw if (bpts or cut or hl) else None,
             },
         )
         self._feature_edges(f, intents)

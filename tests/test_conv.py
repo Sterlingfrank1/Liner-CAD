@@ -168,3 +168,13 @@ def test_spline_axial_and_end():
     assert len([e for e in se.edges if e.shape == "arc"]) == 12
     note = f.dim.spline("sd", "F.front.sp")
     assert "6×23f7×26a11×6d10" in note.text and "1144" in note.text
+
+
+def test_hub_keyway_in_section():
+    d = Drawing()
+    f = d.view("front")
+    f.turned("hub", [(0, 40), (30, 40)], bore=[(0, 15), (30, 15)], cut="full", hub_keyway=True)
+    i = d["F.front.hub"].intent["hub_keyway"]
+    assert (i["b"], i["t2"]) == (8, 3.3)
+    tops = [e for e in d["F.front.hub"].edges if e.dir == "h" and e.start[1] > 0]
+    assert sorted(round(e.start[1], 3) for e in tops) == [round((15**2 - 16) ** 0.5, 3), 18.3, 40]
