@@ -381,20 +381,32 @@ class Drawing:
         return near_sheet(self, num(x, "x"), num(y, "y"), num(r, "r"))
 
     # ---- element bookkeeping --------------------------------------------------------
-    def _alloc(self, prefix: str, scope: tuple = (), name=None) -> str:
-        """Allocate an ID ``prefix.scope....name`` or, without a name, the next free number."""
+    def _take_forced(self, parts):
+        """The forced (replayed) ID if it belongs to ``parts`` (prefix + scope), else None."""
+        fid = self._forced_id
+        head = ".".join(parts) + "."
+        if fid is not None and fid.startswith(head) and "." not in fid[len(head) :]:
+            self._forced_id = None
+            return fid
+        return None
+
+    def _alloc(self, prefix: str, scope: tuple = (), name=None, child=False) -> str:
+        """Allocate an ID ``prefix.scope....name`` or, without a name, the next free number.
+        ``child``: a sub-element numbered inside its parent (never forced, never edit-scoped)."""
         parts = [prefix, *scope]
         if name is not None:
             check_name(name)
             return ".".join([*parts, name])
-        if self._forced_id is not None:
-            fid, self._forced_id = self._forced_id, None
-            return fid
-        key = (*parts, self._scope)
+        if not child:
+            fid = self._take_forced(parts)
+            if fid is not None:
+                return fid
+        tag = None if child else self._scope
+        key = (*parts, tag)
         n = self._counters.get(key, 0)
         while True:
             n += 1
-            stem = f"{self._scope}_{n}" if self._scope else str(n)
+            stem = f"{tag}_{n}" if tag else str(n)
             cand = ".".join([*parts, stem])
             if cand not in self._els:
                 self._counters[key] = n
@@ -402,8 +414,8 @@ class Drawing:
 
     def _auto_name(self, prefix: str, scope: tuple, stem: str) -> str:
         """Next free name ``<stem>_<n>`` for ``prefix.scope.<name>`` (honours a forced ID on replay)."""
-        if self._forced_id is not None:
-            fid, self._forced_id = self._forced_id, None
+        fid = self._take_forced([prefix, *scope])
+        if fid is not None:
             return fid.rsplit(".", 1)[-1]
         key = (prefix, *scope, stem, self._scope)
         n = self._counters.get(key, 0)

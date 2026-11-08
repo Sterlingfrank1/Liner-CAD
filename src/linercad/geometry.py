@@ -291,7 +291,7 @@ class View(Element):
         if feature is None:
             eid = self._d._alloc("E", (v,))
         else:
-            eid = self._d._alloc("E", (v, scope_name))
+            eid = self._d._alloc("E", (v, scope_name), child=True)
         intent = {"view": v, **intent}
         refs = [self._id]
         if feature is not None:
@@ -484,6 +484,7 @@ class View(Element):
                     "type": "line",
                     "p1": [x - h * ux, y - h * uy],
                     "p2": [x + h * ux, y + h * uy],
+                    "split": True,
                 },
                 refs=[self._id, f.id],
             )

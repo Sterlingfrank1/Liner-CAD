@@ -503,21 +503,35 @@ class Section(Element):
         self._intent["look"] = fields["look"]
 
 
+VIEW_DIR = {
+    "front": (0, 1, 0),
+    "top": (0, 0, -1),
+    "bottom": (0, 0, 1),
+    "left": (1, 0, 0),
+    "right": (-1, 0, 0),
+    "rear": (0, -1, 0),
+}
+
+
 def default_look(std, view, cut_in) -> str:
-    """Arrow direction in the cut view: first angle → towards the section view, third → away."""
-    proj = std["views"]["projection"]
-    pos = {"front": [0, 0], **std["views"]["positions"][proj]}
-    if view not in pos or cut_in not in pos:
-        raise InvalidArgument("剖视的两个视图都要是基本视图", candidates=list(pos))
-    dx = pos[view][0] - pos[cut_in][0]
-    dy = pos[view][1] - pos[cut_in][1]
-    if proj != "first":
-        dx, dy = -dx, -dy
-    if dx == 0 and dy == 0:
+    """Arrow direction in ``cut_in``: the section view's viewing direction (model axes) in
+    ``cut_in``'s local axes (SPEC 3.1). Holds for first- and third-angle projection alike."""
+    from .checks import VIEW_AXES
+
+    if view not in VIEW_DIR or cut_in not in VIEW_DIR:
+        raise InvalidArgument("剖视的两个视图都要是基本视图", candidates=list(VIEW_DIR))
+    if view == cut_in:
         raise InvalidArgument("view 和 cut_in 不能是同一个视图", values={"view": view})
-    if abs(dx) >= abs(dy):
-        return "right" if dx > 0 else "left"
-    return "up" if dy > 0 else "down"
+    look = dict(zip("XYZ", VIEW_DIR[view]))
+    (su, au), (sv, av) = VIEW_AXES[cut_in]
+    du, dv = su * look[au], sv * look[av]
+    if du == 0 and dv == 0:
+        raise InvalidArgument(
+            f"在 {cut_in} 视图里看不到 {view} 的投射方向，请给 look=", candidates=list(SECTION_LOOK)
+        )
+    if abs(du) >= abs(dv):
+        return "right" if du > 0 else "left"
+    return "up" if dv > 0 else "down"
 
 
 # ---- implementations behind View.note/hatch and Drawing.section/title ---------------------

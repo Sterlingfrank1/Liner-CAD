@@ -142,9 +142,15 @@ def _view_align(d):
             i = e._intent
             if i["shape"] == "line":
                 pts += [i["p1"], i["p2"]]
-            else:
+            elif i["shape"] == "circle":
                 c, r = i["c"], i["r"]
                 pts += [(c[0] - r, c[1] - r), (c[0] + r, c[1] + r)]
+            else:  # arc: end points plus the quadrant points inside the sweep
+                pts += [e.start, e.end]
+                sweep = (i["end"] - i["start"]) % 360 or 360
+                for q in (0, 90, 180, 270):
+                    if (q - i["start"]) % 360 <= sweep:
+                        pts.append(e._arc_pt(q))
         if not pts or v.name not in VIEW_AXES:
             continue
         (su, au), (sv, av) = VIEW_AXES[v.name]

@@ -186,6 +186,9 @@ def save_doc(doc, path):
     old = ezdxf.options.write_fixed_meta_data_for_testing
     ezdxf.options.write_fixed_meta_data_for_testing = True
     try:
+        doc.classes.add_required_classes(doc.dxfversion)  # fixed CLASSES order (ezdxf uses a set)
+        for t in sorted(doc.entitydb.dxf_types_in_use()):
+            doc.classes.add_class(t)
         doc.saveas(tmp)
     finally:
         ezdxf.options.write_fixed_meta_data_for_testing = old

@@ -347,7 +347,13 @@ class _ViewLayout:
                 u = ((b[0] - a[0]) / L, (b[1] - a[1]) / L)
                 a = (a[0] - u[0] * ext, a[1] - u[1] * ext)
                 b = (b[0] + u[0] * ext, b[1] + u[1] * ext)
-                prims = [center_piece(a, b, self.std)]
+                if i.get(
+                    "split"
+                ):  # crosses another centre line at its middle: two pieces from there
+                    m = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+                    prims = [center_piece(m, a, self.std), center_piece(m, b, self.std)]
+                else:
+                    prims = [center_piece(a, b, self.std)]
             elif i["type"] == "mark":
                 c, h = self.P(i["c"]), i["r"] * self.s + ext
                 # four pieces from the centre outwards: the crossing falls on long dashes
@@ -546,7 +552,9 @@ class _ViewLayout:
     def circle_cands(self, el):
         i, lay = el._intent, el._layout
         std, dm = self.std, self.std["dim"]
-        c, r = self.P(i["c"]), i["r"] * self.s
+        circ = self.d._els.get(i["circle"])
+        src = circ._intent if circ is not None else i  # follow the circle if it moved
+        c, r = self.P(src["c"]), src["r"] * self.s
         h = dm["text_height"]
         w, hh = text_size(i["text"], h, std)
         al = dm["arrow_length"]
@@ -598,7 +606,9 @@ class _ViewLayout:
         std, nt = self.std, self.std["note"]
         A = self.P(i["anchor"])
         base_len = nt["leader_length"]
-        lengths = [lay["length"]] if lay.get("length") else [base_len + k for k in LEADS]
+        lengths = (
+            [lay["length"]] if lay.get("length") else [base_len] + [base_len + k for k in LEADS]
+        )
         sx, sy = lay.get("shift") or (0.0, 0.0)
         h = nt["text_height"]
         w, hh = text_size(i["text"], h, std)
@@ -688,20 +698,33 @@ class _ViewLayout:
             side = e._layout.get("side") or self._side_for(a, b, i["dir"])
             return (SIDE_ORDER.index(side), i["measured"], decl[e._id])
 
-        for e in [x for x in linear if is_fixed(x)] + sorted(
-            [x for x in linear if not is_fixed(x)], key=key
-        ):
-            auto = [f for f in ("side", "row") if e._layout.get(f) is None]
-            self.choose(e, self.linear_cands(e), auto)
-        for e in [x for x in circular if x._layout.get("at") is not None] + [
-            x for x in circular if x._layout.get("at") is None
-        ]:
-            self.choose(e, self.circle_cands(e), [] if e._layout.get("at") is not None else ["at"])
-        notes = [e for e in self.els("note")]
-        fixed = [n for n in notes if n._layout.get("dir") is not None]
-        for e in fixed + [n for n in notes if n._layout.get("dir") is None]:
-            auto = [f for f in ("dir", "length") if e._layout.get(f) is None]
-            self.choose(e, self.note_cands(e), auto)
+        notes = self.els("note")
+
+        def fixed(e):
+            if e.kind == "note":
+                return e._layout.get("dir") is not None
+            if e._intent.get("circle"):
+                return e._layout.get("at") is not None
+            return bool(is_fixed(e))
+
+        def place(e):
+            if e.kind == "note":
+                auto = [f for f in ("dir", "length") if e._layout.get(f) is None]
+                self.choose(e, self.note_cands(e), auto)
+            elif e._intent.get("circle"):
+                self.choose(
+                    e, self.circle_cands(e), [] if e._layout.get("at") is not None else ["at"]
+                )
+            else:
+                auto = [f for f in ("side", "row") if e._layout.get(f) is None]
+                self.choose(e, self.linear_cands(e), auto)
+
+        for e in [x for x in dims + notes if fixed(x)]:  # all fixed elements first (SPEC 5.1)
+            place(e)
+        for e in sorted([x for x in linear if not fixed(x)], key=key):
+            place(e)
+        for e in [x for x in circular + notes if not fixed(x)]:
+            place(e)
 
     def section_labels(self):
         sec = self.std["section"]
