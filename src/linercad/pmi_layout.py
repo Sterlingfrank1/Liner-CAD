@@ -479,19 +479,25 @@ def rough_cands(vl, el):
             c["mode"] = "direct"
             direct.append(c)
         lift = std["rough"]["h2"] + 3 if n[1] < -0.3 else 0.0  # symbol stands clear of the part
+        bx0, _, bx1, _ = prims_bbox(sym)
         for L in _lens(el._layout, std):
             L = L + lift if not el._layout.get("length") else L
-            sx, sy = _shift(el)
-            E = (A[0] + n[0] * L + sx, A[1] + n[1] * L + sy)
-            sh = 14.0 if n[0] >= 0 else -14.0
-            S = (E[0] + sh, E[1])
-            tip = (E[0] + sh * 0.35, E[1])
-            prims = [Line(E, A, "thin"), arrow(A, (-n[0], -n[1]), std, "thin"), Line(E, S, "thin")]
-            prims += transform(sym, 0, tip[0], tip[1])
-            fields = {"length": L, "at": frac}
-            c = _cand(prims, fields)
-            c["mode"] = "leader"
-            out.append(c)
+            for tilt in (0, 35, -35):
+                u = _rot(n, tilt)
+                for side in (1, -1) if n[0] >= 0 else (-1, 1):
+                    sx, sy = _shift(el)
+                    E = (A[0] + u[0] * L + sx, A[1] + u[1] * L + sy)
+                    if side > 0:
+                        tip = (E[0] - bx0 + 1, E[1])
+                        S = (tip[0] + bx1 + 1, E[1])
+                    else:
+                        S = (E[0] - (bx1 - bx0) - 2, E[1])
+                        tip = (S[0] - bx0 + 1, E[1])
+                    prims = [Line(E, A, "thin"), arrow(A, (-u[0], -u[1]), std, "thin"), Line(E, S, "thin")]
+                    prims += transform(sym, 0, tip[0], tip[1])
+                    c = _cand(prims, {"length": L, "at": frac})
+                    c["mode"] = "leader"
+                    out.append(c)
     return direct + out  # standing on the surface first, a leader when that is crowded
 
 
