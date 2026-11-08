@@ -64,7 +64,11 @@ front.gtol("run", "circular_runout", 0.03, datums=["A"], ref="E.front.body.rim_l
 front.rough("bore", 1.6, ref="D.d0", at=1)
 front.rough("rim", 3.2, ref="E.front.body.rim")
 d.rough_default(6.3)
-d.accept("conv_dim", "F.left.kw", "键槽宽 D.kb、深 D.kd 已标（dim.keyway 的尺寸没有关联到端视图键槽特征）")
+d.accept(
+    "conv_dim",
+    "F.left.kw",
+    "键槽宽 D.kb、深 D.kd 已标（dim.keyway 的尺寸没有关联到端视图键槽特征）",
+)
 
 d.notes.tech(["正火处理 170~217HBW。", "未注倒角 C1.5。", "齿坯各面不得有裂纹、夹渣。"])
 d.general_tol("m")

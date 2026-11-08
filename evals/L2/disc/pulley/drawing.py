@@ -88,7 +88,11 @@ front.rough("bore", 1.6, ref="D.d0", at=1)
 front.rough("flank", 3.2, ref="E.front.body.g2b")
 d.rough_default(12.5)
 d.accept("missing", "F.front.body", "V 槽轮廓由槽口宽 bg、槽深 hg、槽角 ang、槽距 e、f 确定")
-d.accept("conv_dim", "F.left.kw", "键槽宽 D.kb、深 D.kd 已标（dim.keyway 的尺寸没有关联到端视图键槽特征）")
+d.accept(
+    "conv_dim",
+    "F.left.kw",
+    "键槽宽 D.kb、深 D.kd 已标（dim.keyway 的尺寸没有关联到端视图键槽特征）",
+)
 
 d.notes.tech(["铸件时效处理。", "铸件不得有砂眼、气孔、裂纹。", "未注倒角 C1。"])
 d.general_tol("m")

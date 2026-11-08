@@ -53,7 +53,9 @@ front.dim.linear("T", (0, -R), (P.T, -R), value=P.T, side="bottom")
 front.dim.linear("Ls", (0, -R), (P.Ls, -rs), dir="h", value=P.Ls, side="bottom", row=3)
 front.dim.linear("g0", (0, rg), (P.g0, rg), dir="h", value=P.g0, side="top")
 front.dim.linear("gw", (P.g0, rg), (P.g0 + P.gw, rg), dir="h", value=P.gw, side="top", row=2)
-front.dim.dia("dg", (P.g0 + P.gw / 2, rg), (P.g0 + P.gw / 2, -rg), value=P.d0 + 2 * P.hg, side="inside")
+front.dim.dia(
+    "dg", (P.g0 + P.gw / 2, rg), (P.g0 + P.gw / 2, -rg), value=P.d0 + 2 * P.hg, side="inside"
+)
 front.dim.chamfer("ch", "E.front.body.ch")
 left.dim.dia("bolt", circle="E.left.bolt.1", value=P.dh, prefix="4×", suffix=" EQS", at=120)
 left.dim.dia("pcd", circle="C.left.bolt", value=P.pcd, at=-45)
