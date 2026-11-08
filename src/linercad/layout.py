@@ -51,6 +51,7 @@ class Text:
     rot: float  # 0 or 90
     layer: str
     box: tuple  # (x0, y0, x1, y1)
+    cjk: bool | None = None  # metric override for mixed-language blocks (technical notes)
 
 
 @dataclass(frozen=True)
@@ -202,6 +203,15 @@ def seg_in_box(p, q, b):
     return (t1 - t0) * math.hypot(dx, dy)
 
 
+def _crosses(p, q, r, s):
+    """Proper intersection of segments pq and rs (touching at an end does not count)."""
+
+    def o(a, b, c):
+        return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+
+    return o(r, s, p) * o(r, s, q) < -1e-9 and o(p, q, r) * o(p, q, s) < -1e-9
+
+
 def collinear_overlap(a, b):
     """Open-interval overlap length of two collinear segments (0 if not collinear)."""
     (p, q), (r, s) = a, b
@@ -226,8 +236,8 @@ def arrow(tip, d, std, layer="dim"):
     return Solid((tuple(tip), (bx + nx, by + ny), (bx - nx, by - ny)), layer)
 
 
-def make_text(s, at, h, std, rot=0, layer="dim"):
-    w, hh = text_size(s, h, std)
+def make_text(s, at, h, std, rot=0, layer="dim", cjk=None):
+    w, hh = text_size(s, h, std, cjk)
     if abs(rot % 180 - 90) < 1e-9:
         box = (at[0] - hh / 2, at[1] - w / 2, at[0] + hh / 2, at[1] + w / 2)
     elif abs(rot % 180) < 1e-9:
@@ -236,7 +246,7 @@ def make_text(s, at, h, std, rot=0, layer="dim"):
         c, s_ = abs(math.cos(math.radians(rot))), abs(math.sin(math.radians(rot)))
         bw, bh = (w * c + hh * s_) / 2, (w * s_ + hh * c) / 2
         box = (at[0] - bw, at[1] - bh, at[0] + bw, at[1] + bh)
-    return Text(s, tuple(at), h, rot, layer, box)
+    return Text(s, tuple(at), h, rot, layer, box, cjk)
 
 
 def center_piece(a, b, std):
@@ -270,6 +280,7 @@ class _Obstacles:
         self.segs = []  # (owner, p, q)
         self.boxes = []  # (owner, box)
         self.dimlines = []  # (owner, p, q)
+        self.ann = set()  # owners that are annotations (their lines must not be crossed by leaders)
 
     def add(self, owner, segs=(), boxes=(), dimlines=()):
         self.segs += [(owner, p, q) for p, q in segs]
@@ -312,6 +323,16 @@ class _Obstacles:
                     if v > 0:
                         out[o] = max(out.get(o, 0), v)
         return sorted(out.items())
+
+    def crossings(self, owner, cand):
+        """Annotations a candidate's leader cuts through (a soft cost after overlaps)."""
+        allow = set(cand.get("allow_cross", ()))
+        hit = set()
+        for p, q in cand.get("cross", ()):
+            for o, a, b in self.segs:
+                if o != owner and o in self.ann and o not in allow and _crosses(p, q, a, b):
+                    hit.add(o)
+        return len(hit)
 
 
 class _ViewLayout:
@@ -890,11 +911,12 @@ class _ViewLayout:
         best = None
         for k, cand in enumerate(cands):
             conf = self.obst.conflicts(el._id, cand, clearance)
-            if not conf:
-                best = (0, k, cand, conf)
+            key = (len(conf), self.obst.crossings(el._id, cand) if cand.get("cross") else 0)
+            if key == (0, 0):
+                best = (key, k, cand, conf)
                 break
-            if best is None or len(conf) < best[0]:
-                best = (len(conf), k, cand, conf)
+            if best is None or key < best[0]:
+                best = (key, k, cand, conf)
         _, k, cand, conf = best
         el._resolved.update(cand["fields"])
         if cand.get("ends"):
@@ -918,6 +940,7 @@ class _ViewLayout:
             )
         el._reason = "；".join(reasons)
         self.put(el, cand["prims"], obstacle=False)
+        self.obst.ann.add(el._id)
         self.obst.add(
             el._id,
             segs=cand["segs"],
@@ -1163,15 +1186,19 @@ class _Layout:
             x0 = TB[0] + 2
             top = TB[3] + tn["gap"] + total
             boxes = []
+            from .text import has_cjk
+
+            cjk = any(has_cjk(e._intent["text"]) for e in notes) or None  # one metric per block
             for k, e in enumerate(notes, 1):
                 s = f"{k}. {e._intent['text']}"
-                w, _ = text_size(s, tn["height"], std)
+                w, _ = text_size(s, tn["height"], std, cjk)
                 t = make_text(
                     s,
                     (x0 + w / 2, top - tn["title_height"] * 1.6 - (k - 0.5) * lh),
                     tn["height"],
                     std,
                     layer="text",
+                    cjk=cjk,
                 )
                 e._prims = [t]
                 boxes.append(t.box)

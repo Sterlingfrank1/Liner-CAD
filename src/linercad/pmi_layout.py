@@ -236,7 +236,7 @@ def _fracs(el):
     return list(AT_FRACS)
 
 
-def _cand(prims, fields, why="", body=None):
+def _cand(prims, fields, why="", body=None, cross=(), allow=()):
     """Candidate: text boxes and the box of ``body`` (frame / symbol, not the leader that
     necessarily touches the outline) are what must stay clear."""
     from .layout import Text
@@ -247,11 +247,14 @@ def _cand(prims, fields, why="", body=None):
         if isinstance(p, Line):
             segs.append((p.p, p.q))
     box = prims_bbox(body) if body else None
+    leaders = [(p.p, p.q) for p in cross]
     return {
         "prims": prims,
         "boxes": boxes + ([box] if box else []),
         "segs": segs,
         "fields": fields,
+        "cross": leaders,
+        "allow_cross": list(allow),
         "why": why,
     }
 
@@ -299,7 +302,9 @@ def datum_cands(vl, el):
                 make_text(el._intent["letter"], C, std["dim"]["text_height"], std, layer="text")
             )
             fields = {"length": L, "at": frac}
-            out.append(_cand(prims, fields, body=prims[2:]))
+            out.append(
+                _cand(prims, fields, body=prims[2:], cross=[prims[1]], allow=[el._intent["ref"]])
+            )
     return out
 
 
@@ -425,7 +430,9 @@ def gtol_cands(vl, el):
                 oy = E[1] - H / 2
             prims += transform(frame, 0, ox, oy)
             fields = {"length": L, "at": frac}
-            out.append(_cand(prims, fields, body=prims[2:]))
+            out.append(
+                _cand(prims, fields, body=prims[2:], cross=[prims[0]], allow=[el._intent["ref"]])
+            )
     return out
 
 
@@ -506,7 +513,13 @@ def rough_cands(vl, el):
                         Line(E, S, "thin"),
                     ]
                     prims += transform(sym, 0, tip[0], tip[1])
-                    c = _cand(prims, {"length": L, "at": frac}, body=prims[3:])
+                    c = _cand(
+                        prims,
+                        {"length": L, "at": frac},
+                        body=prims[3:],
+                        cross=[prims[0]],
+                        allow=[el._intent["ref"]],
+                    )
                     c["mode"] = "leader"
                     out.append(c)
     return direct + out  # standing on the surface first, a leader when that is crowded
@@ -638,5 +651,5 @@ def center_hole_cands(vl, el):
                 text, (E[0] + sg * (sym + 1 + w / 2), E[1] + 1 + hh / 2), h, std, layer="text"
             )
         )
-        out.append(_cand(prims, {"dir": ang, "length": L}, body=prims[3:]))
+        out.append(_cand(prims, {"dir": ang, "length": L}, body=prims[3:], cross=[prims[0]]))
     return out
