@@ -23,7 +23,7 @@ front.turned(
     "body",
     [
         (0, r1 - P.c),
-        (P.c, r1),
+        (P.c, r1, "j1"),
         (x1, r1),
         (x1, r2),
         (x2, r2),
@@ -31,7 +31,7 @@ front.turned(
         (x3, r3),
         (x3, r2),
         (x4, r2),
-        (x4, r1),
+        (x4, r1, "j2"),
         (P.L - P.c, r1),
         (P.L, r1 - P.c),
     ],
@@ -57,5 +57,12 @@ front.dim.linear(
 
 front.note("chamfer", "2×C1", anchor=(P.c / 2, r1 - P.c / 2))
 
-d.notes.tech(["调质处理 220~250HBW。", "未注倒角 C1。", "未注尺寸公差按 GB/T 1804-m。"])
+front.rough("j1", 0.8, ref="E.front.body.j1")
+front.rough("j2", 0.8, ref="E.front.body.j2")
+d.rough_default(6.3)
+
+d.notes.tech(["调质处理 220~250HBW。", "未注倒角 C1。"])
+d.general_tol("m")
+d.accept("missing", "F.front.body", "两端倒角由技术要求“未注倒角 C1”给出")
+d.accept("param_cover", "P.c", "倒角写在技术要求里")
 d.title(name="阶梯轴", drawing_no="LC-SH-01", material="45", designer="Liner-CAD")
