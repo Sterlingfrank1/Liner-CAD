@@ -1,6 +1,6 @@
 ---
 name: linercad
-description: 用 Liner-CAD（lcad）画和修改 2D 机械工程图（GB 制图标准）。新建图纸、按用户的话改尺寸/布局/公差/参数、撤销某一轮、出 PNG 自检时使用。
+description: 用 Liner-CAD（lcad）画和修改 2D 机械工程图（GB / ISO 制图标准，含公差、形位公差、粗糙度、规定画法、剖视断面）。新建图纸、按用户的话改尺寸/布局/公差/参数、撤销某一轮、出 PNG 自检时使用。
 ---
 
 # Liner-CAD 工程图 Skill
@@ -61,42 +61,73 @@ P = d.params(
 )
 front = d.view("front")      # 基本视图：front top bottom left right rear（第一角画法自动摆放、对齐）
 ```
-
 **坐标**：每个视图用自己的**模型坐标**（mm，未缩放）。主视 (X, Z)、俯视 (X, Y)、左视 (−Y, Z)、右视 (Y, Z)、仰视 (X, −Y)，X 右、Y 向后、Z 向上。共享轴用同一组坐标，视图自动长对正、高平齐、宽相等。`d.near(x, y)` 用图纸坐标（mm，原点在图幅左下角）；`view.to_sheet(x, y)` / `view.to_local(x, y)` 互换。
 
 **几何**（`role` = `thick` 粗实线 / `thin` / `hidden` 细虚线 / `center` / `phantom`，默认 thick）：
 
 | 调用 | 说明 |
 |---|---|
-| `v.line(p1, p2, role=, name=)` | 一条边 |
-| `v.polyline(pts, ...)` / `v.polygon(pts, ...)` / `v.rect((x, y), w, h, ...)` | 特征 `F.<视图>.<名>`，边 `E.<视图>.<名>.<k>` |
-| `v.circle(c, r, ...)` / `v.arc(c, r, start, end, ...)` | 角度制逆时针 |
-| `v.turned(name, [(x, r), ...], axis=0)` | **回转体**：给上半轮廓，自动镜像、补台阶/倒角竖线、画轴线 |
-| `v.centerline(p1, p2, name=)` | 中心线（自动超出 3 mm，首末为长画） |
-| `v.center_mark(c, r, name=)` | 圆的十字中心线 |
-| `v.holes_on_circle(name, c, pcd, n, d, start=90)` | 均布孔 + 节圆 + 径向中心线 |
+| `v.line(p1, p2, role=, name=)` / `v.polyline` / `v.polygon` / `v.rect((x, y), w, h)` | 特征 `F.<视图>.<名>`，边 `E.<视图>.<名>.<k>` |
+| `v.circle(c, r)` / `v.arc(c, r, start, end)` | 角度制逆时针 |
+| `v.turned(name, [(x, r, "名"?), ...], axis=0, bore=None, cut=None, half="top", holes=[], grooves=[])` | **回转体**（轴、套、盘、盖）：给上半外轮廓。`bore` 内孔轮廓；`cut="full"` 全剖、`"half"` 半剖（自动剖面区域、剖面线 `H.<v>.<name>`、孔后可见线）；`holes=[{"name","r","d","x0","x1","tip":True,"thread":"M8","depth":16}]` 轴向孔/螺孔；`grooves=[{"name","x","w","d","side":"left"}]` 退刀槽拼进轮廓。轮廓点第三项给名字 → 稳定边 `E.<v>.<name>.<名>`（下半 `<名>_lo`），PMI 引用它 |
+| `v.centerline(p1, p2)` / `v.center_mark(c, r)` / `v.holes_on_circle(name, c, pcd, n, d, start=90)` | 中心线 / 十字中心线 / 均布孔 |
+| `v.wavy(name, [p1, p2, ...])` | 局部剖、断裂的波浪线 |
+| `v.hatch(name, loops=[...], outline=None)` | 剖面线；嵌套环是孤岛；`outline="thin"` = 重合断面 |
 
-点可以写成 `(x, y)`（数字或参数表达式），也可以写**锚点** `"E.front.body.3:start"`（`start/end/mid/center`）。
-
-**标注**（尺寸、引线注释、剖面线**必须起名**；第一个参数就是名字）：
+**规定画法**（数值查资源库，画法按 GB/T 4459；返回特征）：
 
 | 调用 | 说明 |
 |---|---|
-| `v.dim.linear(name, p1, p2, dir=None, value=, tol=, role="size", datum=, side=, row=, offset=)` | 水平 `dir="h"` 量 Δx，竖直 `dir="v"` 量 Δy |
-| `v.dim.dia(name, p1, p2, ...)` | 非圆视图上的直径（加 Φ） |
-| `v.dim.dia(name, circle="E.left.hole.1", at=45, prefix="4×", suffix=" EQS")` | 圆视图上的直径；`circle` 也可以是节圆 `C.left.bolt` |
-| `v.dim.rad(name, circle=<圆弧>)` | 半径（只用于圆弧，整圆标直径） |
-| `v.note(name, "C1", anchor=, dir=, length=)` | 引线注释 |
-| `d.notes.tech([...])` | 技术要求 `N.tech.<k>` |
-| `d.title(name=, drawing_no=, material=, designer=, checker=, date=, mass=, company=)` | 标题栏 |
-| `d.section("A", view="front", cut_in="left", through=[p1, p2])` | 全剖：剖切符号画在 `cut_in`，`A-A` 标在 `view` 上方 |
-| `v.hatch(name, loops=[特征或ID, ...])` | 剖面线；嵌套环是孤岛 |
+| `v.thread(name, "M20x1.5", x0, x1, axis=0, kind="ext"/"int", cls=None)` | 轴向视图螺纹：外螺纹大径粗、小径细、终止线粗；内螺纹（`bore` 先画到小径）补大径细线和终止线 |
+| `v.thread_end(name, c, "M20", kind=)` | 端视图：粗圆 + 约 3/4 细圆弧 |
+| `v.tapped_hole(name, at, "+x", "M8", depth, drill_depth=None)` | 非回转体上的螺孔（120° 钻尖） |
+| `v.center_hole(name, on="F.front.body", end="left", type="A", d=2.5, keep=True)` | 中心孔代号 `GB/T 4459.5-A2.5/5.3` |
+| `v.keyway(name, x0, length, d)` | 轴上键槽（朝观察者，长圆形）；宽深查 GB/T 1095 |
+| `sec.shaft_cut(name, d, keyway="F.front.kw")` | 在移出断面里画轴截面 + 键槽 + 剖面线 |
+| `v.keyway_end(name, c, d, kind="hub")` | 端视图里的轮毂键槽 |
+| `v.spline(name, "6x23x26x6", x0, x1)` / `v.spline_end(name, c, spec)` | 矩形花键 |
 
-- `value=P.L - P.l1` 让尺寸显示参数值并记录 `covers`；不给就显示几何实测值。
-- `role`：`size / position / overall`；**`position` 必须给 `datum=`**（基准元素 ID 或锚点）。
-- `tol` 是文字：`"k6"` `"H7"` `"±0.1"`；`text=` 可整串替换显示文字。
-- **布局字段**（不写就由引擎按制图习惯排）：`side` = `top/bottom/left/right/inside`；`row` = 第几排（1 起）；`offset` = 往外的微调 mm；圆视图用 `at`（引出角度，度，从 +x 逆时针，45 = 右上）；注释用 `dir`（同样的角度）/`length`。写了的固定，没写的自动；`place/move` 改过的从此固定。
-- 剖视：剖面轮廓（闭合 polygon）和剖面线你自己画，剖切符号、箭头、字母、`A-A` 由 harness 画。
+**视图**：
+
+| 调用 | 说明 |
+|---|---|
+| `d.section("A", view="front", cut_in="left", through=[p1, p2, ...])` | 剖切符号；2 点全剖，直角折线阶梯剖，斜折线旋转剖 |
+| `sec = d.removed_section("B", parent="front", through=[p1, p2], look="left")` | 移出断面 `V.B`。局部坐标：v 沿剖切线（同主视图的 y），u = 朝主视图观察者的深度 × `sec.intent["axes"]["depth"]` |
+| `det = d.detail("I", parent="front", center=(x, y), r=5, scale="4:1")` | 局部放大 `V.I`：自动裁剪重画；可直接用主视图坐标在 `det` 上标尺寸 |
+| `obl = d.oblique("C", parent="front", at=(x, y), look=-60, rotate=False)` | 斜视图：箭头 + 字母，几何你画 |
+
+辅助视图自动找空位摆放；`V.B.place(at=(x, y))` 指定图纸位置，`move(dx=, dy=)` 微调。
+
+**尺寸**（尺寸、引线注释、PMI **必须起名**）：
+
+| 调用 | 说明 |
+|---|---|
+| `v.dim.linear(name, p1, p2, dir=None, value=, tol=, role="size", datum=, side=, row=, offset=, reference=False)` | 水平 `dir="h"` 量 Δx，竖直 `dir="v"` 量 Δy；`reference=True` 参考尺寸（加括号） |
+| `v.dim.aligned(name, p1, p2, ...)` / `v.dim.angle(name, line1, line2)` | 对齐尺寸 / 角度（数字水平） |
+| `v.dim.dia(name, p1, p2, ...)` / `v.dim.dia(name, circle=..., at=45, prefix="4×", suffix=" EQS")` / `v.dim.rad(name, circle=)` | 直径（非圆 / 圆视图）、半径 |
+| `v.dim.chamfer(name, edge)` | 倒角：45° 注 `C1`，否则 `2×30°` |
+| `v.dim.thread(name, feat)` / `v.dim.groove(name, groove, fmt="wd")` / `v.dim.hole(name, feat, n=4)` / `v.dim.spline(name, feat)` / `sec.dim.keyway(name, "F.B.s", what="b"/"depth")` | 规定画法的代号和必需尺寸 |
+| `v.note(name, "text", anchor=, dir=, length=)` / `d.notes.tech([...])` / `d.title(name=, drawing_no=, material=, ...)` | 引线注释 / 技术要求 / 标题栏 |
+
+- `value=P.L - P.l1` 让尺寸显示参数值并记录 `covers`；不给就显示几何实测值。`role="position"` 必须给 `datum=`。
+- **公差**：`tol="k6"`（查 GB/T 1800 得偏差）、`"±0.1"`、`"+0.021/0"`；`tol_show="code"/"dev"/"both"` 三种注法；`envelope=True` 包容要求；`el.fit = "g6"` 同 `tol`。
+- **布局字段**（不写就由引擎排）：`side` = `top/bottom/left/right/inside`；`row` = 第几排；`offset` 微调；圆视图 `at`（引出角度）；引线类 `dir`/`length`；PMI `at`（沿被测边的位置 0–1）/`length`。写了的固定，没写的自动。
+
+**PMI**（语义元素，字段分存，关联被测几何）：
+
+```python
+front.datum("A", ref="D.d1")                 # DT.A；ref 是尺寸 → 轴线基准，是边 → 表面基准
+front.gtol("run", "circular_runout", 0.02, datums=["A-B"], ref="E.front.body.d3")   # G.run
+front.gtol("cyl", "cylindricity", 0.005, ref="D.d1", zone=None, modifiers=[])
+front.rough("j", 0.8, ref="E.front.body.d1", process="磨")   # R.j，Ra；removal="required/forbidden/any"
+d.rough_default(6.3)                          # 标题栏附近的“通用符号 (√)”
+d.general_tol("m")                            # 技术要求：未注尺寸公差按 GB/T 1804-m
+d.chain("axial", closing="l5", increase=["D.L"], decrease=["D.l1", "D.l2"], require=(-0.2, 0.2))   # K.axial：极值法 / 均方根法
+```
+
+特征项目：`straightness flatness circularity cylindricity profile_line profile_surface parallelism perpendicularity angularity position concentricity symmetry circular_runout total_runout`。形状公差不带基准；方向、跳动、同轴、对称必须带基准。
+
+**资源库**：`from linercad import res`；`res.fit("H7", 30)`、`res.thread("M20x1.5")`、`res.key(32)`、`res.center_hole("A", 2.5)`、`res.thread_undercut(2.5)`、`res.spline("6x23x26x6")`、`res.general_tol("m", 45)`。数值都带标准号，不要自己编。
 
 ## 4. 引用与查询
 
@@ -104,28 +135,33 @@ front = d.view("front")      # 基本视图：front top bottom left right rear�
 d["D.L"]                                         # 按 ID；找不到会列出相近 ID
 d.q.dims(view="front", role="position")          # 种类：views features edges lines circles arcs centers dims notes hatches sections cells all
 d.q.lines(view="front").where(length=30, dir="h").near(120, 45).one()   # near 用该视图的模型坐标
-d.q.circles(view="left").where(r=6, tol=0.1).exactly(4)
 ```
 
 `exactly(n)` / `one()` 不满足时报错并列出命中的元素和最近的候选。
 
-**元素操作**：`el.place(**布局)`、`el.move(dx=, dy=)`、`el.set(**意图)` 或直接赋值（`el.tol = "h7"`、`el.text = "..."`、`el.role = "hidden"`）、`el.suppress()`（有别的元素引用它时会报错并列出依赖）、`d.accept(rule, id, "理由")`（有意为之的警告放行）。
-逃生口（API 做不到时）：`d.raw("D.L").entities[0].dxf.color = 1`、`d.raw_add("LINE", start=(x, y), end=(x, y), layer="THIN")`（图纸坐标）。
+**元素操作**：`el.place(**布局)`、`el.move(dx=, dy=)`、`el.set(**意图)` 或直接赋值（`el.tol = "h7"`、`el.text = "..."`）、`el.suppress()`、`d.accept(rule, id, "理由")`（有意为之的检查结果放行，参数用 `P.<名>`）。
+逃生口：`d.raw("D.L").entities[0].dxf.color = 1`、`d.raw_add("LINE", start=(x, y), end=(x, y), layer="THIN")`（图纸坐标）。
 
-## 5. 错误与警告
+## 5. 错误与检查
 
-`error.code`：`not_found`（看 candidates）、`count_mismatch`、`invalid_arg`、`duplicate_id`、`param`、`script`（看 `where` / `trace`）、`stale`（本轮操作无法重放）、`no_ops`（脚本没改任何东西）、`dirty`（undo 前有未提交改动）、`undo`、`build`、`git`。
+`error.code`：`not_found`（看 candidates）、`count_mismatch`、`invalid_arg`、`duplicate_id`、`param`、`script`（看 `where` / `trace`）、`stale`、`no_ops`、`dirty`、`undo`、`build`、`git`。
 
-`warnings[].rule`：
-- `overlap`：文字与图线或文字重叠。看 `violations`（与谁、重叠多少）和 `corridors`（四个方向还能挪多少），换侧 / 换排 / 微调。
-- `out_of_frame`：越出图框或压到标题栏 → 换小比例或换大图幅，或调布局。
-- `view_align`：视图之间的范围不一致（长对正 / 高平齐 / 宽相等）→ 检查各视图坐标。
-- `stale_op`：日志里较早的某条操作失效（目标被删或改名）。处理：`lcad undo <那一轮>`，或重新做一次修改再撤销旧的，或 `d.accept("stale_op", id, "理由")`。
+输出里 `errors` 是 error 级问题数，`warnings[]` 列出全部问题：`rule`、`pack`、`severity`（`error` 必须改；`warn` 改或 accept）、`id`、`message`、`std`（依据的标准号）、`violations`、`corridors`。`lcad check` 按规则包列出全部。
 
-## 6. GB 表达要点（零件族）
+- drafting：`line_width` `text_height` `scale` `sheet` `conv_dim`（螺纹、花键、键槽、退刀槽缺代号或尺寸）`section_ref` `center_mark`（圆缺中心线）
+- dimensioning：`duplicate` `closed_loop`（封闭尺寸链：删一个或 `reference=True`）`missing`（轴向台阶没全部定位）`param_cover`
+- tolerancing：`gtol_syntax`（基准没定义）`datum_letter` `general_tol`（缺未注公差说明）`chain_limit` `dev_order`
+- surface：`rough_syntax`（数值不在 GB/T 1031 系列）`rough_default`（缺通用符号）`rough_fit`（IT≤7 配合面没标粗糙度）
+- layout：`overlap`（看 violations / corridors，换侧、换排、微调）`out_of_frame` `view_align` `stale_op`（`lcad undo <那一轮>` 或 accept）
 
-- **轴套类**：轴线水平作主视图，用 `turned`。直径标在轴段上（`side="inside"`）；轴向长度链式标在下方，**留一段不注**（避免封闭尺寸链），总长另起一排（`row=2`）。倒角用引线注释 `C1`，或写进技术要求“未注倒角 C1”。
-- **盘盖类**：主视图全剖（`section` + 闭合 polygon + `hatch`），剖切面过轴线和孔；端面视图画圆和均布孔，标 `n×Φd EQS` 和节圆直径 Φ。
-- **叉架 / 支架**：主、俯、左三视图；不可见的孔用 `hidden` 虚线加中心线；孔的定位尺寸 `role="position"` 并给 `datum`。
-- 被引用的几何都起名（`name=`），日志里引用才稳定。
-- 新图从范例起步：`lcad init <目录> --from shaft|flange|bracket`，或 `lcad init <目录>` 得到最小模板。
+## 6. 零件族
+
+先判断零件族，再读对应卡片（视图方案、基准、标注要点、常见错误）：
+
+| 零件族 | 卡片 | 范例 |
+|---|---|---|
+| 轴套类（轴、套筒、衬套、花键轴） | `lcad skill shaft` | `lcad init <目录> --from shaft` 等，见卡片 |
+| 盘盖类（法兰、端盖、带轮、手轮） | `lcad skill disc` | `lcad init <目录> --from flange` 等，见卡片 |
+| 叉架、支架 | 主、俯、左三视图；不可见孔用虚线加中心线；孔的定位尺寸 `role="position"` 给 `datum` | `--from bracket` |
+
+被引用的几何都起名，日志里引用才稳定。`lcad init <目录>` 得到最小模板。
