@@ -11,9 +11,9 @@ from dataclasses import dataclass, replace
 
 from .errors import InvalidArgument
 from .text import text_size
+from .views import wavy_points
 
 LEADER_TYPES = ("chamfer", "groove", "hole", "spline")
-from .views import wavy_points
 
 # ---- prims ----------------------------------------------------------------------------------
 
