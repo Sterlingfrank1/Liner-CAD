@@ -61,7 +61,7 @@ def test_it_matches_formula(grade):
     ("d", lambda d: -16 * d**0.44), ("e", lambda d: -11 * d**0.41),
     ("f", lambda d: -5.5 * d**0.41), ("g", lambda d: -2.5 * d**0.34)])
 def test_shaft_deviation_matches_formula(letter, formula):
-    for hi, d in zip(RANGES[1:], GEO):
+    for hi, d in zip(RANGES[2:], GEO[1:]):  # above 3 mm; the 0-3 row is table-only
         assert close(res.fit(letter + "8", hi)["upper"] * 1000, formula(d), 0.08), (letter, hi)
 
 
