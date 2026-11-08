@@ -41,7 +41,7 @@ def test_minor_line_keeps_min_gap_on_paper():
     d = Drawing(scale="1:2")
     f = d.view("front")
     f.turned("b", [(0, 3), (20, 3)])
-    t = f.thread("m6", "M6x0.5", 0, 15)
+    t = f.thread("m6", "M6x0.75", 0, 15)
     y = max(abs(e.start[1]) for e in lines(d, "F.front.m6", "thin"))
     assert (3 - y) * d.scale >= 0.7 - 1e-9  # GB/T 4457.4 gap between parallel lines
     assert t.intent["d1"] / 2 > y  # drawn below the true root because of the gap
@@ -72,8 +72,8 @@ def test_thread_designation_dimension(shaft):
     f.thread("m20", "M20x1.5", 0, 26)
     el = f.dim.thread("t1", "F.front.m20")
     assert el.text == "M20×1.5-6g" and "F.front.m20" in el.refs
-    f.thread("m28", "M28", 40, 70)
-    assert f.dim.thread("t2", "F.front.m28").text == "M28-6g"
+    f.thread("m24", "M24", 40, 70)
+    assert f.dim.thread("t2", "F.front.m24").text == "M24-6g"
 
 
 def test_tapped_holes_in_revolved_section():

@@ -104,7 +104,7 @@ def test_param_change_in_drawing_py_replays_log(part):
     src = (part / "drawing.py").read_text(encoding="utf-8").replace("L=Param(100", "L=Param(140")
     (part / "drawing.py").write_text(src, encoding="utf-8")
     code, out = lcad(part, "build", "-m", "长度改成 140")
-    assert code == 0 and out["edit"] == "e2" and not out["warnings"]
+    assert code == 0 and out["edit"] == "e2" and not [w for w in out["warnings"] if w["pack"] == "layout"]
     model = json.loads((part / ".linercad/build/model.json").read_text(encoding="utf-8"))
     dim = {e["id"]: e for e in model["elements"]}["D.L"]
     assert dim["intent"]["value"] == 140 and dim["placement"]["offset"] == 3

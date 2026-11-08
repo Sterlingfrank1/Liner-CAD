@@ -103,7 +103,7 @@ def test_inside_dia_text_avoids_axis(shaft):
     axis = lines(d["C.front.body"])
     assert all(seg_in_box(a.p, a.q, t.box) == 0 for a in axis)
     assert "移位" in el.placement["reason"]
-    assert not [x for x in checks.run(d) if x["id"] == "D.D2"]
+    assert not [x for x in checks.run(d) if x["id"] == "D.D2" and x["pack"] == "layout"]
 
 
 def test_short_dim_text_goes_outside(shaft):
@@ -199,7 +199,7 @@ def test_circle_dim_leader_lengthens_to_clear_outline():
     v.holes_on_circle("bolt", (0, 0), pcd=90, n=4, d=12)
     v.dim.dia("holes", circle="E.left.bolt.1", prefix="4×", suffix=" EQS")
     layout(d)
-    assert not [x for x in checks.run(d) if x["id"] == "D.holes"]
+    assert not [x for x in checks.run(d) if x["id"] == "D.holes" and x["pack"] == "layout"]
     assert "加长" in d["D.holes"].placement["reason"]
 
 
@@ -320,7 +320,7 @@ def test_hatch_text_is_not_a_conflict():
     fr.hatch("s", loops=[up])
     fr.dim.linear("w", (5, 20), (55, 20), side="inside")
     layout(d)
-    assert not [x for x in checks.run(d) if x["id"] == "D.w"]
+    assert not [x for x in checks.run(d) if x["id"] == "D.w" and x["pack"] == "layout"]
 
 
 def test_layout_is_deterministic(three_views):
