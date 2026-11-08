@@ -192,3 +192,18 @@ def test_review_fixes_keyway_depth_and_section_centre():
     assert c == [0.0, 50.0]
     bottom = [p for p in cut.intent["points"] if abs(abs(p[1] - 50) - 4) < 1e-9 and -13 < p[0] < 0]
     assert bottom and all(p[0] == pytest.approx(-(15 - 4.0)) for p in bottom)  # r − t1 (GB/T 1095)
+
+
+def test_keyway_dims_satisfy_conv_dim():
+    from linercad import checks
+
+    d = Drawing()
+    f = d.view("front")
+    f.turned("b", [(0, 18), (90, 18)])
+    f.keyway("kw", 30, 50, 36)
+    sec = d.removed_section("A", "front", through=[(55, -20), (55, 20)], look="left")
+    sec.shaft_cut("s", 36, keyway="F.front.kw")
+    sec.dim.keyway("kb", "F.A.s", what="b")
+    sec.dim.keyway("kd", "F.A.s", what="depth")
+    layout(d)
+    assert not [x for x in checks.run(d) if x["rule"] == "conv_dim"]

@@ -116,5 +116,4 @@ d.rough_default(6.3)
 
 d.notes.tech(["调质处理 220~250HBW。", "未注圆角 R1。"])
 d.general_tol("m")
-d.accept("conv_dim", "F.front.kw", "键槽宽度 b（D.kb）和深度 d−t1（D.kd）标在移出断面 B-B 上")
 d.title(name="输出轴", drawing_no="LC-SH-01", material="45", designer="Liner-CAD")

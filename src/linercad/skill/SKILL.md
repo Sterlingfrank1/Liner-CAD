@@ -131,7 +131,7 @@ d.chain("axial", closing="l5", increase=["D.L"], decrease=["D.l1", "D.l2"], requ
 
 特征项目：`straightness flatness circularity cylindricity profile_line profile_surface parallelism perpendicularity angularity position concentricity symmetry circular_runout total_runout`。形状公差不带基准；方向、跳动、同轴、对称必须带基准。
 
-**资源库**：`from linercad import res`；`res.fit("H7", 30)`、`res.thread("M20x1.5")`、`res.key(32)`、`res.center_hole("A", 2.5)`、`res.thread_undercut(2.5)`、`res.spline("6x23x26x6")`、`res.general_tol("m", 45)`。数值都带标准号，不要自己编。
+**资源库**：`from linercad import res`；`res.fit("H7", 30)`、`res.thread("M20x1.5")`、`res.key(32)`、`res.center_hole("A", 2.5)`、`res.spline("6x23x26x6")`、`res.general_tol("m", 45)`。数值都带标准号，不要自己编；退刀槽、越程槽尺寸资源库还没有，按设计给出。
 
 ## 4. 引用与查询
 
