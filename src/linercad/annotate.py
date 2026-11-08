@@ -871,7 +871,9 @@ class DimNS:
             p1 = (c[0] + u[0] * inner - t[0] * b / 2, c[1] + u[1] * inner - t[1] * b / 2)
             p2 = (c[0] + u[0] * inner + t[0] * b / 2, c[1] + u[1] * inner + t[1] * b / 2)
             tol = kw.get("tol_b") or ("JS9" if hub else "N9")
-            return self.linear(name, p1, p2, value=b, tol=tol, side=side, row=row, offset=offset)
+            el = self.linear(name, p1, p2, value=b, tol=tol, side=side, row=row, offset=offset)
+            el._refs.append(f.id)  # conv_dim counts dimensions that reference the keyway
+            return el
         far = (c[0] - u[0] * r, c[1] - u[1] * r)
         if hub:
             near = (c[0] + u[0] * (r + kw["t2"]), c[1] + u[1] * (r + kw["t2"]))
@@ -881,7 +883,9 @@ class DimNS:
             near = (c[0] + u[0] * (r - kw["t1"]), c[1] + u[1] * (r - kw["t1"]))
             val, dev = 2 * r - kw["t1"], kw.get("t1_dev")
             tol = None if not dev else (0.0, -dev[0])
-        return self.linear(name, far, near, value=val, tol=tol, side=side, row=row, offset=offset)
+        el = self.linear(name, far, near, value=val, tol=tol, side=side, row=row, offset=offset)
+        el._refs.append(f.id)
+        return el
 
 
 class Note(Element):

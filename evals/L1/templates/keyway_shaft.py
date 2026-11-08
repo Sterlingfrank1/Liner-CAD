@@ -19,7 +19,6 @@ sec = d.removed_section("A", parent="front", through=[(xm, -r - 6), (xm, r + 6)]
 sec.shaft_cut("s", {d}, keyway="F.front.kw")
 sec.dim.keyway("kb", "F.A.s", what="b")
 sec.dim.keyway("kd", "F.A.s", what="depth")
-d.accept("conv_dim", "F.front.kw", "键槽宽度 b 和深度 d−t1 标在移出断面 A-A 上")
 d.general_tol("m")
 """
 
