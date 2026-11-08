@@ -23,5 +23,15 @@ def test_case(case):
 
 
 def test_summary_counts():
-    s = evals.summary([{"errors": 0, "warnings": 1, "passed": True, "rounds": 0}, {"errors": 1, "warnings": 0, "passed": False, "rounds": 3}])
-    assert s["cases"] == 2 and s["zero_error_rate"] == 0.5 and s["mean_rounds"] == 1.5 and s["first_pass_rate"] == 0.5
+    s = evals.summary(
+        [
+            {"errors": 0, "warnings": 1, "passed": True, "rounds": 0},
+            {"errors": 1, "warnings": 0, "passed": False, "rounds": 3},
+        ]
+    )
+    assert (
+        s["cases"] == 2
+        and s["zero_error_rate"] == 0.5
+        and s["mean_rounds"] == 1.5
+        and s["first_pass_rate"] == 0.5
+    )
