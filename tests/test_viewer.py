@@ -206,3 +206,38 @@ def test_service_guards(server):
     assert req(base + "/api/state", headers={"Host": "evil.example"})[0] == 403
     code, body = req(base + "/api/select", {"ids": ["D.L"]}, {"X-LCAD-Token": v.token})
     assert code == 200 and json.loads(body)["ids"] == ["D.L"]
+
+
+def test_writeback_keeps_crlf_and_restores_bytes_on_failure(shaft, monkeypatch):
+    v = Viewer(shaft)
+    p = v.params()["params"][0]
+    src = shaft / "drawing.py"
+    raw = src.read_bytes()
+    monkeypatch.setattr(
+        txn, "build_commit", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x"))
+    )
+    with pytest.raises(RuntimeError):
+        v.writeback(p["name"], p["value"])
+    assert src.read_bytes() == raw and not txn.dirty_sources(shaft)
+
+
+def test_late_preview_is_ignored_and_errors_recorded(shaft):
+    v = Viewer(shaft)
+    ps = {p["name"]: p for p in v.params()["params"]}
+    n = next(k for k, p in ps.items() if not p["rule"])
+    assert v.do_preview({n: ps[n]["value"] + 1}, seq=2)["ok"]
+    assert v.do_preview({n: ps[n]["value"] + 2}, seq=1).get("superseded")
+    ruled = next(k for k, p in ps.items() if p["rule"])
+    v.do_preview({ruled: -1e6}, seq=3)
+    snap = json.loads((shaft / ".linercad/snapshot.json").read_text(encoding="utf-8"))
+    assert snap["param_errors"]["error"]["code"] == "param"
+
+
+def test_context_at_sel_warns_on_an_old_selection(shaft):
+    v = Viewer(shaft)
+    v.select(["D.L"])
+    script = shaft / ".linercad" / "tmp" / "m.py"
+    script.write_text('def apply(d):\n    d["D.L"].place(side="top")\n', encoding="utf-8")
+    txn.edit(shaft, script, "挪")
+    ctx = commands.context(shaft, ["@sel"])
+    assert "e0" in ctx["warning"] and ctx["items"][0]["element"]["id"] == "D.L"

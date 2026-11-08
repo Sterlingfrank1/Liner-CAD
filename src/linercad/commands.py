@@ -62,13 +62,15 @@ def _source(dir, e):
 
 def context(dir, ids=()):
     dir = Path(dir)
+    seldoc = None
     if ids and ids[0] == "@sel":
         sel = dir / ".linercad" / "selection.json"
         if not sel.exists():
             raise InvalidArgument(
                 "还没有 selection.json", hint="在 lcad view 里点选元素后再用 @sel"
             )
-        ids = json.loads(sel.read_text(encoding="utf-8")).get("ids", []) + list(ids[1:])
+        seldoc = json.loads(sel.read_text(encoding="utf-8"))
+        ids = seldoc.get("ids", []) + list(ids[1:])
         if not ids:
             raise InvalidArgument("selection.json 里没有选中的元素", hint="在 Viewer 里点选")
     try:
@@ -118,6 +120,18 @@ def context(dir, ids=()):
             "hint": "lcad context <ID> 看单个元素；查询无名几何用 d.q.lines(view=...).where(...).near(x, y)",
         }
     out = []
+    warn = None
+    if seldoc is not None:  # the selection may predate the latest edit
+        gone = [i for i in ids if i not in d]
+        ids = [i for i in ids if i in d]
+        from .txn import git_edits
+
+        edits = git_edits(dir)
+        head = f"e{edits[0][0]}" if edits else None
+        if gone or (seldoc.get("version") and head and seldoc["version"] != head):
+            warn = f"选择来自 {seldoc.get('version')}，当前是 {head}" + (
+                f"；已不存在：{', '.join(gone)}" if gone else ""
+            )
     for i in ids:
         e = d[i]
         b = e.bbox
@@ -137,7 +151,10 @@ def context(dir, ids=()):
                 "snippet": ["def apply(d):", *("    " + s for s in snip)] if snip else [],
             }
         )
-    return {"ok": True, "items": out}
+    res_ = {"ok": True, "items": out}
+    if warn:
+        res_["warning"] = warn
+    return res_
 
 
 def render(dir, focus=None, out=None, dpi=None):

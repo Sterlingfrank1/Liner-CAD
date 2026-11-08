@@ -243,8 +243,9 @@ function schedulePreview() {
   clearTimeout(S.previewTimer);
   S.previewTimer = setTimeout(async () => {
     const seq = ++S.previewSeq, values = { ...S.values };
-    const r = await api("/api/preview", { values });
-    if (seq !== S.previewSeq) return;  // a newer drag superseded this one
+    let r;
+    try { r = await api("/api/preview", { values, seq }); } catch (e) { r = { ok: false, error: { message: String(e) } }; }
+    if (seq !== S.previewSeq || r.superseded) return;  // a newer drag superseded this one
     S.dragging = false;
     for (const row of document.querySelectorAll(".param")) { row.classList.remove("bad"); row.querySelector(".err").textContent = ""; }
     const msg = $("param-msg");

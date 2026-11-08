@@ -110,7 +110,9 @@ def _prim(pr, k, std, widths, P, H):
         return f'<path data-k="{k}" d="{" ".join(parts)}" fill="url(#hatch)" fill-rule="evenodd" class="hatch"/>'
     if isinstance(pr, Text):
         # GB character height → SVG font size: CJK body = height; Latin cap height ≈ 0.72 em
-        size = pr.height if has_cjk(pr.text) else dxf_height(pr.text, pr.height, std) / 0.72
+        cjk = getattr(pr, "cjk", None)
+        cjk = has_cjk(pr.text) if cjk is None else cjk
+        size = pr.height if cjk else dxf_height(pr.text, pr.height, std) / 0.72
         wf = std["text"]["width_factor"]
         x, y = pr.at[0], H - pr.at[1]
         return (

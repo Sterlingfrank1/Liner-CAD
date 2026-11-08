@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import ast
+import io
 import json
 import re
 import secrets
@@ -78,6 +79,8 @@ class Viewer:
         self.preview = None  # {"values", "svg", "res", "timing_ms"}
         self.selection = []
         self.viewport = None
+        self.preview_seq = -1
+        self.param_errors = {}
         self.token = secrets.token_hex(16)  # per run; the served page carries it (SPEC §2 安全)
         self.retried = None
         self.refresh()
@@ -186,7 +189,9 @@ class Viewer:
                 src = e.src
                 link = None
                 if src and src.get("file") == Path(SRC).name:
-                    link = f"vscode://file/{(self.dir / SRC).as_posix()}:{src['line']}"
+                    from urllib.parse import quote
+
+                    link = f"vscode://file/{quote((self.dir / SRC).as_posix())}:{src['line']}"
                 out.append(
                     {
                         "id": e.id,
@@ -278,6 +283,7 @@ class Viewer:
             ],
             "viewport": self.viewport,
             "params": dict(self.preview["values"]) if self.preview else {},
+            "param_errors": self.param_errors,
             "stale_ops": [
                 {k: s.get(k) for k in ("edit", "op", "id", "reason")}
                 for s in (r.stale if r else [])
@@ -287,9 +293,17 @@ class Viewer:
         _write_json(self.dir / ".linercad" / "snapshot.json", doc)
 
     # ---- sliders ----------------------------------------------------------------------------------
-    def do_preview(self, values):
+    def do_preview(self, values, seq=None):
         t0 = time.perf_counter()
         with self.lock:
+            if seq is not None:
+                if seq < self.preview_seq:  # an older drag arrived late
+                    return {
+                        "ok": False,
+                        "superseded": True,
+                        "error": {"code": "superseded", "message": ""},
+                    }
+                self.preview_seq = seq
             if not values:
                 self.preview = None
                 self.version += 1
@@ -298,7 +312,10 @@ class Viewer:
             try:
                 res = build(self.dir, params=values)
             except LinerError as e:
+                self.param_errors = {"values": dict(values), "error": e.to_dict()}
+                self._write_snapshot()
                 return {"ok": False, "error": e.to_dict()}
+            self.param_errors = {}
             svg = svgout.svg(res.d)
             ms = round((time.perf_counter() - t0) * 1000, 1)
             self.preview = {"values": dict(values), "svg": svg, "res": res, "timing_ms": ms}
@@ -321,13 +338,16 @@ class Viewer:
                 )
             build(self.dir, params={name: value})  # rule / range checked before touching the file
             path = self.dir / SRC
-            text = path.read_text(encoding="utf-8")
-            new = rewrite_param(text, name, value)
-            path.write_text(new, encoding="utf-8", newline="")
+            raw = path.read_bytes()
+            new = rewrite_param(raw.decode("utf-8"), name, value)
+            head = self._head()[0]
+            path.write_bytes(new.encode("utf-8"))
             try:
                 out = txn.build_commit(self.dir, f"参数 {name}={_num(value)}（Viewer 写回）")
             except Exception:
-                path.write_text(text, encoding="utf-8", newline="")
+                if self._head()[0] == head:  # nothing committed: put the file back exactly
+                    txn._unstage(self.dir)
+                    path.write_bytes(raw)
                 raise
             self.preview = None
             self.refresh(force=True)
@@ -380,7 +400,7 @@ def rewrite_param(text: str, name: str, value) -> str:
             f"{name} 的默认值是表达式（{ast.unparse(lit)}），不能自动写回；请改 drawing.py",
             hint="Viewer 只改数字字面量",
         )
-    lines = text.splitlines(keepends=True)
+    lines = io.StringIO(text, newline="").readlines()  # same line breaks as ast
     if lit.lineno != lit.end_lineno:
         raise ParamError(f"{name} 的默认值跨行，不能自动写回")
     ln = lines[lit.lineno - 1]
@@ -448,6 +468,11 @@ def make_handler(viewer: Viewer):
             self.send_response(code)
             self.send_header("Content-Type", ctype + "; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header(
+                "Content-Security-Policy",
+                "default-src 'self'; style-src 'self'; img-src 'self' data:; frame-ancestors 'none'",
+            )
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
@@ -493,10 +518,19 @@ def make_handler(viewer: Viewer):
             # same origin + per-run token: another local page cannot drive the service
             origin = self.headers.get("Origin")
             host = self.headers.get("Host", "")
+            tok = self.headers.get("X-LCAD-Token", "")
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                n = -1
+            if not tok.isascii() or not 0 <= n <= 1_000_000:
+                return self._json(
+                    {"ok": False, "error": {"code": "bad_request", "message": "header"}}, 400
+                )
             bad = (
                 not self._host_ok()
                 or (origin and origin.split("//", 1)[-1] != host)
-                or not secrets.compare_digest(self.headers.get("X-LCAD-Token", ""), viewer.token)
+                or not secrets.compare_digest(tok, viewer.token)
             )
             if bad:
                 return self._json(
@@ -506,14 +540,15 @@ def make_handler(viewer: Viewer):
                 return self._json(
                     {"ok": False, "error": {"code": "bad_request", "message": "JSON only"}}, 415
                 )
-            n = int(self.headers.get("Content-Length") or 0)
             try:
                 body = json.loads(self.rfile.read(n) or b"{}")
                 path = self.path.split("?")[0]
                 if path == "/api/select":
                     return self._json(viewer.select(list(body.get("ids", []))))
                 if path == "/api/preview":
-                    return self._json(viewer.do_preview(dict(body.get("values") or {})))
+                    return self._json(
+                        viewer.do_preview(dict(body.get("values") or {}), body.get("seq"))
+                    )
                 if path == "/api/writeback":
                     return self._json(viewer.writeback(body["name"], body["value"]))
                 if path == "/api/view":
@@ -533,10 +568,23 @@ def make_handler(viewer: Viewer):
     return Handler
 
 
+class _Server(ThreadingHTTPServer):
+    """A taken port must fail, not be shared (Windows SO_REUSEADDR semantics)."""
+
+    allow_reuse_address = False
+
+    def server_bind(self):
+        import socket
+
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
 def serve(dir, port=8765, open_browser=True):
     """Start the Viewer on 127.0.0.1:<port> (blocks). Returns after Ctrl+C."""
     v = Viewer(dir)
-    httpd = ThreadingHTTPServer(("127.0.0.1", int(port)), make_handler(v))
+    httpd = _Server(("127.0.0.1", int(port)), make_handler(v))
     url = f"http://127.0.0.1:{httpd.server_address[1]}/"
     print(json.dumps({"ok": True, "url": url, "dir": str(v.dir)}, ensure_ascii=False), flush=True)
     if open_browser:
