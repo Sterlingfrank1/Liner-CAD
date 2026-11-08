@@ -33,6 +33,10 @@ CREATE_OPS = (
     "hatch",
     "section",
     "raw_add",
+    "removed_section",
+    "detail",
+    "oblique",
+    "wavy",
 )
 MODIFY_OPS = ("place", "move", "set", "suppress", "accept", "raw")
 VIEW_SCOPED = (
@@ -51,7 +55,9 @@ VIEW_SCOPED = (
     "dim.rad",
     "note",
     "hatch",
+    "wavy",
 )
+DRAWING_CREATE = ("section", "raw_add", "removed_section", "detail", "oblique")
 LAYOUT_GROUPS = {"linear": ("side", "row"), "circle": ("at",), "note": ("dir", "length")}
 
 
@@ -194,12 +200,10 @@ def apply_op(d, rec):
         d._forced_id = rid
         if op == "view":
             d._new_view(**args)
-        elif op == "section":
-            d.section(**args)
+        elif op in DRAWING_CREATE:
+            getattr(d, op)(**args)
         elif op == "notes.tech":
             d.notes._tech_one(**args)
-        elif op == "raw_add":
-            d.raw_add(**args)
         else:
             view = args.pop("view")
             v = d._els.get(f"V.{view}")

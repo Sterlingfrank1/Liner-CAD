@@ -23,6 +23,7 @@ FIELDS = [
 ]
 GROUPS = {
     "lines",
+    "wavy",
     "linetypes",
     "text",
     "dim",

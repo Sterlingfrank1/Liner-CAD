@@ -11,6 +11,7 @@ from dataclasses import dataclass, replace
 
 from .errors import InvalidArgument
 from .text import text_size
+from .views import wavy_points
 
 # ---- prims ----------------------------------------------------------------------------------
 
@@ -62,6 +63,12 @@ class Hatch:
     layer: str
 
 
+@dataclass(frozen=True)
+class Poly:
+    pts: tuple  # open polyline (wavy lines)
+    layer: str
+
+
 def _mv(p, dx, dy):
     return (p[0] + dx, p[1] + dy)
 
@@ -74,7 +81,7 @@ def move_prim(pr, dx, dy):
     if isinstance(pr, Text):
         b = pr.box
         return replace(pr, at=_mv(pr.at, dx, dy), box=(b[0] + dx, b[1] + dy, b[2] + dx, b[3] + dy))
-    if isinstance(pr, Solid):
+    if isinstance(pr, (Solid, Poly)):
         return replace(pr, pts=tuple(_mv(p, dx, dy) for p in pr.pts))
     if isinstance(pr, Hatch):
         loops = []
@@ -112,6 +119,8 @@ def prim_segments(pr):
     if isinstance(pr, Solid):
         pts = list(pr.pts) + [pr.pts[0]]
         return list(zip(pts, pts[1:]))
+    if isinstance(pr, Poly):
+        return list(zip(pr.pts, pr.pts[1:]))
     return []
 
 
@@ -301,7 +310,7 @@ class _Obstacles:
 
 class _ViewLayout:
     def __init__(self, L, view):
-        self.L, self.d, self.std, self.s = L, L.d, L.std, L.d.scale
+        self.L, self.d, self.std, self.s = L, L.d, L.std, view.scale
         self.view = view
         self.name = view.name
         self.parts: dict[str, list] = {}
@@ -387,28 +396,196 @@ class _ViewLayout:
                     else:
                         loops.append(tuple(self.P(p) for p in lpts))
             self.put(e, [Hatch(tuple(loops), "hatch")], obstacle=False)
+            if e._intent.get("outline"):
+                ol = []
+                for lp in loops:
+                    if lp and lp[0] == "circle":
+                        ol.append(Circle(lp[1], lp[2], e._intent["outline"]))
+                    else:
+                        ol += [
+                            Line(a, b, e._intent["outline"]) for a, b in zip(lp, lp[1:] + lp[:1])
+                        ]
+                self.put(e, ol)
+        wv = self.std["wavy"]
+        for e in self.els("wavy"):
+            pts = wavy_points(
+                [self.P(p) for p in e._intent["points"]], wv["amplitude"], wv["wavelength"]
+            )
+            self.put(e, [Poly(tuple(pts), "thin")])
+        if self.view.aux == "detail":
+            self.detail_geometry()
+
+    # -- detail views: parent geometry clipped to the circle, at this view's scale ---------------
+    def detail_geometry(self):
+        from .views import clip_arc, clip_segment, hatch_lines, point_in_poly
+
+        i = self.view._intent
+        par = i["parent"]
+        c, r = tuple(i["center"]), i["r"]
+        S = self.s
+        prims = []
+        ext = self.std["center"]["extend"] / S
+
+        def P(p):
+            return (p[0] * S, p[1] * S)
+
+        src = [e for e in self.d._els.values() if e._intent.get("view") == par]
+        for e in src:
+            it = e._intent
+            if e.kind == "edge":
+                if it["shape"] == "line":
+                    seg = clip_segment(it["p1"], it["p2"], c, r)
+                    if seg:
+                        prims.append(Line(P(seg[0]), P(seg[1]), it["role"]))
+                else:
+                    a0, a1 = (0, 360) if it["shape"] == "circle" else (it["start"], it["end"])
+                    for b0, b1 in clip_arc(it["c"], it["r"], a0, a1, c, r):
+                        if b1 - b0 >= 360 - 1e-6:
+                            prims.append(Circle(P(it["c"]), it["r"] * S, it["role"]))
+                        else:
+                            prims.append(
+                                Arc(P(it["c"]), it["r"] * S, b0 % 360, b1 % 360, it["role"])
+                            )
+            elif e.kind == "center" and it["type"] == "line":
+                a, b = it["p1"], it["p2"]
+                L = math.dist(a, b)
+                if L > 1e-9:
+                    u = ((b[0] - a[0]) / L, (b[1] - a[1]) / L)
+                    a = (a[0] - u[0] * ext, a[1] - u[1] * ext)
+                    b = (b[0] + u[0] * ext, b[1] + u[1] * ext)
+                    seg = clip_segment(a, b, c, r)
+                    if seg:
+                        pc = center_piece(P(seg[0]), P(seg[1]), self.std)
+                        if pc:
+                            prims.append(pc)
+            elif e.kind == "hatch":
+                loops = []
+                for lp in it["loops"]:
+                    if "points" in lp:
+                        loops.append([P(p) for p in lp["points"]])
+                    else:
+                        ref = self.d._els.get(lp["ref"])
+                        lpts = ref.loop() if ref is not None and ref.kind == "feature" else None
+                        if ref is not None and ref.kind == "edge":
+                            lpts = ("circle", ref._intent["c"], ref._intent["r"])
+                        if lpts and lpts[0] == "circle":
+                            loops.append(("circle", P(lpts[1]), lpts[2] * S))
+                        elif lpts:
+                            loops.append([P(p) for p in lpts])
+                hs = self.std["hatch"]
+                for a, b in hatch_lines(loops, P(c), r * S, hs["spacing"], hs["angle"]):
+                    prims.append(Line(a, b, "hatch"))
+        # wavy boundary where the circle runs through material (GB/T 4458.1)
+        regions = self._material(src)
+        n = 96
+        inside = [
+            any(
+                fn(
+                    (
+                        c[0] + r * math.cos(2 * math.pi * k / n),
+                        c[1] + r * math.sin(2 * math.pi * k / n),
+                    )
+                )
+                for fn in regions
+            )
+            for k in range(n)
+        ]
+        if any(inside):
+            start = next((k for k in range(n) if not inside[k]), None)
+            runs, cur = [], []
+            order = range(n + 1) if start is None else [start + k for k in range(n + 1)]
+            for k in order:  # unwrapped indices, so a run crossing angle 0 stays increasing
+                if inside[k % n]:
+                    cur.append(k)
+                elif cur:
+                    runs.append(cur)
+                    cur = []
+            if cur:
+                runs.append(cur)
+            wv = self.std["wavy"]
+            for run in runs:
+                k0, k1 = run[0] - 0.5, run[-1] + 0.5
+                m = max(2, int((k1 - k0) * 4))
+                base = [
+                    P(
+                        (
+                            c[0] + r * math.cos(2 * math.pi * (k0 + (k1 - k0) * j / m) / n),
+                            c[1] + r * math.sin(2 * math.pi * (k0 + (k1 - k0) * j / m) / n),
+                        )
+                    )
+                    for j in range(m + 1)
+                ]
+                prims.append(
+                    Poly(tuple(wavy_points(base, wv["amplitude"], wv["wavelength"])), "thin")
+                )
+        self.put(self.view, prims)
+        box = prims_bbox(prims) if prims else None
+        self.G = box or (c[0] * S - r * S, c[1] * S - r * S, c[0] * S + r * S, c[1] * S + r * S)
+        _ = point_in_poly  # material tests use it below
+
+    def _material(self, src):
+        """Point-in-material tests (model coords) from the parent's hatches, closed features and
+        turned outlines."""
+        from .views import point_in_poly
+
+        tests = []
+        for e in src:
+            it = e._intent
+            if e.kind == "hatch":
+                polys = [[tuple(p) for p in lp["points"]] for lp in it["loops"] if "points" in lp]
+                if polys:
+                    tests.append(
+                        lambda q, polys=polys: sum(point_in_poly(q, pl) for pl in polys) % 2 == 1
+                    )
+            elif e.kind == "feature" and it.get("type") == "turned":
+                prof, ax = [tuple(p) for p in it["profile"]], it["axis"]
+                outline = [(x, ax + r) for x, r in prof] + [(x, ax - r) for x, r in reversed(prof)]
+                bore = it.get("bore")
+                cut = it.get("cut")
+                if bore and cut:
+                    continue  # section regions come from the hatch
+                tests.append(lambda q, outline=outline: point_in_poly(q, outline))
+            elif e.kind == "feature" and it.get("closed") and it.get("points"):
+                pl = [tuple(p) for p in it["points"]]
+                tests.append(lambda q, pl=pl: point_in_poly(q, pl))
+        return tests
 
     # -- section symbols (in the cut view) ----------------------------------------------------
     def section_symbols(self):
         sec = self.std["section"]
+        lh = sec["letter_height"]
+        gap, sl, al = sec["stroke_gap"], sec["stroke_length"], sec["arrow_length"]
         for e in self.d._els.values():
+            if e.kind == "mark" and e._intent["view"] == self.name:
+                self.marker(e)
+                continue
             if e.kind != "section" or e._intent["cut_in"] != self.name:
                 continue
             i = e._intent
-            a, b = self.P(i["through"][0]), self.P(i["through"][1])
-            L = math.dist(a, b)
-            u = ((b[0] - a[0]) / L, (b[1] - a[1]) / L)
-            t0, t1 = _clip_line(a, u, self.G)
-            if t0 is None:
-                t0, t1 = 0.0, L
+            pts = [self.P(p) for p in i["through"]]
             look = {"left": (-1, 0), "right": (1, 0), "up": (0, 1), "down": (0, -1)}[i["look"]]
-            n = (-u[1], u[0])
-            if n[0] * look[0] + n[1] * look[1] < 0:
-                n = (-n[0], -n[1])
             prims = []
-            gap, sl, al = sec["stroke_gap"], sec["stroke_length"], sec["arrow_length"]
-            lh = sec["letter_height"]
-            for t_in, sgn in ((t0, -1), (t1, 1)):
+
+            def unit(a, b):
+                L = math.dist(a, b)
+                return ((b[0] - a[0]) / L, (b[1] - a[1]) / L)
+
+            def letter_at(at, prims=prims, i=i):
+                prims.append(make_text(i["letter"], at, lh, self.std, layer="text"))
+
+            ends = []
+            a, b = pts[0], pts[1]
+            u = unit(a, b)
+            t0, _ = _clip_line(a, u, self.G)
+            ends.append((a, u, (t0 if t0 is not None else 0.0), -1))
+            a, b = pts[-2], pts[-1]
+            u = unit(a, b)
+            _, t1 = _clip_line(a, u, self.G)
+            ends.append((a, u, (t1 if t1 is not None else math.dist(a, b)), 1))
+            for a, u, t_in, sgn in ends:
+                n = (-u[1], u[0])
+                if n[0] * look[0] + n[1] * look[1] < 0:
+                    n = (-n[0], -n[1])
                 s0 = t_in + sgn * gap
                 s1 = s0 + sgn * sl
                 p0 = (a[0] + u[0] * s0, a[1] + u[1] * s0)
@@ -419,12 +596,65 @@ class _ViewLayout:
                 prims.append(arrow(tip, n, self.std, "thin"))
                 w, hh = text_size(i["letter"], lh, self.std)
                 off = max(w, hh) / 2 + 1.5
-                at = (
-                    p1[0] + n[0] * al / 2 + u[0] * sgn * off,
-                    p1[1] + n[1] * al / 2 + u[1] * sgn * off,
+                letter_at(
+                    (
+                        p1[0] + n[0] * al / 2 + u[0] * sgn * off,
+                        p1[1] + n[1] * al / 2 + u[1] * sgn * off,
+                    )
                 )
-                prims.append(make_text(i["letter"], at, lh, self.std, layer="text"))
+            arm = sl / 2
+            for k in range(1, len(pts) - 1):  # bends: an L of two short strokes + the letter
+                v = pts[k]
+                w1, w2 = unit(v, pts[k - 1]), unit(v, pts[k + 1])
+                prims.append(Line(v, (v[0] + w1[0] * arm, v[1] + w1[1] * arm), "section"))
+                prims.append(Line(v, (v[0] + w2[0] * arm, v[1] + w2[1] * arm), "section"))
+                bx, by = -(w1[0] + w2[0]), -(w1[1] + w2[1])
+                bl = math.hypot(bx, by) or 1.0
+                w, hh = text_size(i["letter"], lh, self.std)
+                off = max(w, hh) / 2 + 1.5
+                letter_at((v[0] + bx / bl * off, v[1] + by / bl * off))
             self.put(e, prims)
+
+    def marker(self, e):
+        """Detail circle + letter, or oblique-view arrow + letter, in the parent view."""
+        i = e._intent
+        sec = self.std["section"]
+        lh = sec["letter_height"]
+        prims = []
+        if i["type"] == "detail":
+            c, r = self.P(i["c"]), i["r"] * self.s
+            prims.append(Circle(c, r, "thin"))
+            u = (math.cos(math.radians(45)), math.sin(math.radians(45)))
+            p = (c[0] + u[0] * r, c[1] + u[1] * r)
+            q = (p[0] + u[0] * 6, p[1] + u[1] * 6)
+            prims.append(Line(p, q, "thin"))
+            w, hh = text_size(i["letter"], lh, self.std)
+            prims.append(
+                make_text(
+                    i["letter"], (q[0] + w / 2 + 1, q[1] + hh / 2), lh, self.std, layer="text"
+                )
+            )
+        else:
+            tip = self.P(i["at"])
+            u = (math.cos(math.radians(i["look"])), math.sin(math.radians(i["look"])))
+            tail = (
+                tip[0] - u[0] * (sec["arrow_length"] + 6),
+                tip[1] - u[1] * (sec["arrow_length"] + 6),
+            )
+            prims += [Line(tail, tip, "thin"), arrow(tip, u, self.std, "thin")]
+            w, hh = text_size(i["letter"], lh, self.std)
+            n = (-u[1], u[0])
+            off = max(w, hh) / 2 + 1.5
+            prims.append(
+                make_text(
+                    i["letter"],
+                    (tail[0] + n[0] * off, tail[1] + n[1] * off),
+                    lh,
+                    self.std,
+                    layer="text",
+                )
+            )
+        self.put(e, prims)
 
     # -- dimensions -------------------------------------------------------------------------------
     def _side_for(self, a, b, dir):
@@ -728,16 +958,44 @@ class _ViewLayout:
 
     def section_labels(self):
         sec = self.std["section"]
+        h = sec["label_height"]
+
+        def top_center():
+            top = union([prims_bbox(p) for p in self.parts.values()] + [self.G])[3]
+            return (self.G[0] + self.G[2]) / 2, top
+
         for e in self.d._els.values():
             if e.kind != "section" or e._intent["view"] != self.name:
                 continue
-            top = union([prims_bbox(p) for p in self.parts.values()] + [self.G])[3]
-            cx = (self.G[0] + self.G[2]) / 2
+            cx, top = top_center()
             text = f"{e._intent['letter']}-{e._intent['letter']}"
-            h = sec["label_height"]
             _, hh = text_size(text, h, self.std)
             t = make_text(text, (cx, top + sec["label_gap"] + hh / 2), h, self.std, layer="text")
             self.put(e, [t])
+        aux = self.view.aux
+        if aux in ("detail", "oblique"):
+            i = self.view._intent
+            cx, top = top_center()
+            letter = i["name"]
+            w, hh = text_size(letter, h, self.std)
+            prims = []
+            if aux == "detail":  # letter over a short line over the scale (GB/T 4458.1)
+                st = i["scale_text"]
+                ws, hs = text_size(st, h, self.std)
+                y0 = top + sec["label_gap"]
+                prims.append(make_text(st, (cx, y0 + hs / 2), h, self.std, layer="text"))
+                y1 = y0 + hs + 0.8
+                L = max(w, ws) + 2
+                prims.append(Line((cx - L / 2, y1), (cx + L / 2, y1), "thin"))
+                prims.append(make_text(letter, (cx, y1 + 0.8 + hh / 2), h, self.std, layer="text"))
+            else:
+                y = top + sec["label_gap"] + hh / 2
+                prims.append(make_text(letter, (cx, y), h, self.std, layer="text"))
+                if i.get("rotate"):  # rotation symbol: half circle arrow before the letter
+                    rc = (cx - w / 2 - h, y)
+                    prims.append(Arc(rc, h / 2, 0, 180, "thin"))
+                    prims.append(arrow((rc[0] - h / 2, y), (0, -1), self.std, "thin"))
+            self.put(self.view, prims)
 
     def run(self):
         self.geometry()
@@ -774,7 +1032,9 @@ class _Layout:
             e._resolved = {}
             e._auto = []
             e._reason = ""
-        views = sorted(d.views(), key=lambda v: ORDER.index(v.name))
+        allv = d.views()
+        views = sorted([v for v in allv if v.aux is None], key=lambda v: ORDER.index(v.name))
+        views += [v for v in allv if v.aux is not None]
         vls = {v.name: _ViewLayout(self, v) for v in views}
         for vl in vls.values():
             vl.run()
@@ -792,7 +1052,7 @@ class _Layout:
                 bbox=[full[0] + ox, full[1] + oy, full[2] + ox, full[3] + oy],
             )
         for e in d._els.values():
-            if e._prims:
+            if e._prims and e.kind != "view":
                 e._resolved["bbox"] = list(prims_bbox(e._prims))
         for e in d._els.values():  # features: union of their edges
             if e.kind == "feature":
@@ -899,8 +1159,10 @@ class _Layout:
             o = origins[n]
             return (f[0] + o[0], f[1] + o[1], f[2] + o[0], f[3] + o[1])
 
+        auxs = [n for n in names if vls[n].view.aux is not None]
+        names_b = [n for n in names if n not in auxs]
         rest = sorted(
-            [n for n in names if n != base], key=lambda n: (abs(pos[n][0]), ORDER.index(n))
+            [n for n in names_b if n != base], key=lambda n: (abs(pos[n][0]), ORDER.index(n))
         )
         for n in rest:
             col, row = pos[n]
@@ -921,11 +1183,14 @@ class _Layout:
                 else:
                     x = min(b[0] for b in others) - gap - f[2]
             origins[n] = (x, y)
-        for n in names:  # offsets from move(); the base view's offset moves the whole group
+        for n in names_b:  # offsets from move(); the base view's offset moves the whole group
             if n != base:
                 ox, oy = vls[n].view._layout.get("offset", [0.0, 0.0])
                 origins[n] = (origins[n][0] + ox, origins[n][1] + oy)
-        group = union([placed_box(n) for n in names])
+        self.place_aux(vls, auxs, origins, placed_box, gap)
+        group = union(
+            [placed_box(n) for n in names if vls[n].view._layout.get("at") is None or n == base]
+        )
         fv = vls[base].view
         bx, by = fv._layout.get("offset", [0.0, 0.0])
         if fv._layout.get("at") is not None:
@@ -948,7 +1213,56 @@ class _Layout:
                     dy += max(0.0, F[3] - g[3])
                     dx -= max(0.0, g[0] - F[0])
         dx, dy = dx + bx, dy + by
-        return {n: (o[0] + dx, o[1] + dy) for n, o in origins.items()}
+        out = {n: (o[0] + dx, o[1] + dy) for n, o in origins.items()}
+        for n in auxs:  # place(at=...) on an auxiliary view is an absolute sheet position
+            at = vls[n].view._layout.get("at")
+            if at is not None:
+                ox, oy = vls[n].view._layout.get("offset", [0.0, 0.0])
+                out[n] = (at[0] + ox, at[1] + oy)
+        return out
+
+    def place_aux(self, vls, auxs, origins, placed_box, gap):
+        """Auxiliary views go next to the basic group: removed sections on the extension of the
+        cutting line below (then above) the group, others right / below / above; first free spot."""
+        occupied = [placed_box(n) for n in origins]
+        for n in auxs:
+            v = vls[n].view
+            f = vls[n].full
+            i = v._intent
+            G = union(occupied)
+            cands = []
+            if i["aux"] == "section":
+                pv = vls[i["parent"]]
+                po = origins[i["parent"]]
+                a, b = i["trace"]
+                mx = po[0] + (a[0] + b[0]) / 2 * pv.s
+                my = po[1] + (a[1] + b[1]) / 2 * pv.s
+                vert = abs(b[0] - a[0]) <= abs(b[1] - a[1])
+                if vert:
+                    cands += [(mx, G[1] - gap - f[3]), (mx, G[3] + gap - f[1])]
+                else:
+                    cands += [(G[2] + gap - f[0], my), (G[0] - gap - f[2], my)]
+            cands += [
+                (G[2] + gap - f[0], G[3] - f[3]),
+                (G[2] + gap - f[0], G[1] - f[1]),
+                (G[0] - f[0], G[1] - gap - f[3]),
+                (G[0] - f[0], G[3] + gap - f[1]),
+            ]
+
+            def box(o, f=f):
+                return (f[0] + o[0], f[1] + o[1], f[2] + o[0], f[3] + o[1])
+
+            pick = None
+            for o in cands:
+                if all(box_overlap(inflate(box(o), gap / 2 - 1e-6), b) <= 0 for b in occupied):
+                    pick = o
+                    break
+            if pick is None:  # stack further out below the group
+                low = min(b[1] for b in occupied)
+                pick = (cands[0][0], low - gap - f[3])
+            ox, oy = v._layout.get("offset", [0.0, 0.0])
+            origins[n] = (pick[0] + ox, pick[1] + oy)
+            occupied.append(placed_box(n))
 
 
 def _rect(b):

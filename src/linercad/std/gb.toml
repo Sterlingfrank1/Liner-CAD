@@ -110,3 +110,8 @@ title_height = 5.0
 height = 3.5
 line_spacing = 1.6
 gap = 5.0
+
+[wavy]
+basis = "convention（GB/T 4457.4-2002 波浪线为细实线、徒手绘制，未规定波形；取振幅 0.8、波长 6）"
+amplitude = 0.8
+wavelength = 6.0

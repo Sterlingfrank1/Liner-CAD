@@ -15,7 +15,7 @@ from ezdxf.document import CREATED_BY_EZDXF
 from ezdxf.enums import TextEntityAlignment
 
 from .errors import InvalidArgument
-from .layout import Arc, Circle, Hatch, Line, Solid, Text
+from .layout import Arc, Circle, Hatch, Line, Poly, Solid, Text
 from .text import dxf_height
 
 APPID = "LINERCAD"
@@ -107,6 +107,8 @@ def _write(msp, pr, std, text_boxes):
         return msp.add_arc(pr.c, pr.r, pr.a0, pr.a1, dxfattribs=lay)
     if isinstance(pr, Solid):
         return msp.add_solid(list(pr.pts), dxfattribs=lay)
+    if isinstance(pr, Poly):
+        return msp.add_lwpolyline(list(pr.pts), dxfattribs=lay)
     if isinstance(pr, Text):
         t = msp.add_text(
             pr.text,

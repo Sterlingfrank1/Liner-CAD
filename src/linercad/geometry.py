@@ -159,7 +159,11 @@ class Feature(Element):
         return [self._d._els[i] for i in self._intent["edges"] if i in self._d._els]
 
     def _children(self):
-        return list(self._intent["edges"]) + list(self._intent.get("centers", []))
+        i = self._intent
+        out = list(i["edges"]) + list(i.get("centers", []))
+        if i.get("hatch"):
+            out.append(i["hatch"])
+        return out + [f"F.{i['view']}.{g}" for g in i.get("grooves", [])]
 
     def loop(self):
         """Closed boundary as a point list (polygon/rect) or ('circle', c, r)."""
@@ -228,8 +232,10 @@ class View(Element):
 
     def _apply_move(self, dx, dy):
         n = self.name
-        if (n in ("top", "bottom") and abs(dx) > 1e-9) or (
-            n in ("left", "right", "rear") and abs(dy) > 1e-9
+        if (
+            self.aux is None
+            and (n in ("top", "bottom") and abs(dx) > 1e-9)
+            or (n in ("left", "right", "rear") and abs(dy) > 1e-9)
         ):
             free = "dy" if n in ("top", "bottom") else "dx"
             raise InvalidArgument(
@@ -242,7 +248,20 @@ class View(Element):
         self._layout["offset"] = [ox + dx, oy + dy]
 
     def _children(self):
-        return [e._id for e in self._d._els.values() if e is not self and e.view == self.name]
+        return [
+            e._id
+            for e in self._d._els.values()
+            if e is not self and (e.view == self.name or e._intent.get("target") == self.name)
+        ]
+
+    @property
+    def scale(self):
+        """Sheet mm per model mm for this view (detail views have their own)."""
+        return self._intent.get("scale") or self._d.scale
+
+    @property
+    def aux(self):
+        return self._intent.get("aux")
 
     # ---- coordinates (after layout) -----------------------------------------------------
     def _origin(self):
@@ -254,13 +273,13 @@ class View(Element):
     def to_sheet(self, x, y):
         """View-local model point → sheet coordinates."""
         ox, oy = self._origin()
-        s = self._d.scale
+        s = self.scale
         return (ox + num(x, "x") * s, oy + num(y, "y") * s)
 
     def to_local(self, x, y):
         """Sheet point → view-local model coordinates."""
         ox, oy = self._origin()
-        s = self._d.scale
+        s = self.scale
         return ((num(x, "x") - ox) / s, (num(y, "y") - oy) / s)
 
     # ---- annotations (implemented in annotate.py) ----------------------------------------
@@ -277,10 +296,17 @@ class View(Element):
         return view_note(self, name, text, anchor, dir, length)
 
     @mutator("hatch")
-    def hatch(self, name, loops):
+    def hatch(self, name, loops, outline=None):
         from .annotate import view_hatch
 
-        return view_hatch(self, name, loops)
+        return view_hatch(self, name, loops, outline)
+
+    @mutator("wavy")
+    def wavy(self, name, points):
+        """Thin wavy line (local section / break boundary) through ``points`` → W.<view>.<name>."""
+        from .views import view_wavy
+
+        return view_wavy(self, name, points)
 
     # ---- internal helpers -------------------------------------------------------------
     def _p(self, p, what="点"):
@@ -288,8 +314,12 @@ class View(Element):
 
     def _edge(self, scope_name, intent, feature=None):
         v = self.name
+        intent = dict(intent)
+        ename = intent.pop("name", None)
         if feature is None:
             eid = self._d._alloc("E", (v,))
+        elif ename is not None:
+            eid = self._d._alloc("E", (v, scope_name), name=ename)
         else:
             eid = self._d._alloc("E", (v, scope_name), child=True)
         intent = {"view": v, **intent}
@@ -387,9 +417,29 @@ class View(Element):
         return self._single(name, "arc", ei)
 
     @mutator("turned")
-    def turned(self, name, profile, axis=0, role="thick"):
-        """Turned (revolved) part outline from the upper half profile [(x, r), ...]."""
-        pts = [(num(x, "profile.x"), num(r, "profile.r")) for x, r in profile]
+    def turned(
+        self,
+        name,
+        profile,
+        axis=0,
+        role="thick",
+        bore=None,
+        cut=None,
+        half="top",
+        holes=(),
+        grooves=(),
+        hidden=True,
+    ):
+        """Turned (revolved) part from the upper half profile [(x, r) or (x, r, "name"), ...].
+        ``bore`` inner profile, ``cut`` None/"full"/"half", ``holes`` axial holes, ``grooves``
+        undercuts spliced into the profile (SPEC M1 §4)."""
+        from . import revolve
+
+        pts, names = [], {}
+        for k, p in enumerate(profile):
+            if len(p) == 3:
+                names[k] = check_name(p[2], "轮廓段名")
+            pts.append((num(p[0], "profile.x"), num(p[1], "profile.r")))
         if len(pts) < 2:
             raise InvalidArgument("turned 的 profile 至少要 2 个点", values={"n": len(pts)})
         for (x0, _), (x1, _) in zip(pts, pts[1:]):
@@ -401,40 +451,122 @@ class View(Element):
             raise InvalidArgument(
                 "turned 的 profile 中 r 必须为正", values={"r": [r for _, r in pts]}
             )
+        gl = []
+        for g in grooves or ():
+            g = {
+                k: (num(v, k) if k in ("x", "w", "d", "depth") and v is not None else v)
+                for k, v in dict(g).items()
+            }
+            g["name"] = check_name(g.get("name"), "退刀槽名")
+            gl.append(g)
+        pts, names, gl = revolve.splice_grooves(pts, names, gl)
         ax = num(axis, "axis")
         role = _role(role)
-        top, bottom = [], []
-        for (x0, r0), (x1, r1) in zip(pts, pts[1:]):
-            if abs(x1 - x0) > EPS:
-                top.append(
-                    {"shape": "line", "p1": [x0, ax + r0], "p2": [x1, ax + r1], "role": role}
-                )
-                bottom.append(
-                    {"shape": "line", "p1": [x0, ax - r0], "p2": [x1, ax - r1], "role": role}
-                )
-        verticals = []
-        xs = sorted({x for x, _ in pts})
-        for x in xs:
-            idx = [i for i, (px, _) in enumerate(pts) if abs(px - x) <= EPS]
-            rmax = max(pts[i][1] for i in idx)
-            first, last = idx[0] == 0, idx[-1] == len(pts) - 1
-            corner = first or last or len(idx) > 1
-            if not corner:
-                i = idx[0]
-                (xa, ra), (xb, rb), (xc, rc) = pts[i - 1], pts[i], pts[i + 1]
-                cross = (xb - xa) * (rc - rb) - (rb - ra) * (xc - xb)
-                corner = abs(cross) > 1e-9
-            if corner:
-                verticals.append(
-                    {"shape": "line", "p1": [x, ax - rmax], "p2": [x, ax + rmax], "role": role}
-                )
-        f = self._feature(name, {"type": "turned", "profile": [list(p) for p in pts], "axis": ax})
-        self._feature_edges(f, top + bottom + verticals)
+        bpts = [(num(x, "bore.x"), num(r, "bore.r")) for x, r in (bore or ())]
+        hl = []
+        for h in holes or ():
+            h = dict(h)
+            for k in ("r", "d", "x0", "x1"):
+                if k in h:
+                    h[k] = num(h[k], f"holes.{k}")
+            if h.get("name") is not None:
+                check_name(h["name"], "孔名")
+            hl.append(h)
+        if not (bpts or cut or hl):
+            intents = self._turned_m0(pts, ax, role, names)
+            loops, hcs = [], []
+        else:
+            edges, loops, hcs = revolve.build(pts, bpts, cut, half, hl, hidden, role)
+            intents = []
+            for e in edges:
+                ei = {
+                    "shape": "line",
+                    "p1": [e["p1"][0], ax + e["p1"][1]],
+                    "p2": [e["p2"][0], ax + e["p2"][1]],
+                    "role": e["role"],
+                }
+                seg = e.get("seg")
+                if seg and seg[0] == "o" and seg[1] in names:
+                    ei["name"] = names[seg[1]] + seg[2]
+                intents.append(ei)
+        f = self._feature(
+            name,
+            {
+                "type": "turned",
+                "profile": [list(p) for p in pts],
+                "axis": ax,
+                "names": {v: k for k, v in names.items()},
+                "bore": [list(p) for p in bpts] or None,
+                "cut": cut,
+                "half": half,
+                "holes": hl,
+                "grooves": [g["name"] for g in gl],
+                "hidden": hidden,
+                "hatch": None,
+            },
+        )
+        self._feature_edges(f, intents)
         c = self._center(
             name, {"type": "line", "p1": [pts[0][0], ax], "p2": [pts[-1][0], ax]}, refs=[f.id]
         )
         f._intent["centers"] = [c.id]
+        for k, (p1, p2, hname) in enumerate(hcs, 1):
+            cc = self._center(
+                f"{name}_{hname or 'hole'}_{k}",
+                {"type": "line", "p1": [p1[0], ax + p1[1]], "p2": [p2[0], ax + p2[1]]},
+                refs=[f.id],
+            )
+            f._intent["centers"].append(cc.id)
+        for g in gl:
+            gi = {k: g[k] for k in ("x0", "x1", "w", "r", "rg")}
+            self._feature(
+                g["name"],
+                {
+                    "type": "groove",
+                    "on": f.id,
+                    **gi,
+                    "d": 2 * g["rg"],
+                    "axis": ax,
+                    "kind": g.get("kind", "undercut"),
+                    "std": g.get("std"),
+                },
+            )._refs.append(f.id)
+        if loops:
+            from .annotate import Hatch
+
+            hid = f"H.{self.name}.{name}"
+            lps = [{"points": [[x, ax + y] for x, y in lp]} for lp in loops]
+            self._d._add(
+                Hatch(self._d, hid, {"view": self.name, "loops": lps}, refs=[self._id, f.id])
+            )
+            f._intent["hatch"] = hid
         return f
+
+    def _turned_m0(self, pts, ax, role, names):
+        """M0 outline (edge order kept stable): top, bottom, then the corner verticals."""
+        top, bottom = [], []
+        for i, ((x0, r0), (x1, r1)) in enumerate(zip(pts, pts[1:])):
+            if abs(x1 - x0) > EPS:
+                t = {"shape": "line", "p1": [x0, ax + r0], "p2": [x1, ax + r1], "role": role}
+                b = {"shape": "line", "p1": [x0, ax - r0], "p2": [x1, ax - r1], "role": role}
+                if i in names:
+                    t["name"], b["name"] = names[i], names[i] + "_lo"
+                top.append(t)
+                bottom.append(b)
+        verticals = []
+        for x in sorted({x for x, _ in pts}):
+            idx = [i for i, (px, _) in enumerate(pts) if abs(px - x) <= EPS]
+            rmax = max(pts[i][1] for i in idx)
+            corner = idx[0] == 0 or idx[-1] == len(pts) - 1 or len(idx) > 1
+            if not corner:
+                i = idx[0]
+                (xa, ra), (xb, rb), (xc, rc) = pts[i - 1], pts[i], pts[i + 1]
+                corner = abs((xb - xa) * (rc - rb) - (rb - ra) * (xc - xb)) > 1e-9
+            if corner:
+                verticals.append(
+                    {"shape": "line", "p1": [x, ax - rmax], "p2": [x, ax + rmax], "role": role}
+                )
+        return top + bottom + verticals
 
     @mutator("centerline")
     def centerline(self, p1, p2, name=None):

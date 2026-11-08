@@ -325,6 +325,27 @@ class Drawing:
 
         return drawing_section(self, letter, view, cut_in, through, look)
 
+    @mutator("removed_section")
+    def removed_section(self, letter, parent, through, look=None):
+        """Removed section ``V.<letter>`` cut along ``through`` in ``parent`` (SPEC M1 §5)."""
+        from .views import removed_section
+
+        return removed_section(self, letter, parent, through, look)
+
+    @mutator("detail")
+    def detail(self, letter, parent, center, r, scale="2:1"):
+        """Detail view ``V.<letter>``: parent geometry inside the circle, redrawn at ``scale``."""
+        from .views import detail
+
+        return detail(self, letter, parent, center, r, scale)
+
+    @mutator("oblique")
+    def oblique(self, letter, parent, at, look, rotate=False):
+        """Oblique (auxiliary) view ``V.<letter>``; arrow at ``at`` pointing along ``look`` (deg)."""
+        from .views import oblique
+
+        return oblique(self, letter, parent, at, look, rotate)
+
     # ---- parameters -----------------------------------------------------------------
     def params(self, **params):
         from .params import ParamSet, validate

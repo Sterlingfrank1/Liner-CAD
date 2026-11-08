@@ -74,7 +74,9 @@ def test_half_section_upper_cut_lower_exterior():
     loops = d["H.front.s"]._intent["loops"]
     assert hatch_area(d, "H.front.s") == pytest.approx(500)
     assert all(p[1] >= -1e-9 for lp in loops for p in lp["points"])
-    assert hlines(d, "F.front.s", 10) and not hlines(d, "F.front.s", -10)  # bore only in the cut half
+    assert hlines(d, "F.front.s", 10) and not hlines(
+        d, "F.front.s", -10
+    )  # bore only in the cut half
     assert not [e for e in d["F.front.s"].edges if e._intent["role"] == "hidden"]
     assert covers(vlines(d, "F.front.s", 0), -20, 20)
 
@@ -175,7 +177,9 @@ def letters(el):
 
 def test_stepped_section_symbols(block):
     d, f, t = block
-    s = d.section("A", view="front", cut_in="top", through=[(-5, -10), (40, -10), (40, 10), (85, 10)])
+    s = d.section(
+        "A", view="front", cut_in="top", through=[(-5, -10), (40, -10), (40, 10), (85, 10)]
+    )
     assert s._intent["kind"] == "stepped"
     layout(d)
     assert len(section_strokes(s)) == 2 + 2 * 2  # two ends + an L at each of the two bends
@@ -238,9 +242,11 @@ def test_detail_view_clips_scales_and_labels(shaft):
     layout(d)
     c = det.to_sheet(30, 10)
     for p in det._prims:
-        if isinstance(p, Line) and p.layer != "text":
-            assert math.dist(p.p, c) <= 5 * 4 + 1e-6 or p.layer in ("dim",), p
-    assert any(isinstance(p, Poly) and p.layer == "thin" for p in det._prims)  # wavy edge in material
+        if isinstance(p, Line) and p.layer in ("thick", "hatch"):  # not the label's rule
+            assert math.dist(p.p, c) <= 5 * 4 + 1e-6 and math.dist(p.q, c) <= 5 * 4 + 1e-6, p
+    assert any(
+        isinstance(p, Poly) and p.layer == "thin" for p in det._prims
+    )  # wavy edge in material
     assert {"I", "4:1"} <= set(letters(det))
     marker = d["S.I"]
     assert any(isinstance(p, Circle) and p.r == pytest.approx(5 * d.scale) for p in marker._prims)

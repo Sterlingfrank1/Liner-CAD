@@ -487,8 +487,25 @@ def _check_look(look, a, b):
         )
 
 
+def _check_path_look(look, pts):
+    _check_look(look, pts[0], pts[1])
+    _check_look(look, pts[-2], pts[-1])
+
+
+def section_kind(pts) -> str:
+    """full (2 points) / stepped (axis-parallel legs, right-angle turns) / aligned."""
+    if len(pts) == 2:
+        return "full"
+    segs = list(zip(pts, pts[1:]))
+    axis = [abs(a[0] - b[0]) < 1e-9 or abs(a[1] - b[1]) < 1e-9 for a, b in segs]
+    if all(axis):
+        return "stepped"
+    return "aligned"
+
+
 class Section(Element):
-    """Full section: cutting-plane symbol in ``cut_in`` + ``X-X`` label above ``view``."""
+    """Section cutting-plane symbol in ``cut_in`` (any polyline path) + ``X-X`` label above
+    ``view``: full, stepped, aligned (rotated) or removed sections (SPEC M1 §5)."""
 
     kind = "section"
     SETTABLE = ("look",)
@@ -498,8 +515,7 @@ class Section(Element):
             raise InvalidArgument(
                 f"look 只能是 {SECTION_LOOK}", id=self._id, candidates=list(SECTION_LOOK)
             )
-        a, b = self._intent["through"]
-        _check_look(fields["look"], a, b)
+        _check_path_look(fields["look"], self._intent["through"])
         self._intent["look"] = fields["look"]
 
 
@@ -574,14 +590,21 @@ def _loop_of(d, item, view):
     return {"points": [list(p) for p in pts]}
 
 
-def view_hatch(self, name, loops):
+def view_hatch(self, name, loops, outline=None):
     d = self._d
+    if outline not in (None, "thin", "thick"):
+        raise InvalidArgument(
+            "outline 只能是 None、'thin'（重合断面）或 'thick'", values={"outline": outline}
+        )
     if not loops:
         raise InvalidArgument("hatch 至少要一个边界环")
     ls = [_loop_of(d, x, self.name) for x in loops]
     hid = f"H.{self.name}.{_required_name(name, '剖面线')}"
     refs = [self.id] + [x["ref"] for x in ls if "ref" in x]
-    return d._add(Hatch(d, hid, {"view": self.name, "loops": ls}, refs=refs))
+    intent = {"view": self.name, "loops": ls}
+    if outline:
+        intent["outline"] = outline
+    return d._add(Hatch(d, hid, intent, refs=refs))
 
 
 def drawing_section(self, letter, view, cut_in, through, look=None):
@@ -592,24 +615,28 @@ def drawing_section(self, letter, view, cut_in, through, look=None):
         if f"V.{v}" not in d._els:
             raise NotFound(f"视图 {v} 不存在", id=f"V.{v}", candidates=[e.id for e in d.views()])
     try:
-        p1, p2 = through
-    except (TypeError, ValueError):
-        raise InvalidArgument("through 应为两点 [p1, p2]")
-    a = resolve_point(d, p1, view=cut_in, what="through[0]")
-    b = resolve_point(d, p2, view=cut_in, what="through[1]")
-    if math.dist(a, b) < 1e-9:
-        raise InvalidArgument("through 的两点重合", values={"p": list(a)})
+        pts = [
+            resolve_point(d, p, view=cut_in, what=f"through[{k}]") for k, p in enumerate(through)
+        ]
+    except TypeError:
+        raise InvalidArgument("through 应为点列 [p1, p2, ...]")
+    if len(pts) < 2:
+        raise InvalidArgument("through 至少两个点", values={"n": len(pts)})
+    for a, b in zip(pts, pts[1:]):
+        if math.dist(a, b) < 1e-9:
+            raise InvalidArgument("through 有重合的相邻点", values={"p": list(a)})
     if look is None:
         look = default_look(d.std, view, cut_in)
     elif look not in SECTION_LOOK:
         raise InvalidArgument(f"look 只能是 {SECTION_LOOK}", candidates=list(SECTION_LOOK))
-    _check_look(look, a, b)
+    _check_path_look(look, pts)
     intent = {
         "letter": letter,
         "view": view,
         "cut_in": cut_in,
-        "through": [list(a), list(b)],
+        "through": [list(p) for p in pts],
         "look": look,
+        "kind": section_kind(pts),
     }
     return d._add(Section(d, f"S.{letter}", intent, refs=[f"V.{view}", f"V.{cut_in}"]))
 
