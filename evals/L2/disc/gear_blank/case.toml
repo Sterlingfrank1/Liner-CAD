@@ -1,0 +1,10 @@
+title = "齿轮坯"
+
+[[view]]
+name = "front"
+mode = "half"
+half = "top"
+
+[[view]]
+name = "left"
+mode = "plain"

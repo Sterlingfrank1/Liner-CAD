@@ -48,3 +48,53 @@ params = { spec = "6x23x26x6" }
 id = "spline_8x32x36x6"
 template = "spline_rect"
 params = { spec = "8x32x36x6", ls = 50.0, length = 120.0 }
+
+[[case]]
+id = "tapped_disc_M8x3"
+template = "tapped_disc"
+params = { spec = "M8", n = 3 }
+
+[[case]]
+id = "tapped_disc_M10x4"
+template = "tapped_disc"
+params = { spec = "M10", n = 4 }
+
+[[case]]
+id = "drill_blind_4x10"
+template = "drill_blind"
+params = { n = 4, dh = 10, depth = 18 }
+
+[[case]]
+id = "drill_blind_6x8"
+template = "drill_blind"
+params = { n = 6, dh = 8, depth = 12 }
+
+[[case]]
+id = "hub_keyway_30"
+template = "hub_keyway"
+params = { bore = 30 }
+
+[[case]]
+id = "hub_keyway_40"
+template = "hub_keyway"
+params = { bore = 40 }
+
+[[case]]
+id = "half_section_24"
+template = "half_section"
+params = { bore = 24, L = 40, B = 18 }
+
+[[case]]
+id = "half_section_32"
+template = "half_section"
+params = { bore = 32, L = 50, B = 22 }
+
+[[case]]
+id = "section_stepped_18"
+template = "section_stepped"
+params = { c = 18 }
+
+[[case]]
+id = "section_aligned_3x12"
+template = "section_aligned"
+params = { D = 100, pcd = 70, dh = 12 }

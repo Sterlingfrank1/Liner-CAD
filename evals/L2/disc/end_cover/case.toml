@@ -1,0 +1,9 @@
+title = "端盖"
+
+[[view]]
+name = "front"
+mode = "full"
+
+[[view]]
+name = "left"
+mode = "plain"
