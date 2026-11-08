@@ -69,7 +69,7 @@ front = d.view("front")      # 基本视图：front top bottom left right rear�
 |---|---|
 | `v.line(p1, p2, role=, name=)` / `v.polyline` / `v.polygon` / `v.rect((x, y), w, h)` | 特征 `F.<视图>.<名>`，边 `E.<视图>.<名>.<k>` |
 | `v.circle(c, r)` / `v.arc(c, r, start, end)` | 角度制逆时针 |
-| `v.turned(name, [(x, r, "名"?), ...], axis=0, bore=None, cut=None, half="top", holes=[], grooves=[])` | **回转体**（轴、套、盘、盖）：给上半外轮廓。`bore` 内孔轮廓；`cut="full"` 全剖、`"half"` 半剖（自动剖面区域、剖面线 `H.<v>.<name>`、孔后可见线）；`holes=[{"name","r","d","x0","x1","tip":True,"thread":"M8","depth":16}]` 轴向孔/螺孔；`grooves=[{"name","x","w","d","side":"left"}]` 退刀槽拼进轮廓。轮廓点第三项给名字 → 稳定边 `E.<v>.<name>.<名>`（下半 `<名>_lo`），PMI 引用它 |
+| `v.turned(name, [(x, r, "名"?), ...], axis=0, bore=None, cut=None, half="top", holes=[], grooves=[])` | **回转体**（轴、套、盘、盖）：给上半外轮廓。`bore` 内孔轮廓；`cut="full"` 全剖、`"half"` 半剖（自动剖面区域、剖面线 `H.<v>.<name>`、孔后可见线）；`holes=[{"name","r","d","x0","x1","tip":True,"thread":"M8","depth":16}]` 轴向孔/螺孔；`grooves=[{"name","x","w","d","side":"left"}]` 退刀槽拼进轮廓；`hub_keyway=True` 剖视里的轮毂键槽。轮廓点第三项给名字 → 稳定边 `E.<v>.<name>.<名>`（下半 `<名>_lo`），PMI 引用它 |
 | `v.centerline(p1, p2)` / `v.center_mark(c, r)` / `v.holes_on_circle(name, c, pcd, n, d, start=90)` | 中心线 / 十字中心线 / 均布孔 |
 | `v.wavy(name, [p1, p2, ...])` | 局部剖、断裂的波浪线 |
 | `v.hatch(name, loops=[...], outline=None)` | 剖面线；嵌套环是孤岛；`outline="thin"` = 重合断面 |
