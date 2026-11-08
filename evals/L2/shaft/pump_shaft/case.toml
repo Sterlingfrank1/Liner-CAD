@@ -1,0 +1,5 @@
+title = "泵轴"
+
+[[view]]
+name = "front"
+mode = "plain"

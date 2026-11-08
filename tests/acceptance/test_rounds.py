@@ -21,7 +21,7 @@ ROUNDS = {
         ("把总长尺寸挪到轴的上方", "edit", 'd["D.L"].place(side="top")'),
         ("最粗那段的直径加公差 k6", "edit", 'd["D.d3"].tol = "k6"'),
         ("加一条技术要求：去除毛刺锐边", "edit", 'd.notes.tech("去除毛刺锐边。")'),
-        ("删掉倒角的引线标注", "edit", 'd["N.chamfer"].suppress()'),
+        ("删掉倒角的引线标注", "edit", 'd["D.c2"].suppress()'),
         ("总长改成 220", "param", ("L=Param(200", "L=Param(220")),
         ("把总长尺寸再往外挪 3 mm", "edit", 'd["D.L"].move(dy=3)'),
         ("把键槽宽度尺寸的公差改成 h9", "fail", 'd["D.key"].tol = "h9"'),

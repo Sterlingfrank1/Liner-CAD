@@ -1,0 +1,6 @@
+title = "带肩衬套"
+
+[[view]]
+name = "front"
+mode = "half"
+half = "top"

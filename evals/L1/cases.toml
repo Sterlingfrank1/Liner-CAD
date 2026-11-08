@@ -3,3 +3,48 @@
 id = "thread_ext_M20"
 template = "thread_ext"
 params = { spec = "M20" }
+
+[[case]]
+id = "thread_ext_M16x1_5"
+template = "thread_ext"
+params = { spec = "M16x1.5", length = 24.0 }
+
+[[case]]
+id = "center_hole_A3_15"
+template = "center_hole"
+params = { D = 30.0, d = 3.15 }
+
+[[case]]
+id = "center_hole_A2"
+template = "center_hole"
+params = { D = 16.0, d = 2.0, length = 50.0 }
+
+[[case]]
+id = "undercut_4x21"
+template = "undercut"
+params = { d1 = 24.0, d2 = 32.0, x = 40.0, w = 4.0, dg = 21.0 }
+
+[[case]]
+id = "undercut_3x13"
+template = "undercut"
+params = { d1 = 16.0, d2 = 22.0, x = 30.0, w = 3.0, dg = 13.0, length = 60.0 }
+
+[[case]]
+id = "keyway_d28"
+template = "keyway_shaft"
+params = { d = 28.0 }
+
+[[case]]
+id = "keyway_d44"
+template = "keyway_shaft"
+params = { d = 44.0, x0 = 25.0, kl = 56.0, length = 120.0 }
+
+[[case]]
+id = "spline_6x23x26x6"
+template = "spline_rect"
+params = { spec = "6x23x26x6" }
+
+[[case]]
+id = "spline_8x32x36x6"
+template = "spline_rect"
+params = { spec = "8x32x36x6", ls = 50.0, length = 120.0 }

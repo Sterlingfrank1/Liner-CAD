@@ -1,0 +1,9 @@
+title = "花键轴"
+
+[[view]]
+name = "front"
+mode = "plain"
+
+[[view]]
+name = "left"
+mode = "plain"

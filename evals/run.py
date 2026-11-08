@@ -94,6 +94,11 @@ def geometry(d, case):
             proj = hlr.section_project(
                 shape, name, mode, v.get("half", "top"), hidden=bool(v.get("hidden"))
             )
+            if mode == "half":  # the median of a half section is the centre line, not an edge
+                proj = {
+                    k: [pl for pl in pls if any(abs(p[1]) > 1e-6 for p in pl)]
+                    for k, pls in proj.items()
+                }
         roles = ("thick", "hidden") if v.get("hidden") else ("thick",)
         res[name] = geocmp.compare(d, name, proj, roles)
     for s in d._els.values():

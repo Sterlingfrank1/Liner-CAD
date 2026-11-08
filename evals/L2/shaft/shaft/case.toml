@@ -1,0 +1,5 @@
+title = "减速器输出轴"
+
+[[view]]
+name = "front"
+mode = "plain"
