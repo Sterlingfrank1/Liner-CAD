@@ -17,7 +17,7 @@ from pathlib import Path
 
 from . import record
 from .errors import DirtySource, GitError, InvalidArgument, NoOps, UndoError
-from .runtime import LOG, SRC, TMP_DIR, build, edit_number, run_script, write_artifacts
+from .runtime import BUILD_DIR, LOG, SRC, TMP_DIR, build, edit_number, run_script, write_artifacts
 
 SOURCES = (SRC, LOG, ".gitignore", ".gitattributes", "templates")
 GITIGNORE = ".linercad/\n"
