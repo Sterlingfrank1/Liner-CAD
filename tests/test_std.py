@@ -8,7 +8,8 @@ import pytest
 from linercad.errors import InvalidArgument
 from linercad.std import deep_merge, load_std, load_template
 
-SHEETS = ["A4", "A3", "A2"]
+SHEETS = ["A4", "A3", "A2", "A1", "A0"]
+CASES = [(std, sheet) for std in ("GB", "ISO") for sheet in SHEETS]
 FIELDS = [
     "name",
     "drawing_no",
@@ -358,7 +359,7 @@ def test_unknown_std_raises_with_candidates(bad):
     with pytest.raises(InvalidArgument) as ei:
         load_std(bad)
     assert ei.value.code == "invalid_arg"
-    assert ei.value.candidates == ["GB"]
+    assert ei.value.candidates == ["GB", "ISO"]
     assert repr(bad) in ei.value.message
 
 
@@ -367,19 +368,12 @@ def test_non_string_std_raises():
         load_std(None)  # type: ignore[arg-type]
 
 
-def test_iso_says_it_comes_in_m1():
-    with pytest.raises(InvalidArgument) as ei:
-        load_std("ISO")
-    assert "ISO" in ei.value.message and "M1" in str(ei.value)
-    assert ei.value.candidates == ["GB"]
-
-
 def test_unknown_sheet_raises_with_candidates():
     with pytest.raises(InvalidArgument) as ei:
-        load_template("GB", "A1")
+        load_template("GB", "A5")
     assert ei.value.code == "invalid_arg"
-    assert ei.value.candidates == ["A2", "A3", "A4"]
-    assert "A1" in ei.value.message
+    assert ei.value.candidates == ["A0", "A1", "A2", "A3", "A4"]
+    assert "A5" in ei.value.message
 
 
 @pytest.mark.parametrize("bad", ["", "a3", "GB-A3", None])
@@ -391,17 +385,14 @@ def test_bad_sheet_names_raise(bad):
 def test_template_for_unknown_std_raises():
     with pytest.raises(InvalidArgument) as ei:
         load_template("XYZ", "A3")
-    assert ei.value.candidates == ["GB"]
-    with pytest.raises(InvalidArgument) as ei:
-        load_template("ISO", "A3")
-    assert "M1" in str(ei.value)
+    assert ei.value.candidates == ["GB", "ISO"]
 
 
 # --------------------------------------------------------------------------- templates
 
 
-def tb_of(sheet):
-    return load_template("GB", sheet)["title_block"]
+def tb_of(sheet, std="GB"):
+    return load_template(std, sheet)["title_block"]
 
 
 def test_template_sizes_and_margins():
@@ -472,7 +463,7 @@ def test_field_heights_and_defaults(sheet, gb):
     assert fields["name"]["height"] == 7.0
     assert fields["drawing_no"]["height"] == 5.0
     for key in FIELDS:
-        if key not in ("name", "drawing_no"):
+        if key not in ("name", "drawing_no", "company"):
             assert fields[key]["height"] == 3.5, key
         assert fields[key]["height"] in gb["text"]["heights"]
         assert fields[key]["default"] == ("共 1 张 第 1 张" if key == "sheet" else ""), key
@@ -487,9 +478,9 @@ def test_name_slot_is_the_largest(sheet):
     assert max(areas, key=areas.get) == "name"
 
 
-def test_all_three_title_blocks_have_the_same_layout():
+def test_all_gb_title_blocks_have_the_same_layout():
     base = tb_of("A3")
-    for sheet in ("A4", "A2"):
+    for sheet in ("A4", "A2", "A1", "A0"):
         other = tb_of(sheet)
         for key in ("size", "lines", "labels", "fields"):
             assert other[key] == base[key], (sheet, key)
@@ -540,9 +531,9 @@ def _label_extent(label, std):
     return cx - w / 2, cy - label["height"] / 2, cx + w / 2, cy + label["height"] / 2
 
 
-@pytest.mark.parametrize("sheet", SHEETS)
-def test_lines_are_axis_parallel_thick_border_and_thin_inside(gb, sheet):
-    tb = tb_of(sheet)
+@pytest.mark.parametrize("std,sheet", CASES)
+def test_lines_are_axis_parallel_thick_border_and_thin_inside(gb, std, sheet):
+    tb = tb_of(sheet, std)
     w, h = tb["size"]
     roles = set(gb["lines"]) - {"basis"}
     border = set()
@@ -570,15 +561,19 @@ def test_fixed_labels_shape(gb, sheet):
         assert 0 < lb["at"][0] < w and 0 < lb["at"][1] < h
         assert lb["text"] not in seen
         seen.add(lb["text"])
-    # every field is announced by a fixed label that carries the field's own label text
-    assert seen == {f["label"] for f in tb["fields"].values()}
-    for word in ("设计", "审核", "日期", "材料", "比例", "质量", "单位"):
+    # the signature and "other" zones print the field labels (names and codes are self-evident)
+    fields = tb["fields"]
+    for key in ("designer", "checker", "process", "approver", "standardizer"):
+        assert fields[key]["label"] in seen, key
+    for key in ("material", "stage", "mass", "scale"):
+        assert fields[key]["label"] in seen, key
+    for word in ("标记", "处数", "分区", "更改文件号", "签名", "年月日"):  # the change zone header
         assert word in seen
 
 
-@pytest.mark.parametrize("sheet", SHEETS)
-def test_every_slot_and_label_lies_in_a_cell_bounded_by_lines(gb, sheet):
-    tb = tb_of(sheet)
+@pytest.mark.parametrize("std,sheet", CASES)
+def test_every_slot_and_label_lies_in_a_cell_bounded_by_lines(gb, std, sheet):
+    tb = tb_of(sheet, std)
     w, h = tb["size"]
     block = (0, 0, w, h)
     for key, f in tb["fields"].items():
@@ -593,9 +588,9 @@ def test_every_slot_and_label_lies_in_a_cell_bounded_by_lines(gb, sheet):
         assert _inside(ext, cell), f"label {lb['text']} {ext} does not fit cell {cell}"
 
 
-@pytest.mark.parametrize("sheet", SHEETS)
-def test_slots_and_labels_do_not_overlap(gb, sheet):
-    tb = tb_of(sheet)
+@pytest.mark.parametrize("std,sheet", CASES)
+def test_slots_and_labels_do_not_overlap(gb, std, sheet):
+    tb = tb_of(sheet, std)
     boxes = {k: tuple(f["box"]) for k, f in tb["fields"].items()}
     names = sorted(boxes)
     for i, a in enumerate(names):
@@ -611,19 +606,23 @@ def test_slots_and_labels_do_not_overlap(gb, sheet):
             assert not _overlap(extents[a], extents[b]), f"labels {a} and {b} overlap"
 
 
-@pytest.mark.parametrize("sheet", SHEETS)
-def test_default_values_fit_their_slots(gb, sheet):
-    for key, f in tb_of(sheet)["fields"].items():
+@pytest.mark.parametrize("std,sheet", CASES)
+def test_default_values_fit_their_slots(gb, std, sheet):
+    for key, f in tb_of(sheet, std)["fields"].items():
         box = f["box"]
         assert _text_width(f["default"], f["height"], gb) <= box[2] - box[0], key
 
 
 @pytest.mark.parametrize("sheet", SHEETS)
 def test_each_label_sits_next_to_its_own_slot(sheet):
-    # the label of a field is in the cell to the left of the field's slot, on the same row
+    # a printed label is in the cell left of its field's slot on the same row, or just above it
     tb = tb_of(sheet)
     by_text = {lb["text"]: lb for lb in tb["labels"]}
     for key, f in tb["fields"].items():
+        if f["label"] not in by_text:
+            continue
         cx, cy = by_text[f["label"]]["at"]
         x0, y0, x1, y1 = f["box"]
-        assert cx < x0 and y0 <= cy <= y1, f"label of {key} is not left of its slot"
+        left = cx < x0 and y0 <= cy <= y1
+        above = x0 <= cx <= x1 and cy > y1
+        assert left or above, f"label of {key} is neither left of nor above its slot"

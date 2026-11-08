@@ -210,6 +210,8 @@ def model_dict(d, findings=(), edit=None) -> dict:
             "drawing": {
                 "sheet": d.sheet,
                 "std": d.std_name,
+                "projection": d.std["views"]["projection"],
+                "overlay": d.overlay,
                 "scale": d.scale_text,
                 "edit": edit,
                 "frame": list(tpl["frame"]),

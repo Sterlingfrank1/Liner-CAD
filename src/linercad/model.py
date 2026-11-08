@@ -29,6 +29,8 @@ _SYNONYMS = {
 
 # Drawings created while a build runs register here (runtime captures the one drawing.py made).
 BUILD = contextvars.ContextVar("linercad_build", default=None)
+# The drawing directory being built; ``Drawing(overlay=)`` reads ``<dir>/templates/<name>.toml``.
+DRAW_DIR = contextvars.ContextVar("linercad_dir", default=None)
 
 
 def check_name(name, what="名字") -> str:
@@ -233,9 +235,9 @@ class Element:
 class Drawing:
     """One drawing = one sheet. ``drawing.py`` creates exactly one."""
 
-    def __init__(self, sheet="A3", std="GB", scale="1:1"):
+    def __init__(self, sheet="A3", std="GB", scale="1:1", projection=None, overlay=None):
         from .params import ParamSet
-        from .std import load_std, load_template
+        from .std import load_overlay, load_std, load_template
 
         self._recorder = None
         self._src_override = None  # replay sets {"edit","line"} while applying a log operation
@@ -247,10 +249,19 @@ class Drawing:
         self._counters: dict[tuple, int] = {}
         self._P = ParamSet({})
         self._params_declared = False
+        if projection not in (None, "first", "third"):
+            raise InvalidArgument(
+                f"投影法 {projection!r} 不对：first（第一角）或 third（第三角）",
+                candidates=["first", "third"],
+            )
+        # profile, then the enterprise overlay, then the explicit projection (the last one wins)
+        ov = load_overlay(overlay, DRAW_DIR.get() or Path()) if overlay else {}
+        over = [ov.get("std", {})] + ([{"views": {"projection": projection}}] if projection else [])
         self.std_name = std
-        self.std = load_std(std)
+        self.std = load_std(std, over)
+        self.overlay = overlay
         self.sheet = sheet
-        self.template = load_template(std, sheet)
+        self.template = load_template(std, sheet, ov.get("title_block"))
         self.scale_text, self.scale = parse_scale(scale)
         self._src = caller_src()
         ctx = BUILD.get()

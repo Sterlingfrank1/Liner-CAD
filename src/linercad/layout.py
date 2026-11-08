@@ -1111,7 +1111,8 @@ class _Layout:
         ox, oy = tb["origin"]
         prims = [Line(a, b, "thin") for a, b in _rect((0, 0, W, H))]
         prims += [Line(a, b, "thick") for a, b in _rect(F)]
-        for ln in tb["lines"]:
+        sym = tb.get("projection", {}).get(std["views"]["projection"], {})  # ISO 5456-2 symbol
+        for ln in [*tb["lines"], *sym.get("lines", [])]:
             prims.append(
                 Line(
                     (ox + ln["p1"][0], oy + ln["p1"][1]),
@@ -1119,6 +1120,8 @@ class _Layout:
                     ln.get("role", "thin"),
                 )
             )
+        for c in [*tb.get("circles", []), *sym.get("circles", [])]:
+            prims.append(Circle((ox + c["c"][0], oy + c["c"][1]), c["r"], c.get("role", "thick")))
         for lb in tb.get("labels", []):
             prims.append(
                 make_text(
@@ -1139,10 +1142,15 @@ class _Layout:
             text = e._intent["text"]
             if not text:
                 continue
-            h = spec["height"]
-            w, _ = text_size(text, h, std)
-            if w > (x1 - x0) - 1:
-                h = max(2.5, h * ((x1 - x0) - 1) / w)
+            # the largest height of the GB/T 14691 series (up to the slot's) that fits the slot
+            fit = [
+                s
+                for s in std["text"]["heights"]
+                if s <= spec["height"] + 1e-9
+                and text_size(text, s, std)[0] <= (x1 - x0) - 1
+                and text_size(text, s, std)[1] <= y1 - y0
+            ]
+            h = max(fit) if fit else std["text"]["heights"][0]
             e._prims = [
                 make_text(text, (ox + (x0 + x1) / 2, oy + (y0 + y1) / 2), h, std, layer="text")
             ]

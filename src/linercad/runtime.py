@@ -13,7 +13,7 @@ from pathlib import Path
 from . import checks, dxfout, record
 from .errors import BuildError, LinerError, ScriptError, StaleOp
 from .layout import layout
-from .model import BUILD
+from .model import BUILD, DRAW_DIR
 
 SRC = "drawing.py"
 LOG = "drawing.actions.jsonl"
@@ -76,7 +76,7 @@ def run_drawing(dir):
     if not path.exists():
         raise BuildError(f"{path} 不存在", hint="先 lcad init <目录>")
     box = []
-    tok = BUILD.set(box)
+    tok, dir_tok = BUILD.set(box), DRAW_DIR.set(Path(dir))
     try:
         with contextlib.redirect_stdout(sys.stderr):
             runpy.run_path(str(path), run_name="__lcad_drawing__")
@@ -86,6 +86,7 @@ def run_drawing(dir):
         raise attach_where(BuildError(f"drawing.py 出错：{type(e).__name__}: {e}"), e, path) from e
     finally:
         BUILD.reset(tok)
+        DRAW_DIR.reset(dir_tok)
     if len(box) != 1:
         raise BuildError(f"drawing.py 必须创建且只创建一个 Drawing（实际 {len(box)} 个）")
     return box[0]
