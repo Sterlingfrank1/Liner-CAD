@@ -1,0 +1,107 @@
+{
+ "summary": {
+  "cases": 4,
+  "built": 4,
+  "zero_error_rate": 1.0,
+  "geometry_pass_rate": 1.0,
+  "violations": 0,
+  "first_pass_rate": null,
+  "mean_rounds": null,
+  "passed": 4
+ },
+ "cases": [
+  {
+   "id": "L2/disc/bearing_cap",
+   "level": "L2",
+   "family": "disc",
+   "rounds": null,
+   "errors": 0,
+   "warnings": 0,
+   "geo": {
+    "front": {
+     "cov_drawing": 1.0,
+     "cov_model": 1.0,
+     "pass": true,
+     "unmatched_drawing": [],
+     "unmatched_model": []
+    },
+    "left": {
+     "cov_drawing": 1.0,
+     "cov_model": 1.0,
+     "pass": true,
+     "unmatched_drawing": [],
+     "unmatched_model": []
+    }
+   },
+   "passed": true
+  },
+  {
+   "id": "L2/disc/gear_blank",
+   "level": "L2",
+   "family": "disc",
+   "rounds": null,
+   "errors": 0,
+   "warnings": 0,
+   "geo": {
+    "front": {
+     "cov_drawing": 1.0,
+     "cov_model": 1.0,
+     "pass": true,
+     "unmatched_drawing": [],
+     "unmatched_model": []
+    },
+    "left": {
+     "cov_drawing": 1.0,
+     "cov_model": 1.0,
+     "pass": true,
+     "unmatched_drawing": [],
+     "unmatched_model": []
+    }
+   },
+   "passed": true
+  },
+  {
+   "id": "L2/shaft/pump_shaft",
+   "level": "L2",
+   "family": "shaft",
+   "rounds": null,
+   "errors": 0,
+   "warnings": 0,
+   "geo": {
+    "front": {
+     "cov_drawing": 1.0,
+     "cov_model": 1.0,
+     "pass": true,
+     "unmatched_drawing": [],
+     "unmatched_model": []
+    },
+    "B": {
+     "cov_drawing": 1.0,
+     "cov_model": 1.0,
+     "pass": true,
+     "unmatched_drawing": [],
+     "unmatched_model": []
+    }
+   },
+   "passed": true
+  },
+  {
+   "id": "L2/shaft/spacer",
+   "level": "L2",
+   "family": "shaft",
+   "rounds": null,
+   "errors": 0,
+   "warnings": 0,
+   "geo": {
+    "front": {
+     "cov_drawing": 1.0,
+     "cov_model": 1.0,
+     "pass": true,
+     "unmatched_drawing": [],
+     "unmatched_model": []
+    }
+   },
+   "passed": true
+  }
+ ]
+}
