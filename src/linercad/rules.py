@@ -388,7 +388,7 @@ def rough_syntax(d):
         except Exception:  # noqa: BLE001
             continue
         first, extra = (
-            (ser.get("first", []), ser.get("supplementary", []))
+            (ser.get("preferred") or ser.get("first", []), ser.get("supplementary", []))
             if isinstance(ser, dict)
             else (ser, [])
         )
