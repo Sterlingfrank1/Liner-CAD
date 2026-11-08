@@ -92,11 +92,21 @@ def run_drawing(dir):
     return box[0]
 
 
-def build(dir, extra_ops=(), current_edit=None) -> BuildResult:
-    d = run_drawing(dir)
+def build(dir, extra_ops=(), current_edit=None, params=None, dxf=True) -> BuildResult:
+    """``params``: in-memory overrides of Param defaults (Viewer preview); ``dxf=False`` skips the
+    DXF document (the Viewer draws SVG from the same prims)."""
+    from .model import PARAM_OVERRIDES
+
+    tok = PARAM_OVERRIDES.set(dict(params) if params else None)
+    try:
+        d = run_drawing(dir)
+    finally:
+        PARAM_OVERRIDES.reset(tok)
     log_ops = load_log(dir)
     stale = record.replay(d, log_ops + list(extra_ops), current_edit)
     layout(d)
+    if not dxf:
+        return BuildResult(d, None, {}, checks.run(d, stale), stale, log_ops)
     doc, index, raw_fail = dxfout.to_doc(d)
     for f in raw_fail:
         if current_edit is not None and f["edit"] == current_edit:

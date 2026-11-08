@@ -29,6 +29,8 @@ _SYNONYMS = {
 
 # Drawings created while a build runs register here (runtime captures the one drawing.py made).
 BUILD = contextvars.ContextVar("linercad_build", default=None)
+# Viewer slider preview: {name: value} applied to the Param defaults in memory (M2 SPEC §2)
+PARAM_OVERRIDES = contextvars.ContextVar("linercad_param_overrides", default=None)
 # The drawing directory being built; ``Drawing(overlay=)`` reads ``<dir>/templates/<name>.toml``.
 DRAW_DIR = contextvars.ContextVar("linercad_dir", default=None)
 
@@ -393,6 +395,14 @@ class Drawing:
             )
         if self._params_declared:
             raise ParamError("d.params(...) 一张图只调用一次", hint="把全部参数写进同一个调用")
+        over = PARAM_OVERRIDES.get()
+        if over:
+            unknown = [k for k in over if k not in params]
+            if unknown:
+                raise ParamError(f"没有参数 {', '.join(unknown)}", candidates=sorted(params))
+            params = {k: (copy.copy(p) if k in over else p) for k, p in params.items()}
+            for k, v in over.items():
+                params[k].value = v
         validate(params)
         self._P = ParamSet(params)
         self._params_declared = True
