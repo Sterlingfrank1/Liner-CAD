@@ -36,3 +36,15 @@ jobs:
           python-version: ${{ matrix.python }}
       - run: uv sync --locked
       - run: uv run pytest -q
+
+  test-3d:  # geometry comparison against build123d models (optional dependency linercad[3d])
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.9.18"
+          enable-cache: true
+          python-version: "3.12"
+      - run: uv sync --locked --extra 3d
+      - run: uv run pytest -q tests/test_hlr.py tests/test_evals.py
