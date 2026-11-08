@@ -272,7 +272,9 @@ class Drawing:
         rules = tuple(RULES)
         if rule not in rules:
             raise InvalidArgument(f"没有检查规则 {rule!r}", candidates=list(rules))
-        if rule != "stale_op":
+        if str(id).startswith("P."):
+            self.P._param(str(id)[2:])
+        elif rule != "stale_op":
             self[id]
         if not str(reason or "").strip():
             raise InvalidArgument("accept 需要写明理由", id=id)

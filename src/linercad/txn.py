@@ -8,7 +8,6 @@ no commit and the previous artifacts stay.
 from __future__ import annotations
 
 import json
-
 import os
 import re
 import shutil
@@ -169,6 +168,10 @@ def prune_tmp(dir, keep=KEEP_TMP):
             pass
 
 
+def _errors(findings):
+    return sum(1 for f in findings if f.get("severity") == "error")
+
+
 def _warnings(findings, base=None):
     seen = {(f["rule"], f.get("id")) for f in base} if base is not None else None
     out = []
@@ -242,6 +245,7 @@ def init(dir, from_=None, sheet="A3"):
         "commit": h,
         "dir": str(dir),
         **arts,
+        "errors": _errors(res.findings),
         "warnings": _warnings(res.findings),
     }
 
@@ -253,7 +257,10 @@ def _model_sig(dir):
         m = json.loads(p.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
-    return {e["id"]: json.dumps([e.get("intent"), e.get("refs")], sort_keys=True) for e in m.get("elements", [])}
+    return {
+        e["id"]: json.dumps([e.get("intent"), e.get("refs")], sort_keys=True)
+        for e in m.get("elements", [])
+    }
 
 
 def changed_ids(before, d):
@@ -270,8 +277,14 @@ def build_commit(dir, msg=None):
     before = _model_sig(dir)
     res = build(dir)
     edit = next_edit(dir, res.log_ops)
-    out = {"ok": True, "edit": None, "commit": None, "changed": changed_ids(before, res.d) if before else [],
-           "warnings": _warnings(res.findings)}
+    out = {
+        "ok": True,
+        "edit": None,
+        "commit": None,
+        "changed": changed_ids(before, res.d) if before else [],
+        "errors": _errors(res.findings),
+        "warnings": _warnings(res.findings),
+    }
     dirty = dirty_sources(dir)
     if msg:
         if dirty:
@@ -329,6 +342,7 @@ def edit(dir, script, msg):
         "commit": h,
         "ops": [{k: v for k, v in op.items() if k != "_line"} for op in filled],
         "changed": changed,
+        "errors": _errors(r2.findings),
         "warnings": _warnings(r2.findings, base.findings),
         **arts,
     }
@@ -405,6 +419,7 @@ def undo(dir, target, msg=None):
         "commit": c,
         "undone": target,
         "removed_ops": removed,
+        "errors": _errors(res.findings),
         "warnings": _warnings(res.findings),
         **arts,
     }

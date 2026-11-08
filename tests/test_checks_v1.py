@@ -28,7 +28,9 @@ def shaft():
     f.dim.dia("D", (20, P.D / 2), (20, -P.D / 2), value=P.D, side="inside")
     f.dim.dia("D2", (80, P.D2 / 2), (80, -P.D2 / 2), value=P.D2, side="inside")
     f.dim.linear("l1", (0, -15), (P.l1, -20), dir="h", value=P.l1, side="bottom")
-    f.dim.linear("L", (0, -15), (P.L, -20), dir="h", value=P.L, role="overall", side="bottom", row=2)
+    f.dim.linear(
+        "L", (0, -15), (P.L, -20), dir="h", value=P.L, role="overall", side="bottom", row=2
+    )
     d.general_tol("m")
     return d, P, f
 
@@ -116,7 +118,9 @@ def test_center_mark_and_text_height():
     d = Drawing()
     left = d.view("left")
     left.circle((0, 0), 20, name="o")
-    assert ("center_mark", "E.left.o") in rules(run(d)) or ("center_mark", "F.left.o") in rules(run(d))
+    assert ("center_mark", "E.left.o") in rules(run(d)) or ("center_mark", "F.left.o") in rules(
+        run(d)
+    )
     left.center_mark((0, 0), 20, name="ax")
     found = run(d)
     assert not by_rule(found, "center_mark") and not by_rule(found, "text_height")
