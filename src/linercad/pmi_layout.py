@@ -236,7 +236,9 @@ def _fracs(el):
     return list(AT_FRACS)
 
 
-def _cand(prims, fields, why=""):
+def _cand(prims, fields, why="", body=None):
+    """Candidate: text boxes and the box of ``body`` (frame / symbol, not the leader that
+    necessarily touches the outline) are what must stay clear."""
     from .layout import Text
 
     boxes = [p.box for p in prims if isinstance(p, Text)]
@@ -244,7 +246,7 @@ def _cand(prims, fields, why=""):
     for p in prims:
         if isinstance(p, Line):
             segs.append((p.p, p.q))
-    box = prims_bbox(prims)
+    box = prims_bbox(body) if body else None
     return {
         "prims": prims,
         "boxes": boxes + ([box] if box else []),
@@ -297,7 +299,7 @@ def datum_cands(vl, el):
                 make_text(el._intent["letter"], C, std["dim"]["text_height"], std, layer="text")
             )
             fields = {"length": L, "at": frac}
-            out.append(_cand(prims, fields))
+            out.append(_cand(prims, fields, body=prims[2:]))
     return out
 
 
@@ -423,7 +425,7 @@ def gtol_cands(vl, el):
                 oy = E[1] - H / 2
             prims += transform(frame, 0, ox, oy)
             fields = {"length": L, "at": frac}
-            out.append(_cand(prims, fields))
+            out.append(_cand(prims, fields, body=prims[2:]))
     return out
 
 
@@ -475,7 +477,12 @@ def rough_cands(vl, el):
         if direct_up or direct_left:
             prims = transform(sym, 0 if direct_up else 90, A[0], A[1])
             fields = {"at": frac}
-            c = _cand(prims, fields)
+            body = [
+                p
+                for p in prims
+                if not (isinstance(p, Line) and min(math.dist(p.p, A), math.dist(p.q, A)) < 0.01)
+            ]
+            c = _cand(prims, fields, body=body)
             c["mode"] = "direct"
             direct.append(c)
         lift = std["rough"]["h2"] + 3 if n[1] < -0.3 else 0.0  # symbol stands clear of the part
@@ -493,9 +500,13 @@ def rough_cands(vl, el):
                     else:
                         S = (E[0] - (bx1 - bx0) - 2, E[1])
                         tip = (S[0] - bx0 + 1, E[1])
-                    prims = [Line(E, A, "thin"), arrow(A, (-u[0], -u[1]), std, "thin"), Line(E, S, "thin")]
+                    prims = [
+                        Line(E, A, "thin"),
+                        arrow(A, (-u[0], -u[1]), std, "thin"),
+                        Line(E, S, "thin"),
+                    ]
                     prims += transform(sym, 0, tip[0], tip[1])
-                    c = _cand(prims, {"length": L, "at": frac})
+                    c = _cand(prims, {"length": L, "at": frac}, body=prims[3:])
                     c["mode"] = "leader"
                     out.append(c)
     return direct + out  # standing on the surface first, a leader when that is crowded
@@ -627,5 +638,5 @@ def center_hole_cands(vl, el):
                 text, (E[0] + sg * (sym + 1 + w / 2), E[1] + 1 + hh / 2), h, std, layer="text"
             )
         )
-        out.append(_cand(prims, {"dir": ang, "length": L}))
+        out.append(_cand(prims, {"dir": ang, "length": L}, body=prims[3:]))
     return out
