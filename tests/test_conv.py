@@ -160,8 +160,9 @@ def test_spline_axial_and_end():
     left = d.view("left")
     f.turned("b", [(0, 13), (40, 13), (40, 16), (70, 16)])
     s = f.spline("sp", "6x23x26x6", 0, 30)
-    thin = [e for e in s.edges if e.role == "thin"]
+    thin = [e for e in s.edges if e.role == "thin" and e.dir == "h"]
     assert {round(abs(e.start[1]), 3) for e in thin} == {11.5}
+    assert all(e.role == "thin" for e in s.edges)  # end line thin too (GB/T 4459.3)
     assert s.intent["mask"]
     se = left.spline_end("spe", (0, 0), "6x23x26x6")
     assert len([e for e in se.edges if e.shape == "line"]) == 12  # two flanks per tooth
@@ -178,3 +179,16 @@ def test_hub_keyway_in_section():
     assert (i["b"], i["t2"]) == (8, 3.3)
     tops = [e for e in d["F.front.hub"].edges if e.dir == "h" and e.start[1] > 0]
     assert sorted(round(e.start[1], 3) for e in tops) == [round((15**2 - 16) ** 0.5, 3), 18.3, 40]
+
+
+def test_review_fixes_keyway_depth_and_section_centre():
+    d = Drawing()
+    f = d.view("front")
+    f.turned("b", [(0, 15), (80, 15)], axis=50)
+    f.keyway("kw", x0=20, length=30, d=30, axis=50)
+    sec = d.removed_section("A", parent="front", through=[(35, 20), (35, 80)], look="left")
+    cut = sec.shaft_cut("s", 30, keyway="F.front.kw")
+    c = cut.intent["c"]
+    assert c == [0.0, 50.0]
+    bottom = [p for p in cut.intent["points"] if abs(abs(p[1] - 50) - 4) < 1e-9 and -13 < p[0] < 0]
+    assert bottom and all(p[0] == pytest.approx(-(15 - 4.0)) for p in bottom)  # r − t1 (GB/T 1095)

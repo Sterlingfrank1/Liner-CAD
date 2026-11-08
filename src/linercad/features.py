@@ -268,8 +268,7 @@ def _notched_circle(c, r, b, depth, ang):
     for k in range(n + 1):
         a = math.radians(a0 + (a1 - a0) * k / n)
         pts.append([c[0] + r * math.cos(a), c[1] + r * math.sin(a)])
-    edge = math.sqrt(max(r * r - (b / 2) ** 2, 0.0))
-    inner = edge - depth if depth > 0 else r - depth
+    inner = r - depth  # GB/T 1095: t1 / t2 measured from the surface on the key centre line
     pts.append([c[0] + u[0] * inner - t[0] * b / 2, c[1] + u[1] * inner - t[1] * b / 2])
     pts.append([c[0] + u[0] * inner + t[0] * b / 2, c[1] + u[1] * inner + t[1] * b / 2])
     seg = {
@@ -290,7 +289,7 @@ def _notched_circle(c, r, b, depth, ang):
     return pts, seg
 
 
-def shaft_cut(view, name, d, keyway=None):
+def shaft_cut(view, name, d, keyway=None, axis=None):
     """Shaft cross-section in a removed-section view: circle, keyway notch, hatch, centre mark."""
     if view._intent.get("aux") != "section":
         raise InvalidArgument(
@@ -305,16 +304,21 @@ def shaft_cut(view, name, d, keyway=None):
             raise InvalidArgument(
                 "keyway 应为键槽特征（v.keyway 返回的）", id=getattr(kw, "id", None)
             )
+    if axis is None:
+        axis = kw._intent["axis"] if kw is not None else 0.0
+    t = view._intent["axes"]["v"]
+    a = view._intent["trace"][0]
+    c = (0.0, a[0] * t[0] + num(axis, "axis") * t[1])  # the shaft axis in local (u, v), SPEC §5
     if kw is None:
         f = view._feature(
-            check_name(name), {"type": "shaft_cut", "d": D, "closed": True, "c": [0.0, 0.0], "r": r}
+            check_name(name), {"type": "shaft_cut", "d": D, "closed": True, "c": list(c), "r": r}
         )
-        view._feature_edges(f, [{"shape": "circle", "c": [0.0, 0.0], "r": r, "role": "thick"}])
+        view._feature_edges(f, [{"shape": "circle", "c": list(c), "r": r, "role": "thick"}])
         loops = [{"ref": f.id}]
     else:
         # keyway faces the parent's viewer: local u = depth × axes.depth (SPEC §5)
         ang = 0.0 if view._intent["axes"]["depth"] > 0 else 180.0
-        pts, seg = _notched_circle((0.0, 0.0), r, kw._intent["b"], kw._intent["t1"], ang)
+        pts, seg = _notched_circle(c, r, kw._intent["b"], kw._intent["t1"], ang)
         f = view._feature(
             check_name(name),
             {
@@ -326,6 +330,7 @@ def shaft_cut(view, name, d, keyway=None):
                 "b": kw._intent["b"],
                 "t1": kw._intent["t1"],
                 "notch_angle": ang,
+                "c": list(c),
             },
         )
         view._feature_edges(f, [seg["arc"], *seg["lines"]])
@@ -336,7 +341,7 @@ def shaft_cut(view, name, d, keyway=None):
     hid = f"H.{view.name}.{name}"
     view._d._add(Hatch(view._d, hid, {"view": view.name, "loops": loops}, refs=[view.id, f.id]))
     f._intent["hatch"] = hid
-    cm = view._center(f"{name}_c", {"type": "mark", "c": [0.0, 0.0], "r": r}, refs=[f.id])
+    cm = view._center(f"{name}_c", {"type": "mark", "c": list(c), "r": r}, refs=[f.id])
     f._intent["centers"] = [cm.id]
     return f
 
@@ -372,7 +377,7 @@ def spline(view, name, spec, x0, x1, axis=0):
     rD, rd = s["D"] / 2, s["d"] / 2
     rmin = min(rd, rD - GAP / view.scale)
     edges = [_line((x0, ax + sg * rmin), (x1, ax + sg * rmin), "thin", True) for sg in (1, -1)]
-    edges.append(_line((x1, ax - rD), (x1, ax + rD), "thick", True))
+    edges.append(_line((x1, ax - rD), (x1, ax + rD), "thin", True))  # GB/T 4459.3: thin end line
     lo, hi = sorted((x0, x1))
     mask = _rect(lo - 0.01, ax - rD + 0.01, hi + 0.01, ax + rD - 0.01)
     intent = {

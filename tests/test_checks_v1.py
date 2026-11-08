@@ -139,3 +139,9 @@ def test_accept_any_rule(shaft):
     d2.view("front").rect((0, 0), 10, 10, name="r")
     d2.accept("param_cover", "P.X", "派生参数，不标注")
     assert not by_rule(run(d2), "param_cover")
+
+
+def test_forbidden_datum_letter(shaft):
+    d, P, f = shaft
+    f.datum("I", ref="D.D")
+    assert [x for x in by_rule(run(d), "datum_letter") if x["severity"] == "error"]

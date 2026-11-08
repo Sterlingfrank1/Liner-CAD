@@ -86,6 +86,10 @@ class GTol(_Leader):
         self._intent.update(
             _gtol_intent(self._d, i["char"], i["value"], i["datums"], i["zone"], i["modifiers"])
         )
+        old = set(self._intent.get("datum_refs", []))
+        refs = [f"DT.{x}" for ds in self._intent["datums"] for x in ds["letters"]]
+        self._intent["datum_refs"] = refs
+        self._refs[:] = [r for r in self._refs if r not in old]
 
 
 class Rough(_Leader):

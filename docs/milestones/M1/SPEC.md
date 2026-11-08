@@ -93,7 +93,7 @@ d.chain("axial", closing="l5", increase=["D.L"], decrease=["D.l1", "D.l2", "D.l3
 | `v.keyway(name, x0, length, d, axis=0, facing="viewer")` | 主视图键槽长圆形轮廓；宽、深取 `res.key(d)` | type keyway |
 | `v.keyway(name, ..., kind="hub")` / `v.keyway_end(name, c, d, kind="hub")` | 轮毂键槽：剖视图里上半孔壁画到 d+t2；端视图孔圆上的矩形缺口 | type keyway |
 | `secview.shaft_cut(name, d, keyway=None)` | 移出断面里的轴截面：圆 + 键槽缺口 + 剖面线 + 中心线；缺口方位按 §5 的局部坐标算 | type shaft_cut |
-| `v.spline(name, spec, x0, x1, axis=0)` / `v.spline_end(name, c, spec)` | 矩形花键：大径粗、小径细、终止线粗；端面画全部齿形（GB/T 4459.3） | type spline |
+| `v.spline(name, spec, x0, x1, axis=0)` / `v.spline_end(name, c, spec)` | 矩形花键：大径粗、小径细、工作长度终止线细；端面画全部齿形（GB/T 4459.3） | type spline |
 | 标注：`v.dim.keyway(name, feature, what="b"\|"depth")`（宽 b 带 N9/JS9，深度注 d−t1 / d+t2，偏差取 `res.key`）、`v.dim.thread(name, feature)`、`v.dim.groove(name, groove, fmt="wd"\|"wh")`、`v.dim.hole(name, feature, n=)`、`v.dim.spline(name, feature)` | 螺纹代号注在大径上（`M20×1.5-6g`，粗牙不注螺距）；退刀槽 `槽宽×直径` 或 `槽宽×槽深`；孔的旁注（`4×M8-6H↧16`）；花键代号 | 尺寸 / 引线元素，`refs` 指向特征 |
 
 规定画法产生的“非真实轮廓”图元（螺纹终止线、小径细线、花键终止线）打 `tags=["conv"]`，几何对照时跳过。反过来，3D 模型里有、规定画法故意不画的边（花键齿侧、螺纹端面的倒角圆、中心孔锥面），由特征给出**遮罩区域**（`intent.mask`，视图局部坐标的多边形），几何对照时去掉落在遮罩里的模型边。
@@ -194,6 +194,7 @@ evals/
 |---|---|
 | DESIGN §3.4 说剖视的剖面线由 Agent 画；M1 的回转体 `turned(cut=...)` 自动生成剖面区域和剖面线 | 轴套、盘盖几乎都是回转体，自动生成既更准也更省；非回转体仍由 Agent 画 |
 | DESIGN §4.5 规则包的部分规则（如 GB/T 4458.4 所有细则、跨视图重复尺寸）只实现一部分 | 精简规则：先实现有确定判据的；其余列入缺口 |
+| 不实现 dimensioning.`text_30`（30° 禁区） | 只适用对齐尺寸，判据方向在标准图示里不易确定，先列为缺口 |
 | 不做 `dim.chain/baseline` 批量助手 | DESIGN §4.6 的排号规则已让链式自然同排、基准式逐排外推；卡片里示范写法即可 |
 | 资源库 IT / 基本偏差以表值为准、公式只做校核（BRIEF 写“用公式算”） | ISO 286-1 的 0–3 mm 段和圆整规则不完全由公式给出，表值才是规范值 |
 | 局部放大图的裁剪内容属于 `V.<字母>` 元素本身，而不是原边元素 | 原边的 bbox 不跨两个视图，选取和 `--focus` 不乱 |

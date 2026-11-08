@@ -266,3 +266,15 @@ def test_model_json_has_separate_pmi_fields(shaft):
     assert els["R.j"]["kind"] == "rough" and els["R.j"]["intent"]["value"] == 0.8
     for i in ("DT.A", "G.run", "R.j"):
         assert els[i]["refs"], i
+
+
+def test_review_fixes_float_noise_and_gtol_datum_refs():
+    d = Drawing()
+    f = d.view("front")
+    f.turned("b", [(0, 10), (40, 10)])
+    el = f.dim.linear("L", (2.7, 10), (32.7, 10), dir="h", tol="h7", side="top")
+    assert el.intent["tolerance"]["lower"] == pytest.approx(-0.021)  # 18–30 band, not 30–50
+    f.datum("A", ref="E.front.b.1")
+    g = f.gtol("p", "parallelism", 0.02, datums=["A"], ref="E.front.b.2")
+    g.set(datums=["B"])
+    assert g.intent["datum_refs"] == ["DT.B"]

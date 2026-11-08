@@ -45,6 +45,7 @@ def _mm(um: float) -> float:
 def _band(upto: list, size: float, what: str, lower: float = 0, closed: bool = True) -> int:
     """Index of the band "over a, up to and including b" that holds ``size``: above 0, or from
     ``lower`` on when that is given; with ``closed`` False the last band has no upper limit."""
+    size = round(size, 6)  # measured sizes carry float noise; band edges are inclusive
     inside = lower <= size if lower else size > 0
     if not inside or (closed and size > upto[-1]):
         raise InvalidArgument(

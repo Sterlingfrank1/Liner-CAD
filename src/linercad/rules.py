@@ -332,7 +332,7 @@ def datum_letter(d):
     if fn is None:
         return []
     try:
-        bad = set(fn(d.std_name if d.std_name in ("GB", "ISO") else "GB"))
+        bad = set(fn(d.std_name if d.std_name in ("GB", "ISO") else "GB")["letters"])
     except Exception:  # noqa: BLE001 - the profile may not list one
         return []
     return [

@@ -329,3 +329,15 @@ def test_aux_views_record_and_replay(tmp_path):
     d = build(p).d
     for i in ("V.B", "S.B", "F.B.cut", "V.I", "S.I", "W.front.brk"):
         assert i in d, i
+
+
+def test_groove_at_start_of_named_segment_keeps_the_name():
+    d = Drawing()
+    f = d.view("front")
+    f.turned(
+        "b",
+        [(0, 20, "big"), (40, 20), (40, 15, "neck"), (100, 15)],
+        grooves=[{"name": "g1", "x": 40, "w": 3, "d": 27, "side": "right"}],
+    )
+    e = d["E.front.b.neck"]._intent
+    assert (e["p1"], e["p2"]) == ([43, 15], [100, 15])

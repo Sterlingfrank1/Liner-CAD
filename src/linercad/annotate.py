@@ -853,7 +853,7 @@ class DimNS:
             if not i.get("keyway"):
                 raise InvalidArgument(f"{f.id} 没有键槽", id=f.id)
             kw = self._d[i["keyway"]]._intent
-            c, r, ang, hub = (0.0, 0.0), i["d"] / 2, i["notch_angle"], False
+            c, r, ang, hub = tuple(i.get("c") or (0.0, 0.0)), i["d"] / 2, i["notch_angle"], False
         else:
             kw = i
             c, r, ang, hub = tuple(i["c"]), i["d"] / 2, 90.0, True
@@ -866,9 +866,8 @@ class DimNS:
         t = (-u[1], u[0])
         b = kw["b"]
         if what == "b":
-            edge = math.sqrt(max(r * r - (b / 2) ** 2, 0.0))
             depth = -kw["t2"] if hub else kw["t1"]
-            inner = edge - depth if depth > 0 else r - depth
+            inner = r - depth
             p1 = (c[0] + u[0] * inner - t[0] * b / 2, c[1] + u[1] * inner - t[1] * b / 2)
             p2 = (c[0] + u[0] * inner + t[0] * b / 2, c[1] + u[1] * inner + t[1] * b / 2)
             tol = kw.get("tol_b") or ("JS9" if hub else "N9")

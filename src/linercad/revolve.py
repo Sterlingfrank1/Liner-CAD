@@ -54,7 +54,11 @@ def splice_grooves(pts, names, grooves):
             )
         ins = [(x0, r), (x0, rg), (x1, rg), (x1, r)]
         tagged = [(p, names.get(i)) for i, p in enumerate(pts)]
-        tagged = tagged[: seg + 1] + [(p, None) for p in ins] + tagged[seg + 1 :]
+        new = [(p, None) for p in ins]
+        if names.get(seg) and abs(pts[seg][0] - x0) < EPS:  # groove at the start of a named
+            new[3] = (ins[3], names[seg])  # segment: the name moves past the groove
+            tagged[seg] = (tagged[seg][0], None)
+        tagged = tagged[: seg + 1] + new + tagged[seg + 1 :]
         tagged = _clean(tagged)
         pts = [p for p, _ in tagged]
         names = {i: n for i, (_, n) in enumerate(tagged) if n}
