@@ -1,0 +1,184 @@
+"""SVG for the Viewer (M2 SPEC §1): written straight from the layout prims — the same prims the
+DXF writer turns into entities — so every SVG node carries the element ID (``data-id``) and the
+sub-prim index (``data-k``) that the DXF XDATA holds."""
+
+from __future__ import annotations
+
+import math
+from html import escape
+
+from .layout import Arc, Circle, Hatch, Line, Poly, Solid, Text
+from .text import dxf_height, has_cjk
+
+
+def _f(v):
+    s = f"{v:.3f}".rstrip("0").rstrip(".")
+    return "0" if s in ("-0", "") else s
+
+
+def _dash(std, role, ltscale=1.0):
+    lt = std["lines"].get(role, {}).get("linetype", "CONTINUOUS")
+    spec = std["linetypes"].get(lt)
+    if not isinstance(spec, dict):
+        return ""
+    pat = [abs(x) * ltscale or 0.3 for x in spec["pattern"]]
+    return f' stroke-dasharray="{",".join(_f(x) for x in pat)}"'
+
+
+def svg(d) -> str:
+    """The whole sheet as an SVG string (millimetre units, y down)."""
+    std = d.std
+    W, H = d.template["size"]
+
+    def P(p):
+        return f"{_f(p[0])},{_f(H - p[1])}"
+
+    widths = {r: s["width"] for r, s in std["lines"].items() if isinstance(s, dict)}
+    hs = std["hatch"]
+    out = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {_f(W)} {_f(H)}" '
+        f'width="{_f(W)}mm" height="{_f(H)}mm" data-sheet="{escape(d.sheet)}">',
+        "<defs>",
+        f'<pattern id="hatch" patternUnits="userSpaceOnUse" width="{_f(hs["spacing"])}" '
+        f'height="{_f(hs["spacing"])}" patternTransform="rotate({_f(-hs["angle"])})">'
+        f'<line x1="0" y1="0" x2="0" y2="{_f(hs["spacing"])}" stroke="currentColor" '
+        f'stroke-width="{_f(widths.get("hatch", 0.25))}"/></pattern>',
+        "</defs>",
+        f'<rect x="0" y="0" width="{_f(W)}" height="{_f(H)}" fill="white" class="paper"/>',
+    ]
+    for e in d._els.values():
+        if not e._prims:
+            continue
+        out.append(f'<g data-id="{escape(e.id)}" data-kind="{escape(e.kind)}">')
+        for k, pr in enumerate(e._prims):
+            out.append(_prim(pr, k, std, widths, P, H))
+        out.append("</g>")
+    out.append("</svg>")
+    return "\n".join(x for x in out if x)
+
+
+def _stroke(std, widths, layer, ltscale=1.0):
+    return f' class="r-{layer}" stroke-width="{_f(widths.get(layer, 0.25))}"{_dash(std, layer, ltscale)}'
+
+
+def _prim(pr, k, std, widths, P, H):
+    if isinstance(pr, Line):
+        (x1, y1), (x2, y2) = pr.p, pr.q
+        return (
+            f'<line data-k="{k}" x1="{_f(x1)}" y1="{_f(H - y1)}" x2="{_f(x2)}" y2="{_f(H - y2)}"'
+            f"{_stroke(std, widths, pr.layer, pr.ltscale)}/>"
+        )
+    if isinstance(pr, Circle):
+        return (
+            f'<circle data-k="{k}" cx="{_f(pr.c[0])}" cy="{_f(H - pr.c[1])}" r="{_f(pr.r)}" fill="none"'
+            f"{_stroke(std, widths, pr.layer, pr.ltscale)}/>"
+        )
+    if isinstance(pr, Arc):
+        a0, a1 = pr.a0, pr.a1
+        sweep = (a1 - a0) % 360 or 360
+        p0 = (
+            pr.c[0] + pr.r * math.cos(math.radians(a0)),
+            pr.c[1] + pr.r * math.sin(math.radians(a0)),
+        )
+        p1 = (
+            pr.c[0] + pr.r * math.cos(math.radians(a1)),
+            pr.c[1] + pr.r * math.sin(math.radians(a1)),
+        )
+        large = 1 if sweep > 180 else 0  # counter-clockwise in y-up = sweep-flag 0 in y-down
+        return (
+            f'<path data-k="{k}" d="M{P(p0)} A{_f(pr.r)},{_f(pr.r)} 0 {large} 0 {P(p1)}" fill="none"'
+            f"{_stroke(std, widths, pr.layer)}/>"
+        )
+    if isinstance(pr, Poly):
+        pts = " ".join(P(p) for p in pr.pts)
+        return (
+            f'<polyline data-k="{k}" points="{pts}" fill="none"{_stroke(std, widths, pr.layer)}/>'
+        )
+    if isinstance(pr, Solid):
+        pts = " ".join(P(p) for p in pr.pts)
+        return f'<polygon data-k="{k}" points="{pts}" class="solid"/>'
+    if isinstance(pr, Hatch):
+        parts = []
+        for lp in pr.loops:
+            if lp and lp[0] == "circle":
+                (cx, cy), r = lp[1], lp[2]
+                parts.append(
+                    f"M{P((cx + r, cy))} A{_f(r)},{_f(r)} 0 1 0 {P((cx - r, cy))} A{_f(r)},{_f(r)} 0 1 0 {P((cx + r, cy))}Z"
+                )
+            else:
+                parts.append("M" + " L".join(P(p) for p in lp) + "Z")
+        return f'<path data-k="{k}" d="{" ".join(parts)}" fill="url(#hatch)" fill-rule="evenodd" class="hatch"/>'
+    if isinstance(pr, Text):
+        # GB character height → SVG font size: CJK body = height; Latin cap height ≈ 0.72 em
+        cjk = getattr(pr, "cjk", None)
+        cjk = has_cjk(pr.text) if cjk is None else cjk
+        size = pr.height if cjk else dxf_height(pr.text, pr.height, std) / 0.72
+        wf = std["text"]["width_factor"]
+        x, y = pr.at[0], H - pr.at[1]
+        return (
+            f'<text data-k="{k}" transform="translate({_f(x)},{_f(y)}) rotate({_f(-pr.rot)}) scale({_f(wf)},1)" '
+            f'font-size="{_f(size)}" text-anchor="middle" dominant-baseline="central">{escape(pr.text)}</text>'
+        )
+    return ""
+
+
+def selector(e) -> str | None:
+    """A ``d.q`` expression that finds this auto-numbered geometry (M2 SPEC §1 #5)."""
+    if e.kind != "edge":
+        return None
+    i = e._intent
+    v = i["view"]
+    feat = (
+        f', feature="{i["feature"]}"' if i.get("feature") else ""
+    )  # coincident lines differ by feature
+    if i["shape"] == "line":
+        mx, my = e.mid
+        dr = e.dir
+        cond = f"length={_f(e.length)}" + (f', dir="{dr}"' if dr else "") + feat
+        return f'd.q.lines(view="{v}").where({cond}).near({_f(mx)}, {_f(my)}, 0.5).one()'
+    kind = "circles" if i["shape"] == "circle" else "arcs"
+    # near() measures to the curve itself: use a point on it
+    cx, cy = (i["c"][0] + i["r"], i["c"][1]) if i["shape"] == "circle" else e.mid
+    return f'd.q.{kind}(view="{v}").where(r={_f(i["r"])}{feat}).near({_f(cx)}, {_f(cy)}, 0.5).one()'
+
+
+def run_selector(d, text):
+    """Evaluate a selector string WITHOUT eval: only ``d.q.<kind>(view=..).where(..).near(..).one()``
+    with literal arguments is accepted."""
+    import ast
+
+    from .errors import InvalidArgument
+
+    try:
+        node = ast.parse(text, mode="eval").body
+    except SyntaxError as e:
+        raise InvalidArgument(f"选择器写法不对：{e}")
+    calls = []
+    while isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+        calls.append(node)
+        node = node.func.value
+    if not (
+        isinstance(node, ast.Attribute)
+        and node.attr == "q"
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "d"
+    ):
+        raise InvalidArgument("选择器只能是 d.q.<种类>(...) 开头的链")
+
+    def lit(a):
+        try:
+            v = ast.literal_eval(a)
+        except ValueError:
+            raise InvalidArgument("选择器参数只能是数字或字符串")
+        if not isinstance(v, (int, float, str)) or isinstance(v, bool):
+            raise InvalidArgument("选择器参数只能是数字或字符串")
+        return v
+
+    q = d.q
+    allowed = ("lines", "circles", "arcs", "edges", "where", "near", "one", "exactly", "first")
+    for c in reversed(calls):
+        name = c.func.attr
+        if name not in allowed:
+            raise InvalidArgument(f"选择器里不允许 {name}()")
+        q = getattr(q, name)(*[lit(a) for a in c.args], **{k.arg: lit(k.value) for k in c.keywords})
+    return q
