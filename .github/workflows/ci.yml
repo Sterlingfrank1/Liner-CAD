@@ -27,8 +27,13 @@ jobs:
           - os: windows-latest
             python: "3.13"
     runs-on: ${{ matrix.os }}
+    env:
+      UV_PYTHON_DOWNLOADS: never  # use the runner's Python (standalone downloads hit 504s)
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
       - uses: astral-sh/setup-uv@v6
         with:
           version: "0.9.18"

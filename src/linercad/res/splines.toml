@@ -1,0 +1,68 @@
+# Rectangular splines, light and medium series. Designation N x d x D x B (number of splines, minor diameter, major diameter, width); mm.
+# series = light | medium
+spline = [
+  { series = "light", N = 6, d = 23, D = 26, B = 6 },
+  { series = "light", N = 6, d = 26, D = 30, B = 6 },
+  { series = "light", N = 6, d = 28, D = 32, B = 7 },
+  { series = "light", N = 8, d = 32, D = 36, B = 6 },
+  { series = "light", N = 8, d = 36, D = 40, B = 7 },
+  { series = "light", N = 8, d = 42, D = 46, B = 8 },
+  { series = "light", N = 8, d = 46, D = 50, B = 9 },
+  { series = "light", N = 8, d = 52, D = 58, B = 10 },
+  { series = "light", N = 8, d = 56, D = 62, B = 10 },
+  { series = "light", N = 8, d = 62, D = 68, B = 12 },
+  { series = "light", N = 10, d = 72, D = 78, B = 12 },
+  { series = "light", N = 10, d = 82, D = 88, B = 12 },
+  { series = "light", N = 10, d = 92, D = 98, B = 14 },
+  { series = "light", N = 10, d = 102, D = 108, B = 16 },
+  { series = "light", N = 10, d = 112, D = 120, B = 18 },
+  { series = "medium", N = 6, d = 11, D = 14, B = 3 },
+  { series = "medium", N = 6, d = 13, D = 16, B = 3.5 },
+  { series = "medium", N = 6, d = 16, D = 20, B = 4 },
+  { series = "medium", N = 6, d = 18, D = 22, B = 5 },
+  { series = "medium", N = 6, d = 21, D = 25, B = 5 },
+  { series = "medium", N = 6, d = 23, D = 28, B = 6 },
+  { series = "medium", N = 6, d = 26, D = 32, B = 6 },
+  { series = "medium", N = 6, d = 28, D = 34, B = 7 },
+  { series = "medium", N = 8, d = 32, D = 38, B = 6 },
+  { series = "medium", N = 8, d = 36, D = 42, B = 7 },
+  { series = "medium", N = 8, d = 42, D = 48, B = 8 },
+  { series = "medium", N = 8, d = 46, D = 54, B = 9 },
+  { series = "medium", N = 8, d = 52, D = 60, B = 10 },
+  { series = "medium", N = 8, d = 56, D = 65, B = 10 },
+  { series = "medium", N = 8, d = 62, D = 72, B = 12 },
+  { series = "medium", N = 10, d = 72, D = 82, B = 12 },
+  { series = "medium", N = 10, d = 82, D = 92, B = 12 },
+  { series = "medium", N = 10, d = 92, D = 102, B = 14 },
+  { series = "medium", N = 10, d = 102, D = 112, B = 16 },
+  { series = "medium", N = 10, d = 112, D = 125, B = 18 },
+]
+
+[meta]
+std = "GB/T 1144-2001"
+iso = "ISO 14:1982"
+unit = "mm"
+source = """N x d x D x B rows: 15 light and 20 medium, matched against the ISO 14 table reproduced at tehnikmesinindustri.blogspot.com/2012/01/straight-sided-spline-dimensions.html. \
+That page prints the medium 8x56 row as 8x56x66 in the designation but D = 65 in the column; 65 is recorded (the progression of D - d agrees, and it is the ISO 14 value). \
+Tolerance classes: the page lists hole H7, H9, H10, H11 and shaft d10, a11, f7, f9, g7, h7, h10 for the sliding, close (sliding) and fixed fits; \
+which class belongs to which fit follows GB/T 1144-2001 as given in the card (hole d H7, D H10, B H9 or H11 after heat treatment; sliding f7/a11/d10, close g7/a11/f9, fixed h7/a11/h10), not read from a fetched page. Precision-grade classes are not recorded."""
+
+[tol.hole]
+d = "H7"
+D = "H10"
+B = ["H9", "H11"]
+
+[tol.shaft.sliding]
+d = "f7"
+D = "a11"
+B = "d10"
+
+[tol.shaft.close]
+d = "g7"
+D = "a11"
+B = "f9"
+
+[tol.shaft.fixed]
+d = "h7"
+D = "a11"
+B = "h10"
