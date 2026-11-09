@@ -63,7 +63,7 @@ def apply(d):
 |---|---|---|
 | 轴套类（轴、套筒、衬套、花键轴） | `lcad skill shaft` | `lcad init <目录> --from shaft` 等，见卡片 |
 | 盘盖类（法兰、端盖、带轮、手轮） | `lcad skill disc` | `--from flange` 等，见卡片 |
-| 叉架类（支架、拨叉、连杆） | `lcad skill fork` | `--from bracket` 等，见卡片 |
-| 箱体类（箱体、箱盖、泵体、阀体） | `lcad skill box` | `--from gear_cover`（3D 来源） |
+| 叉架类（支架、拨叉、连杆） | `lcad skill fork` | `--from shift_fork` / `bearing_support` / `bracket` |
+| 箱体类（箱体、箱盖、泵体、阀体） | `lcad skill box` | `--from gear_cover` / `pump_body`（3D 来源） |
 
 `lcad init <目录>` 得到最小模板。

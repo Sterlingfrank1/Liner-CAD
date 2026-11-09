@@ -3,6 +3,10 @@ comparison, writes report.json. Adding a case means adding files, never code.
 
     uv run python evals/run.py [--level L1|L2] [--case ID] [--drawings DIR] [--out report.json]
 
+A case whose case.toml says ``source = "3d"`` (drawing projects model.py) is checked with
+completeness.py (required dimensions inferred from the model, missing ones listed) instead of
+geocmp.
+
 ``--drawings DIR`` evaluates drawings made by an agent instead of the reference ones: DIR/<case
 id with / replaced by __>/drawing.py (a lcad drawing directory; its git history gives the rounds).
 """
@@ -22,6 +26,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
+import completeness  # noqa: E402
 import geocmp  # noqa: E402
 
 
@@ -69,6 +74,7 @@ def discover(level=None, case=None):
                     else None,
                     "views": meta.get("view", [{"name": "front", "mode": "plain"}]),
                     "title": meta.get("title"),
+                    "source": meta.get("source"),
                 }
             )
     if case:
@@ -80,6 +86,25 @@ def has_3d():
     return importlib.util.find_spec("build123d") is not None
 
 
+def project(shape, view, hidden=False):
+    """``hlr.project`` with the smooth (tangent) edges split off into ``"smooth"``: a drawing
+    leaves a tangent junction out or draws it thin (GB/T 4458.1), so those edges may match a
+    drawn edge but a missing one does not lower the model coverage (casting / slot outlines)."""
+    from OCP.BRepLib import BRepLib
+
+    from linercad import hlr
+
+    BRepLib.EncodeRegularity_s(shape.wrapped)  # booleans (cuts) drop the tangency flags HLR needs
+    out = {"visible": [], "smooth": []}
+    if hidden:
+        out["hidden"] = []
+    for cls, vis, e in hlr.project_classes(shape, view, hidden):
+        out["smooth" if cls == "smooth" else ("visible" if vis else "hidden")].append(
+            hlr._sample(e)
+        )
+    return out
+
+
 def geometry(d, case):
     """Compare every listed view (and every removed section) with the model's projection."""
     from linercad import hlr
@@ -89,11 +114,10 @@ def geometry(d, case):
     for v in case["views"]:
         name, mode = v["name"], v.get("mode", "plain")
         if mode == "plain":
-            proj = hlr.project(shape, name, hidden=bool(v.get("hidden")))
+            proj = project(shape, name, hidden=bool(v.get("hidden")))
         else:
-            proj = hlr.section_project(
-                shape, name, mode, v.get("half", "top"), hidden=bool(v.get("hidden"))
-            )
+            cut = hlr.section(shape, name, mode, v.get("half", "top"))
+            proj = project(cut, name, hidden=bool(v.get("hidden")))
             if mode == "half":  # the median of a half section is the centre line, not an edge
                 proj = {
                     k: [pl for pl in pls if any(abs(p[1]) > 1e-6 for p in pl)]
@@ -148,6 +172,14 @@ def run_case(case, drawings=None, geo=True):
             )
         else:
             (work / "drawing.py").write_text(case["drawing_src"], encoding="utf-8")
+            if case.get("source") == "3d" and case.get("dir"):  # d.model("model.py") reads it
+                for f in case["dir"].iterdir():
+                    if (
+                        f.is_file()
+                        and f.suffix in (".py", ".step", ".stp")
+                        and f.name != "drawing.py"
+                    ):
+                        shutil.copy2(f, work / f.name)
         try:
             res = build(work)
         except Exception as e:  # noqa: BLE001 - a broken case is a result, not a crash
@@ -160,9 +192,16 @@ def run_case(case, drawings=None, geo=True):
             {k: f.get(k) for k in ("rule", "id", "severity", "message")} for f in res.findings
         ]
         if geo and case.get("model") and has_3d():
-            r["geo"] = geometry(res.d, case)
+            if (
+                case.get("source") == "3d"
+            ):  # the drawing is the model's projection: check what it says
+                r["completeness"] = completeness.compare(res.d, case["model"]())
+                r["missing"] = [m["name"] for m in r["completeness"]["missing"]]
+            else:
+                r["geo"] = geometry(res.d, case)
         ok_geo = all(v["pass"] for v in r.get("geo", {}).values())
-        r["passed"] = not errors and ok_geo
+        ok_cmp = r.get("completeness", {}).get("pass", True)
+        r["passed"] = not errors and ok_geo and ok_cmp
     return r
 
 
@@ -170,6 +209,7 @@ def summary(results):
     n = len(results)
     built = [r for r in results if "errors" in r]
     geo = [r for r in results if r.get("geo")]
+    cmp = [r for r in results if r.get("completeness")]
     rounds = [r["rounds"] for r in results if r.get("rounds") is not None]
     return {
         "cases": n,
@@ -179,6 +219,11 @@ def summary(results):
             sum(1 for r in geo if all(v["pass"] for v in r["geo"].values())) / len(geo), 4
         )
         if geo
+        else None,
+        "completeness_pass_rate": round(
+            sum(1 for r in cmp if r["completeness"]["pass"]) / len(cmp), 4
+        )
+        if cmp
         else None,
         "violations": sum(r.get("errors", 0) + r.get("warnings", 0) for r in results),
         "first_pass_rate": round(

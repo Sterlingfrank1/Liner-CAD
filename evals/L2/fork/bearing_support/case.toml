@@ -1,0 +1,15 @@
+title = "轴承支架"
+
+[[view]]
+name = "front"
+mode = "plain"
+hidden = true
+
+[[view]]
+name = "top"
+mode = "plain"
+
+[[view]]
+name = "left"
+mode = "full"
+half = "top"
