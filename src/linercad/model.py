@@ -237,10 +237,17 @@ class Element:
 class Drawing:
     """One drawing = one sheet. ``drawing.py`` creates exactly one."""
 
-    def __init__(self, sheet="A3", std="GB", scale="1:1", projection=None, overlay=None):
+    def __init__(
+        self, sheet="A3", std="GB", scale="1:1", projection=None, overlay=None, kind="part"
+    ):
         from .params import ParamSet
         from .std import load_overlay, load_std, load_template
 
+        if kind not in ("part", "assembly"):
+            raise InvalidArgument(
+                f"图纸类型 {kind!r} 不对", candidates=["part", "assembly"], values={"kind": kind}
+            )
+        self.kind = kind
         self._recorder = None
         self._dir = DRAW_DIR.get()  # the drawing directory (relative model paths, cache)
         self._src_override = None  # replay sets {"edit","line"} while applying a log operation
@@ -420,6 +427,28 @@ class Drawing:
         from .source3d import drawing_model
 
         return drawing_model(self, path, name)
+
+    @mutator("component")
+    def component(self, path, name=None, at=(0, 0, 0), rot=(0, 0, 0), params=None, solid=False):
+        """Assembly: a part directory (``model.py`` + optional ``drawing.py``) → ``A.<name>``."""
+        from .assembly import drawing_component
+
+        return drawing_component(self, path, name, at, rot, params, solid)
+
+    @mutator("std_part")
+    def std_part(self, std, spec, qty=None, name=None, at=(0, 0, 0), rot=(0, 0, 0)):
+        """Assembly: a standard part from the resource library → ``A.<name>``."""
+        from .assembly import drawing_std_part
+
+        return drawing_std_part(self, std, spec, qty, name, at, rot)
+
+    @mutator("bom")
+    def bom(self, view="front"):
+        """Assembly: the parts list ``T.bom`` above the title block, and one balloon ``B.<k>`` per
+        component in ``view`` (balloon numbers = parts-list rows)."""
+        from .assembly import drawing_bom
+
+        return drawing_bom(self, view)
 
     def view(self, name):
         vid = f"V.{name}"

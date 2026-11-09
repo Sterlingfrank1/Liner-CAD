@@ -19,6 +19,7 @@ from ..errors import InvalidArgument
 
 __all__ = [
     "datum_excluded",
+    "std_part",
     "fit",
     "general_tol",
     "it",
@@ -346,3 +347,64 @@ def center_hole(type: str = "A", d: float = 2.5) -> dict:
     raise InvalidArgument(
         f"A 型中心孔没有 d = {d}", candidates=[f"{v:g}" for v in row["d"]], values={"d": d}
     )
+
+
+_SPEC = {
+    "bolt": r"M(\d+)\s*[x×X*]\s*(\d+(?:\.\d+)?)",
+    "csk_screw": r"M(\d+)\s*[x×X*]\s*(\d+(?:\.\d+)?)",
+    "set_screw": r"M(\d+)\s*[x×X*]\s*(\d+(?:\.\d+)?)",
+    "nut": r"M(\d+)",
+    "washer": r"M?(\d+)",
+    "pin": r"(\d+)\s*(?:[a-z]\d+)?\s*[x×X*]\s*(\d+(?:\.\d+)?)",
+}
+
+
+def std_part(std: str, spec: str) -> dict:
+    """A standard part by number and marking, e.g. ``std_part("GB/T 5782", "M10×90")`` →
+    dimensions (mm) with ``kind``, ``name``, ``std``, ``iso``, ``d`` and ``l`` where the marking has one."""
+    data = _table("std_parts")
+    norm = re.sub(r"\s+", " ", str(std)).strip()
+    kinds = {k: v for k, v in data.items() if k != "meta"}
+    kind = next(
+        (k for k, v in kinds.items() if norm in (v["std"], v["std"].rsplit("-", 1)[0])), None
+    )
+    if kind is None:
+        raise InvalidArgument(
+            f"标准件 {std!r} 不在资源库（M3 只录 L3 用到的）",
+            values={"std": std},
+            candidates=[v["std"] for v in kinds.values()],
+        )
+    t = kinds[kind]
+    m = re.fullmatch(_SPEC[kind], str(spec).strip())
+    if m is None:
+        raise InvalidArgument(
+            f"{t['std']} 的规格 {spec!r} 写法不对",
+            values={"spec": spec},
+            hint={
+                "bolt": "M10×90",
+                "csk_screw": "M6×16",
+                "set_screw": "M8×12",
+                "nut": "M10",
+                "washer": "10",
+                "pin": "6m6×30",
+            }[kind],
+        )
+    d = float(m.group(1))
+    row = next((r for r in t["sizes"] if r["d"] == d), None)
+    if row is None:
+        raise InvalidArgument(
+            f"{t['std']} 资源库没有 d={d:g} 的规格",
+            values={"d": d},
+            candidates=[f"{r['d']:g}" for r in t["sizes"]],
+        )
+    out = {
+        "kind": kind,
+        "name": t["name"],
+        "std": t["std"],
+        "iso": t["iso"],
+        "spec": str(spec),
+        **{k: float(v) for k, v in row.items()},
+    }
+    if m.lastindex and m.lastindex >= 2:
+        out["l"] = float(m.group(2))
+    return out

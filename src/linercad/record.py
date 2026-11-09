@@ -62,6 +62,9 @@ CREATE_OPS = (
     "general_tol",
     "model",
     "project",
+    "component",
+    "std_part",
+    "bom",
 )
 MODIFY_OPS = ("place", "move", "set", "suppress", "accept", "raw")
 VIEW_SCOPED = (
@@ -105,6 +108,9 @@ VIEW_SCOPED = (
 )
 DRAWING_CREATE = (
     "model",
+    "component",
+    "std_part",
+    "bom",
     "section",
     "raw_add",
     "removed_section",

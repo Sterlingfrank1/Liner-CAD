@@ -86,6 +86,20 @@ def parse_tol(tol, size, envelope=False):
                 "envelope": bool(envelope),
                 "std": f.get("std"),
             }
+        pair = re.fullmatch(r"([A-Z]{1,2}\d{1,2})\s*/\s*([a-z]{1,2}\d{1,2})", s)
+        if pair:  # assembly fit hole/shaft, e.g. H7/k6 (GB/T 1800.1; GB/T 4458.5 注法)
+            from . import res
+
+            h, sh = res.fit(pair.group(1), size), res.fit(pair.group(2), size)
+            return {
+                "kind": "fit",
+                "code": f"{h['code']}/{sh['code']}",
+                "upper": h["upper"],
+                "lower": h["lower"],
+                "shaft": {"code": sh["code"], "upper": sh["upper"], "lower": sh["lower"]},
+                "envelope": bool(envelope),
+                "std": h.get("std"),
+            }
         if re.fullmatch(r"±\s*\d+(?:\.\d+)?", s):
             v = float(s[1:])
             up, lo, kind, code = v, -v, "sym", None
@@ -96,7 +110,7 @@ def parse_tol(tol, size, envelope=False):
             raise InvalidArgument(
                 f"公差 {tol!r} 看不懂",
                 values={"tol": tol},
-                candidates=["k6", "H7", "±0.1", "+0.021/0", "-0.02/-0.05"],
+                candidates=["k6", "H7", "H7/k6", "±0.1", "+0.021/0", "-0.02/-0.05"],
                 hint="配合代号、对称公差 ±x，或 上偏差/下偏差",
             )
     if up < lo - 1e-12:

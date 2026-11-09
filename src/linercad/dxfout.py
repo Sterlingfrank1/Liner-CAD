@@ -122,7 +122,9 @@ def _write(msp, pr, std, text_boxes):
         hs = std["hatch"]
         h = msp.add_hatch(dxfattribs=lay)
         h.dxf.hatch_style = 0
-        h.set_pattern_fill(hs["pattern"], scale=hs["spacing"] / 3.175, angle=hs["angle"] - 45)
+        sp = pr.spacing or hs["spacing"]
+        ang = hs["angle"] if pr.angle is None else pr.angle
+        h.set_pattern_fill(hs["pattern"], scale=sp / 3.175, angle=ang - 45)
         for lp in pr.loops:
             if lp and lp[0] == "circle":
                 h.paths.add_edge_path().add_arc(lp[1], lp[2], 0, 360)

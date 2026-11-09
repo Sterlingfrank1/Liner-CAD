@@ -25,6 +25,32 @@ def _dash(std, role, ltscale=1.0):
     return f' stroke-dasharray="{",".join(_f(x) for x in pat)}"'
 
 
+def _hid(angle, spacing):
+    return f"hatch-{_f(angle or 0).replace('.', '_')}-{_f(spacing or 0).replace('.', '_')}"
+
+
+def _hatch_defs(d, hs, widths):
+    """One pattern per distinct per-part hatch style (assemblies)."""
+    out, done = [], set()
+    for e in d._els.values():
+        for pr in e._prims:
+            if not isinstance(pr, Hatch) or (pr.angle is None and pr.spacing is None):
+                continue
+            key = _hid(pr.angle, pr.spacing)
+            if key in done:
+                continue
+            done.add(key)
+            sp = pr.spacing or hs["spacing"]
+            ang = hs["angle"] if pr.angle is None else pr.angle
+            out.append(
+                f'<pattern id="{key}" patternUnits="userSpaceOnUse" width="{_f(sp)}" '
+                f'height="{_f(sp)}" patternTransform="rotate({_f(-ang)})">'
+                f'<line x1="0" y1="0" x2="0" y2="{_f(sp)}" stroke="currentColor" '
+                f'stroke-width="{_f(widths.get("hatch", 0.25))}"/></pattern>'
+            )
+    return out
+
+
 def svg(d) -> str:
     """The whole sheet as an SVG string (millimetre units, y down)."""
     std = d.std
@@ -43,6 +69,7 @@ def svg(d) -> str:
         f'height="{_f(hs["spacing"])}" patternTransform="rotate({_f(-hs["angle"])})">'
         f'<line x1="0" y1="0" x2="0" y2="{_f(hs["spacing"])}" stroke="currentColor" '
         f'stroke-width="{_f(widths.get("hatch", 0.25))}"/></pattern>',
+        *_hatch_defs(d, hs, widths),
         "</defs>",
         f'<rect x="0" y="0" width="{_f(W)}" height="{_f(H)}" fill="white" class="paper"/>',
     ]
@@ -107,7 +134,8 @@ def _prim(pr, k, std, widths, P, H):
                 )
             else:
                 parts.append("M" + " L".join(P(p) for p in lp) + "Z")
-        return f'<path data-k="{k}" d="{" ".join(parts)}" fill="url(#hatch)" fill-rule="evenodd" class="hatch"/>'
+        fill = "hatch" if pr.angle is None and pr.spacing is None else _hid(pr.angle, pr.spacing)
+        return f'<path data-k="{k}" d="{" ".join(parts)}" fill="url(#{fill})" fill-rule="evenodd" class="hatch"/>'
     if isinstance(pr, Text):
         # GB character height → SVG font size: CJK body = height; Latin cap height ≈ 0.72 em
         cjk = getattr(pr, "cjk", None)
