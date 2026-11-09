@@ -17,7 +17,7 @@ from .errors import InvalidArgument, LinerError, NotFound
 from .hlr import _t
 from .model import DRAW_DIR, Element, check_name
 
-CACHE_VERSION = 4
+CACHE_VERSION = 5
 TOL = 0.01  # curve fitting, mm
 MATCH = 0.05  # projected edge ↔ model edge, mm
 

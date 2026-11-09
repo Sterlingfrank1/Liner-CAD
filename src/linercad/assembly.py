@@ -18,6 +18,7 @@ from .model import DRAW_DIR, Element, check_name, num
 
 # GB/T 4458.6 (ISO 128-50): adjacent parts differ in hatch direction or spacing
 PALETTE = [(45, None), (135, None), (45, 1.5), (135, 1.5), (60, None), (120, None)]
+NEAR = 0.5  # parts closer than this count as adjacent for hatching (clearances, thread gaps)
 SOLID_KINDS = ("bolt", "nut", "washer", "pin", "csk_screw", "set_screw")  # GB/T 4458.6: not cut
 
 
@@ -318,9 +319,9 @@ def hatch_styles(shapes):
     for a in range(len(ids)):
         for b in range(a + 1, len(ids)):
             (amin, amax), (bmin, bmax) = boxes[ids[a]], boxes[ids[b]]
-            if any(amin[k] > bmax[k] + 0.01 or bmin[k] > amax[k] + 0.01 for k in range(3)):
+            if any(amin[k] > bmax[k] + NEAR or bmin[k] > amax[k] + NEAR for k in range(3)):
                 continue
-            if shapes[ids[a]].distance_to(shapes[ids[b]]) <= 0.01:
+            if shapes[ids[a]].distance_to(shapes[ids[b]]) <= NEAR:
                 adj[ids[a]].add(ids[b])
                 adj[ids[b]].add(ids[a])
     out = {}

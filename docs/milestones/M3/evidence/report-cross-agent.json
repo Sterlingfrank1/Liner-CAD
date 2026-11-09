@@ -1,0 +1,572 @@
+{
+ "codex/asm": {
+  "rounds": [
+   {
+    "round": 0,
+    "code": 1,
+    "seconds": 66.8
+   },
+   {
+    "round": 1,
+    "code": 1,
+    "seconds": 20.7
+   },
+   {
+    "round": 2,
+    "code": 1,
+    "seconds": 20.3
+   },
+   {
+    "round": 3,
+    "code": 1,
+    "seconds": 20.0
+   }
+  ],
+  "commits": []
+ },
+ "claude/box": {
+  "rounds": [
+   {
+    "round": 0,
+    "code": 0,
+    "seconds": 94.0
+   },
+   {
+    "round": 1,
+    "code": 0,
+    "seconds": 57.5
+   },
+   {
+    "round": 2,
+    "code": 0,
+    "seconds": 84.8
+   },
+   {
+    "round": 3,
+    "code": 0,
+    "seconds": 54.4
+   }
+  ],
+  "commits": [
+   "e5 · 技术要求再加一条：未注倒角 C1。",
+   "e4 · 加形位公差：轴承孔轴线对底板底面垂直度0.03，底面为基准A",
+   "e3 · 轴承孔改成 Φ30H7，凸台跟着改成 Φ50",
+   "e2 · 调整定位尺寸位置",
+   "e1 · 减速器箱盖零件图",
+   "e0 · init"
+  ],
+  "errors": 0,
+  "warnings": [],
+  "kinds": {
+   "frame": 1,
+   "table.cell": 16,
+   "model": 1,
+   "view": 3,
+   "feature": 3,
+   "edge": 96,
+   "hatch": 1,
+   "center": 9,
+   "dim": 13,
+   "rough": 2,
+   "note": 5,
+   "datum": 1,
+   "gtol": 1
+  }
+ },
+ "claude/fork": {
+  "rounds": [
+   {
+    "round": 0,
+    "code": 0,
+    "seconds": 122.7
+   },
+   {
+    "round": 1,
+    "code": 0,
+    "seconds": 36.4
+   },
+   {
+    "round": 2,
+    "code": 0,
+    "seconds": 37.8
+   },
+   {
+    "round": 3,
+    "code": 0,
+    "seconds": 25.2
+   }
+  ],
+  "commits": [
+   "e5 · 标题栏图号填 TJ-02，设计人填 eval",
+   "e4 · 底板两个安装孔改成Φ14，定位尺寸放到俯视图下方",
+   "e3 · 圆筒内孔改成 Φ25H7",
+   "e2 · 调整标注避让",
+   "e1 · 画托架零件图",
+   "e0 · init"
+  ],
+  "errors": 0,
+  "warnings": [
+   "overlap:S.C"
+  ],
+  "kinds": {
+   "frame": 1,
+   "table.cell": 16,
+   "view": 3,
+   "feature": 39,
+   "edge": 45,
+   "center": 7,
+   "wavy": 1,
+   "hatch": 4,
+   "dim": 16,
+   "section": 1,
+   "datum": 1,
+   "gtol": 1,
+   "rough": 2,
+   "note": 3
+  }
+ },
+ "claude/asm": {
+  "rounds": [
+   {
+    "round": 0,
+    "code": 0,
+    "seconds": 160.0
+   },
+   {
+    "round": 1,
+    "code": 0,
+    "seconds": 93.8
+   },
+   {
+    "round": 2,
+    "code": 0,
+    "seconds": 59.6
+   },
+   {
+    "round": 3,
+    "code": 0,
+    "seconds": 94.9
+   }
+  ],
+  "commits": [
+   "e5 · 主视图的配合尺寸挪到视图上方",
+   "e4 · 明细栏里轴的材料改成 40Cr",
+   "e3 · 两螺栓孔中心距改成 100（底座长度不变）",
+   "e2 · 检查",
+   "e1 · 轴承座装配图",
+   "e0 · init"
+  ],
+  "errors": 0,
+  "warnings": [
+   "overlap:D.P",
+   "overlap:D.fit"
+  ],
+  "kinds": {
+   "frame": 1,
+   "table.cell": 16,
+   "component": 5,
+   "view": 2,
+   "feature": 2,
+   "edge": 70,
+   "hatch": 2,
+   "bom": 1,
+   "balloon": 5,
+   "note": 1,
+   "dim": 4
+  }
+ },
+ "baseline/box": {
+  "rounds": [
+   {
+    "round": 0,
+    "code": 0,
+    "seconds": 471.7
+   },
+   {
+    "round": 1,
+    "code": 0,
+    "seconds": 28.5
+   },
+   {
+    "round": 2,
+    "code": 0,
+    "seconds": 43.8
+   },
+   {
+    "round": 3,
+    "code": 0,
+    "seconds": 16.1
+   }
+  ],
+  "init": {
+   "ok": true,
+   "edit": "e0",
+   "commit": "fa78e5d",
+   "dir": "C:\\Users\\XU\\AppData\\Local\\Temp\\lcx\\baseline\\box\\_imported",
+   "dxf": ".linercad/build/drawing.dxf",
+   "model": ".linercad/build/model.json",
+   "errors": 0,
+   "warnings": [
+    {
+     "rule": "overlap",
+     "severity": "warn",
+     "id": "N.txt_10",
+     "message": "N.txt_10 的文字与 N.txt_12 重叠",
+     "violations": [
+      {
+       "with": "N.txt_12",
+       "overlap": 0.088
+      }
+     ],
+     "corridors": {
+      "right": 22.314,
+      "left": 0.493,
+      "up": 2.289,
+      "down": 0.384
+     },
+     "std": "GB/T 4458.4-2003",
+     "pack": "layout"
+    },
+    {
+     "rule": "duplicate",
+     "id": "D.dim_10",
+     "message": "D.dim_10 与 D.dim_1 重复标注同一尺寸",
+     "severity": "warn",
+     "violations": [
+      {
+       "with": "D.dim_1",
+       "overlap": 0
+      }
+     ],
+     "corridors": {},
+     "pack": "dimensioning",
+     "std": "GB/T 4458.4-2003"
+    },
+    {
+     "rule": "closed_loop",
+     "id": "D.dim_10",
+     "message": "D.dim_10 使 V.front 的尺寸链封闭（h 向），改成参考尺寸或删去一个",
+     "severity": "warn",
+     "violations": [],
+     "corridors": {},
+     "pack": "dimensioning",
+     "std": "GB/T 4458.4-2003"
+    },
+    {
+     "rule": "general_tol",
+     "id": "D.dim_1",
+     "message": "有未注公差的尺寸，但没有未注公差说明（d.general_tol('m')）",
+     "severity": "warn",
+     "violations": [],
+     "corridors": {},
+     "pack": "tolerancing",
+     "std": "GB/T 1804-2000"
+    }
+   ],
+   "import": {
+    "sheet": "A1",
+    "scale": "1:1",
+    "elements": {
+     "I.ref": {
+      "edges": {
+       "center": 12,
+       "hidden": 13,
+       "thick": 58,
+       "thin": 35
+      },
+      "dims": 18,
+      "notes": 30,
+      "raw": 0,
+      "skipped": {
+       "HATCH": 2,
+       "LEADER": 1,
+       "SOLID": 3
+      },
+      "dims_as_notes": 0,
+      "from": {
+       "edges": {
+        "CIRCLE": 6,
+        "LINE": 50,
+        "LWPOLYLINE": 14
+       },
+       "dims": {
+        "diameter": 1,
+        "linear": 17
+       },
+       "notes": {
+        "TEXT": 30
+       },
+       "raw": {}
+      }
+     }
+    }
+   }
+  },
+  "errors": 0,
+  "warnings": [
+   "closed_loop:D.dim_10",
+   "duplicate:D.dim_10",
+   "general_tol:D.dim_1",
+   "overlap:N.txt_10"
+  ],
+  "kinds": {
+   "frame": 1,
+   "table.cell": 16,
+   "view": 1,
+   "import": 1,
+   "edge": 118,
+   "note": 30,
+   "dim": 18
+  },
+  "dxf_entities": {
+   "CIRCLE": 6,
+   "DIMENSION": 18,
+   "HATCH": 2,
+   "LEADER": 1,
+   "LINE": 50,
+   "LWPOLYLINE": 14,
+   "SOLID": 3,
+   "TEXT": 30
+  }
+ },
+ "baseline/fork": {
+  "rounds": [
+   {
+    "round": 0,
+    "code": 0,
+    "seconds": 366.4
+   },
+   {
+    "round": 1,
+    "code": 0,
+    "seconds": 24.5
+   },
+   {
+    "round": 2,
+    "code": 0,
+    "seconds": 28.5
+   },
+   {
+    "round": 3,
+    "code": 0,
+    "seconds": 23.7
+   }
+  ],
+  "init": {
+   "ok": true,
+   "edit": "e0",
+   "commit": "2f5aaf4",
+   "dir": "C:\\Users\\XU\\AppData\\Local\\Temp\\lcx\\baseline\\fork\\_imported",
+   "dxf": ".linercad/build/drawing.dxf",
+   "model": ".linercad/build/model.json",
+   "errors": 0,
+   "warnings": [
+    {
+     "rule": "duplicate",
+     "id": "D.dim_7",
+     "message": "D.dim_7 与 D.dim_3 重复标注同一尺寸",
+     "severity": "warn",
+     "violations": [
+      {
+       "with": "D.dim_3",
+       "overlap": 0
+      }
+     ],
+     "corridors": {},
+     "pack": "dimensioning",
+     "std": "GB/T 4458.4-2003"
+    },
+    {
+     "rule": "closed_loop",
+     "id": "D.dim_7",
+     "message": "D.dim_7 使 V.front 的尺寸链封闭（h 向），改成参考尺寸或删去一个",
+     "severity": "warn",
+     "violations": [],
+     "corridors": {},
+     "pack": "dimensioning",
+     "std": "GB/T 4458.4-2003"
+    },
+    {
+     "rule": "closed_loop",
+     "id": "D.dim_10",
+     "message": "D.dim_10 使 V.front 的尺寸链封闭（h 向），改成参考尺寸或删去一个",
+     "severity": "warn",
+     "violations": [],
+     "corridors": {},
+     "pack": "dimensioning",
+     "std": "GB/T 4458.4-2003"
+    },
+    {
+     "rule": "general_tol",
+     "id": "D.dim_1",
+     "message": "有未注公差的尺寸，但没有未注公差说明（d.general_tol('m')）",
+     "severity": "warn",
+     "violations": [],
+     "corridors": {},
+     "pack": "tolerancing",
+     "std": "GB/T 1804-2000"
+    }
+   ],
+   "import": {
+    "sheet": "A1",
+    "scale": "1:1",
+    "elements": {
+     "I.ref": {
+      "edges": {
+       "center": 8,
+       "hidden": 9,
+       "thick": 48,
+       "thin": 38
+      },
+      "dims": 20,
+      "notes": 26,
+      "raw": 0,
+      "skipped": {
+       "HATCH": 6
+      },
+      "dims_as_notes": 0,
+      "from": {
+       "edges": {
+        "CIRCLE": 4,
+        "LINE": 53,
+        "LWPOLYLINE": 11
+       },
+       "dims": {
+        "diameter": 2,
+        "linear": 18
+       },
+       "notes": {
+        "TEXT": 26
+       },
+       "raw": {}
+      }
+     }
+    }
+   }
+  },
+  "errors": 0,
+  "warnings": [
+   "closed_loop:D.dim_10",
+   "closed_loop:D.dim_7",
+   "duplicate:D.dim_7",
+   "general_tol:D.dim_1"
+  ],
+  "kinds": {
+   "frame": 1,
+   "table.cell": 16,
+   "view": 1,
+   "import": 1,
+   "edge": 103,
+   "note": 26,
+   "dim": 20
+  },
+  "dxf_entities": {
+   "CIRCLE": 4,
+   "DIMENSION": 20,
+   "HATCH": 6,
+   "LINE": 53,
+   "LWPOLYLINE": 11,
+   "TEXT": 26
+  }
+ },
+ "baseline/asm": {
+  "rounds": [
+   {
+    "round": 0,
+    "code": 0,
+    "seconds": 156.3
+   },
+   {
+    "round": 1,
+    "code": 0,
+    "seconds": 34.1
+   },
+   {
+    "round": 2,
+    "code": 0,
+    "seconds": 22.8
+   },
+   {
+    "round": 3,
+    "code": 0,
+    "seconds": 27.9
+   }
+  ],
+  "init": {
+   "ok": true,
+   "edit": "e0",
+   "commit": "185ac80",
+   "dir": "C:\\Users\\XU\\AppData\\Local\\Temp\\lcx\\baseline\\asm\\_imported",
+   "dxf": ".linercad/build/drawing.dxf",
+   "model": ".linercad/build/model.json",
+   "errors": 0,
+   "warnings": [
+    {
+     "rule": "general_tol",
+     "id": "D.dim_1",
+     "message": "有未注公差的尺寸，但没有未注公差说明（d.general_tol('m')）",
+     "severity": "warn",
+     "violations": [],
+     "corridors": {},
+     "pack": "tolerancing",
+     "std": "GB/T 1804-2000"
+    }
+   ],
+   "import": {
+    "sheet": "A1",
+    "scale": "1:1",
+    "elements": {
+     "I.ref": {
+      "edges": {
+       "center": 7,
+       "thick": 88,
+       "thin": 48
+      },
+      "dims": 5,
+      "notes": 47,
+      "raw": 0,
+      "skipped": {
+       "HATCH": 6
+      },
+      "dims_as_notes": 0,
+      "from": {
+       "edges": {
+        "CIRCLE": 14,
+        "LINE": 57,
+        "LWPOLYLINE": 17
+       },
+       "dims": {
+        "linear": 5
+       },
+       "notes": {
+        "TEXT": 47
+       },
+       "raw": {}
+      }
+     }
+    }
+   }
+  },
+  "errors": 0,
+  "warnings": [
+   "general_tol:D.dim_1"
+  ],
+  "kinds": {
+   "frame": 1,
+   "table.cell": 16,
+   "view": 1,
+   "import": 1,
+   "edge": 143,
+   "note": 47,
+   "dim": 5
+  },
+  "dxf_entities": {
+   "CIRCLE": 14,
+   "DIMENSION": 5,
+   "HATCH": 6,
+   "LINE": 57,
+   "LWPOLYLINE": 17,
+   "TEXT": 47
+  }
+ }
+}
