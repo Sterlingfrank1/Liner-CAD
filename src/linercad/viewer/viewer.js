@@ -24,7 +24,10 @@ async function poll() {
 
 function setStatus(st) {
   const bar = $("status");
-  bar.classList.toggle("has-error", !!st.build_error);
+  bar.classList.toggle("has-error", !!st.build_error || st.errors > 0);
+  bar.classList.toggle("has-warn", !st.build_error && !st.errors && st.warnings > 0);
+  bar.classList.toggle("is-preview", !!st.preview);
+  $("st-text").title = st.status || "";
   $("st-text").textContent = (st.status || "") + (st.preview ? " · 预览中（未写回）" : "") +
     (st.build_error ? " · 构建失败：" + st.build_error.message : "");
 }
@@ -167,7 +170,13 @@ function markSel() {
 }
 
 function esc(s) { return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
-function fmt(v) { return typeof v === "object" ? JSON.stringify(v) : String(v); }
+function fmt(v, k) {
+  if (k === "tolerance" && v && typeof v === "object") {  // human form: H8 (+0.033 / 0)
+    const d = (x) => (x > 0 ? "+" : "") + x;
+    return `${v.code || (v.kind === "sym" ? "±" : "")} (${d(v.upper)} / ${d(v.lower)})${v.envelope ? " Ⓔ" : ""}`;
+  }
+  return typeof v === "object" ? JSON.stringify(v) : String(v);
+}
 
 function inspect() {
   const box = $("insp-body");
@@ -182,14 +191,14 @@ function inspect() {
     if (e.view) h += `<div class="k">视图</div><div class="v">${esc(e.view)}</div>`;
     for (const [k, v] of Object.entries(e.intent || {})) {
       if (v === null || v === "" || (Array.isArray(v) && !v.length)) continue;
-      h += `<div class="k">${esc(k)}</div><div class="v">${esc(fmt(v))}</div>`;
+      h += `<div class="k">${esc(k)}</div><div class="v">${esc(fmt(v, k))}</div>`;
     }
     h += `<div class="k">引用</div><div class="v">${(e.refs || []).map((r) =>
       `<a class="ref" data-ref="${esc(r)}">${esc(r)}</a>`).join(" ") || "—"}</div>`;
     const src = e.src ? `${e.src.file}:${e.src.line}` : "—";
     h += `<div class="k">来源</div><div class="v">${e.src_link ? `<a href="${esc(e.src_link)}">${esc(src)}</a>` : esc(src)}` +
       `${e.history && e.history.length ? " · 修改于 " + esc(e.history.join(", ")) : ""}</div>`;
-    h += `<div class="k">状态</div><div class="v">${esc(e.status)}</div></div>`;
+    h += `<div class="k">状态</div><div class="v st-${esc((e.status || "").split("(")[0])}">${esc(e.status)}</div></div>`;
     for (const i of e.issues || []) h += `<div class="issue ${esc(i.severity)}"><b>${esc(i.rule)}</b> ${esc(i.message)}<br><span class="muted">${esc(i.std || "")}</span></div>`;
     if (e.selector) h += `<h3>选择器</h3><code class="sel">${esc(e.selector)}</code>`;
   }
