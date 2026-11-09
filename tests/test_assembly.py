@@ -1,6 +1,8 @@
 """M3 S3: assembly drawings (needs linercad[3d]; skipped otherwise)."""
 
+import shutil
 import textwrap
+from pathlib import Path
 
 import pytest
 
@@ -166,3 +168,29 @@ def test_balloon_leaders_do_not_cross(tmp_path):
     for i, a in enumerate(leaders):
         for b in leaders[i + 1 :]:
             assert not _seg_cross(a.p, a.q, b.p, b.q)
+
+
+L3 = Path(__file__).resolve().parents[1] / "evals" / "L3"
+L3_CASES = sorted(p.name for p in L3.iterdir() if (p / "drawing.py").is_file())
+
+
+def test_l3_cases_present():
+    assert {"bearing", "jack", "vise"} <= set(L3_CASES)
+
+
+@pytest.mark.parametrize("case", L3_CASES)
+def test_l3_assembly_case(case, tmp_path):
+    """L3 evals: zero errors, a parts list of at least 4 rows, one balloon per row."""
+    work = tmp_path / case  # build in a copy: nothing generated lands in evals/
+    shutil.copytree(
+        L3 / case, work, ignore=shutil.ignore_patterns(".linercad", "__pycache__", "*.jsonl")
+    )
+    r = runtime.build(work)
+    errs = [f for f in r.findings if f["severity"] == "error"]
+    assert not errs, errs
+    rows = r.d["T.bom"].rows
+    assert len(rows) >= 4
+    balloons = [e for e in r.d._els.values() if e.kind == "balloon"]
+    assert len(balloons) == len(rows)
+    assert {b.component for b in balloons} == {row["id"] for row in rows}
+    assert sorted(b.number for b in balloons) == list(range(1, len(rows) + 1))
