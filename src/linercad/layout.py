@@ -64,6 +64,8 @@ class Solid:
 class Hatch:
     loops: tuple  # each: tuple of points, or ("circle", c, r)
     layer: str
+    angle: float | None = None  # per-part override (assemblies), else the profile's
+    spacing: float | None = None
 
 
 @dataclass(frozen=True)
@@ -422,7 +424,9 @@ class _ViewLayout:
                         loops.append(("circle", self.P(lpts[1]), lpts[2] * self.s))
                     else:
                         loops.append(tuple(self.P(p) for p in lpts))
-            self.put(e, [Hatch(tuple(loops), "hatch")], obstacle=False)
+            it = e._intent
+            hp = Hatch(tuple(loops), "hatch", it.get("angle"), it.get("spacing"))
+            self.put(e, [hp], obstacle=False)
             if e._intent.get("outline"):
                 ol = []
                 for lp in loops:
@@ -1060,7 +1064,67 @@ class _ViewLayout:
         self.section_symbols()
         self.annotations()
         self.section_labels()
+        self.balloons()
         self.full = union([prims_bbox(p) for p in self.parts.values()] + [self.G])
+
+    def balloons(self):
+        """Assembly balloons (GB/T 4458.2): a dot on the part, a thin leader, the number in a
+        circle; circles in a column left of / a row above the view, leaders not crossing."""
+        bs = sorted(self.els("balloon"), key=lambda e: e._intent["number"])
+        if not bs:
+            return
+        h = 5.0
+        r = 0.9 * h
+        B = union([prims_bbox(p) for p in self.parts.values() if p] + [self.G])
+        gap = 8.0
+        sides = {"left": [], "top": [], "right": [], "bottom": []}
+        for e in bs:
+            A = self.P(e._intent["anchor"])
+            side = e._layout.get("side")
+            if side not in sides:
+                dl, dt = A[0] - B[0], B[3] - A[1]
+                side = "left" if dl <= dt else "top"
+            e._auto.append("side")
+            e._resolved["side"] = side
+            sides[side].append((e, A))
+        step = 2 * r + 2
+        for side, items in sides.items():
+            if not items:
+                continue
+            vert = side in ("left", "right")
+            k = 1 if vert else 0
+            items.sort(key=lambda t: t[1][k])
+            pos = [t[1][k] for t in items]
+            for i in range(1, len(pos)):
+                pos[i] = max(pos[i], pos[i - 1] + step)
+            shift = (sum(t[1][k] for t in items) - sum(pos)) / len(pos)
+            pos = [p + shift for p in pos]
+            for (e, A), p in zip(items, pos):
+                if side == "left":
+                    c = (B[0] - gap - r, p)
+                elif side == "right":
+                    c = (B[2] + gap + r, p)
+                elif side == "top":
+                    c = (p, B[3] + gap + r)
+                else:
+                    c = (p, B[1] - gap - r)
+                L_ = math.dist(A, c)
+                q = (c[0] + (A[0] - c[0]) * r / L_, c[1] + (A[1] - c[1]) * r / L_) if L_ > r else c
+                w = 0.7
+                n_, s_, e_, w_ = (
+                    (A[0], A[1] + w),
+                    (A[0], A[1] - w),
+                    (A[0] + w, A[1]),
+                    (A[0] - w, A[1]),
+                )
+                prims = [
+                    Circle(c, r, "thin"),
+                    Line(A, q, "thin"),
+                    Solid((w_, n_, e_), "thin"),  # the dot: two triangles (DXF SOLID)
+                    Solid((w_, s_, e_), "thin"),
+                    make_text(str(e._intent["number"]), c, h, self.std, layer="text"),
+                ]
+                self.put(e, prims)
 
 
 def _clip_line(a, u, G):
@@ -1177,6 +1241,12 @@ class _Layout:
             e._prims = [
                 make_text(text, (ox + (x0 + x1) / 2, oy + (y0 + y1) / 2), h, std, layer="text")
             ]
+        bom = d._els.get("T.bom")
+        if bom is not None:
+            from .assembly import bom_rows
+
+            bom._prims = bom_prims(bom_rows(d), TB, std)
+            TB = (TB[0], TB[1], TB[2], prims_bbox(bom._prims)[3])
         tn = std["tech_notes"]
         notes = [e for e in d._els.values() if e.kind == "note" and e._intent.get("tech")]
         TN = None
@@ -1349,6 +1419,43 @@ def _rect(b):
     x0, y0, x1, y1 = b
     pts = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
     return list(zip(pts, pts[1:] + pts[:1]))
+
+
+BOM_COLS = (("序号", 8), ("代号", 40), ("名称", 44), ("数量", 8), ("材料", 38))  # GB/T 10609.2
+BOM_ROW = 7.0
+
+
+def bom_prims(rows, TB, std):
+    """Parts list on top of the title block: header row at the bottom, item 1 just above it."""
+    x0, x1, y0 = TB[0], TB[2], TB[3]
+    cols = list(BOM_COLS) + [("备注", (x1 - x0) - sum(w for _, w in BOM_COLS))]
+    xs = [x0]
+    for _, w in cols:
+        xs.append(xs[-1] + w)
+    n = len(rows)
+    top = y0 + BOM_ROW * (n + 1)
+    prims = [Line((x, y0), (x, top), "thick") for x in xs]
+    prims += [Line((x0, y0 + BOM_ROW * k), (x1, y0 + BOM_ROW * k), "thin") for k in range(1, n + 1)]
+    prims.append(Line((x0, top), (x1, top), "thin"))
+
+    def cell(text, k, j):
+        if text in ("", None):
+            return
+        w = xs[j + 1] - xs[j]
+        hs = [h for h in std["text"]["heights"] if h <= 3.5 + 1e-9]
+        h = max([s for s in hs if text_size(str(text), s, std)[0] <= w - 1] or [hs[0]])
+        prims.append(
+            make_text(
+                str(text), ((xs[j] + xs[j + 1]) / 2, y0 + BOM_ROW * (k + 0.5)), h, std, layer="text"
+            )
+        )
+
+    for j, (label, _) in enumerate(cols):
+        cell(label, 0, j)
+    for r in rows:
+        for j, key in enumerate(("no", "code", "name", "qty", "material", "remark")):
+            cell(r[key], r["no"], j)
+    return prims
 
 
 def layout(d):

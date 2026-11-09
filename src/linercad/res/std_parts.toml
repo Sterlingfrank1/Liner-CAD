@@ -1,0 +1,83 @@
+# Standard parts used by the M3 L3 assemblies (only these sizes). Lengths in mm.
+# Shapes are simplified for assembly drawings: threads drawn at the major diameter.
+
+[meta]
+unit = "mm"
+source = "GB/T 5782-2016, GB/T 6170-2015, GB/T 97.1-2002, GB/T 119.1-2000, GB/T 68-2016, GB/T 71-2018 tables (product grade A, nominal / max values)"
+
+# 六角头螺栓：s 对边，k 头高，e 对角（A 级 min），b 螺纹长（l ≤ 125）
+[bolt]
+std = "GB/T 5782-2016"
+iso = "ISO 4014:2011"
+name = "六角头螺栓"
+sizes = [
+  { d = 6, s = 10, k = 4.0, e = 11.05, b = 18 },
+  { d = 8, s = 13, k = 5.3, e = 14.38, b = 22 },
+  { d = 10, s = 16, k = 6.4, e = 17.77, b = 26 },
+  { d = 12, s = 18, k = 7.5, e = 20.03, b = 30 },
+  { d = 16, s = 24, k = 10.0, e = 26.75, b = 38 },
+]
+
+# 1 型六角螺母：m 高（max）
+[nut]
+std = "GB/T 6170-2015"
+iso = "ISO 4032:2012"
+name = "六角螺母"
+sizes = [
+  { d = 6, s = 10, m = 5.2, e = 11.05 },
+  { d = 8, s = 13, m = 6.8, e = 14.38 },
+  { d = 10, s = 16, m = 8.4, e = 17.77 },
+  { d = 12, s = 18, m = 10.8, e = 20.03 },
+  { d = 16, s = 24, m = 14.8, e = 26.75 },
+]
+
+# 平垫圈 A 级：d1 内径，d2 外径，h 厚
+[washer]
+std = "GB/T 97.1-2002"
+iso = "ISO 7089:2000"
+name = "平垫圈"
+sizes = [
+  { d = 6, d1 = 6.4, d2 = 12, h = 1.6 },
+  { d = 8, d1 = 8.4, d2 = 16, h = 1.6 },
+  { d = 10, d1 = 10.5, d2 = 20, h = 2.0 },
+  { d = 12, d1 = 13.0, d2 = 24, h = 2.5 },
+  { d = 16, d1 = 17.0, d2 = 30, h = 3.0 },
+]
+
+# 圆柱销（不淬硬钢）：c 倒角
+[pin]
+std = "GB/T 119.1-2000"
+iso = "ISO 2338:1997"
+name = "圆柱销"
+sizes = [
+  { d = 3, c = 0.5 },
+  { d = 4, c = 0.63 },
+  { d = 5, c = 0.8 },
+  { d = 6, c = 1.2 },
+  { d = 8, c = 1.6 },
+  { d = 10, c = 2.0 },
+]
+
+# 开槽沉头螺钉：dk 头径（实际 max），k 头高（max），n 槽宽（公称）；l 含头高
+[csk_screw]
+std = "GB/T 68-2016"
+iso = "ISO 2009:2011"
+name = "开槽沉头螺钉"
+sizes = [
+  { d = 4, dk = 8.4, k = 2.7, n = 1.2 },
+  { d = 5, dk = 9.3, k = 2.7, n = 1.2 },
+  { d = 6, dk = 11.3, k = 3.3, n = 1.6 },
+  { d = 8, dk = 15.8, k = 4.65, n = 2.0 },
+]
+
+# 开槽锥端紧定螺钉：dt 锥端径（max），n 槽宽（公称），t 槽深（max）
+[set_screw]
+std = "GB/T 71-2018"
+iso = "ISO 7434:1983"
+name = "开槽锥端紧定螺钉"
+sizes = [
+  { d = 5, dt = 0.5, n = 0.8, t = 1.63 },
+  { d = 6, dt = 1.5, n = 1.0, t = 2.0 },
+  { d = 8, dt = 2.0, n = 1.2, t = 2.5 },
+  { d = 10, dt = 2.5, n = 1.6, t = 3.0 },
+]

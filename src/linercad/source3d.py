@@ -257,12 +257,12 @@ def _model_index(shape, view):
 def _match(pts, idx):
     probe = [pts[len(pts) * k // 4] for k in (1, 2, 3)] + [pts[0], pts[-1]]
     best = None
-    for i, pl, bb, faces, e in idx:
+    for cid, i, pl, bb, faces, e in idx:
         if not all(bb[0] <= p[0] <= bb[2] and bb[1] <= p[1] <= bb[3] for p in probe):
             continue
         dd = max(min(_seg_dist(p, a, b) for a, b in zip(pl, pl[1:])) for p in probe)
         if dd <= MATCH and (best is None or dd < best[0]):
-            best = (dd, (i, faces, e))
+            best = (dd, (cid, i, faces, e))
     return best[1] if best else None
 
 
@@ -316,16 +316,47 @@ def _key(sh):
     return json.dumps(g, sort_keys=True)
 
 
-def compute(d, view, model, cut, depth, region, ribs, hidden, half="right"):
-    """The projection as plain data: {"edges": [intent], "hatch": [loop], "wavy": [points]}.
-    ``depth``: the cutting plane's distance from the model origin toward the viewer."""
-    from . import hlr
+def _ident(d, model):
+    """Cache identity of the 3D source: a model's path + hash, or an assembly's components."""
+    if getattr(d, "kind", "part") == "assembly" and model not in d._els:
+        from .assembly import parts_key
 
+        return parts_key(d)
     m = d._els.get(model)
     if m is None or m.kind != "model":
         load_shape(d, model)  # raises NotFound with candidates
+    return [m.path, m.hash]
+
+
+def _sources(d, model):
+    """[(component id or None, shape, solid)]."""
+    if getattr(d, "kind", "part") == "assembly" and model not in d._els:
+        from .assembly import parts
+
+        return parts(d)
+    return [(None, load_shape(d, model), False)]
+
+
+def compute(d, view, model, cut, depth, region, ribs, hidden, half="right"):
+    """The projection as plain data: {"edges": [intent], "hatch": [{loops, component, angle,
+    spacing}], "wavy": [points]}. ``depth``: the cutting plane's distance from the model origin
+    toward the viewer. An assembly projects all components together (occlusion) and attributes
+    each edge to its component; solid components are not cut (SPEC M3 §1.2)."""
+    from . import hlr
+
     key = json.dumps(
-        [CACHE_VERSION, m.path, m.hash, d.P.values(), view, cut, depth, region, ribs, hidden, half],
+        [
+            CACHE_VERSION,
+            _ident(d, model),
+            d.P.values(),
+            view,
+            cut,
+            depth,
+            region,
+            ribs,
+            hidden,
+            half,
+        ],
         sort_keys=True,
     )
     cdir, cfile = _cache(d, key)
@@ -334,29 +365,51 @@ def compute(d, view, model, cut, depth, region, ribs, hidden, half="right"):
             return json.loads(cfile.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             pass
-    shape = load_shape(d, model)
+    srcs = _sources(d, model)
+    multi = srcs[0][0] is not None
     look, _ = hlr.CAMERA[view]
     k = next(i for i in range(3) if look[i])
     at = -look[k] * depth
-    src = shape
-    loops = []
-    if cut:
-        src = hlr.section(shape, view, cut, half=half, at=at, region=region)
-        for f in hlr.cut_faces(src, view, at, original=shape):
-            loops.append(_wire_pts(f.outer_wire(), view))
-            loops.extend(_wire_pts(w, view) for w in f.inner_wires())
-        if not loops:
-            bb = shape.bounding_box()
-            lo, hi = sorted(
-                -look[k] * c
-                for c in ((bb.min.X, bb.min.Y, bb.min.Z)[k], (bb.max.X, bb.max.Y, bb.max.Z)[k])
-            )
-            raise InvalidArgument(
-                f"剖切面 depth={depth:g} 没有切到实体（视图 {view}）",
-                values={"depth": depth, "range": [round(lo, 3), round(hi, 3)]},
-                hint="depth 是剖切面离模型原点、朝观察者方向的距离，应落在 range 之内",
-            )
-    idx = _model_index(shape, view)
+    styles = {}
+    if multi and cut:
+        from .assembly import hatch_styles
+
+        styles = hatch_styles({cid: shp for cid, shp, _ in srcs})
+    hatch, pieces, idx = [], [], []
+    for cid, shp, solid in srcs:
+        piece = shp
+        if cut and not solid:
+            piece = hlr.section(shp, view, cut, half=half, at=at, region=region)
+            loops = []
+            for f in hlr.cut_faces(piece, view, at, original=shp):
+                loops.append(_wire_pts(f.outer_wire(), view))
+                loops.extend(_wire_pts(w, view) for w in f.inner_wires())
+            if loops:
+                ang, sp = styles.get(cid, (None, None))
+                hatch.append({"loops": loops, "component": cid, "angle": ang, "spacing": sp})
+        pieces.append((cid, piece))
+        idx += [(cid, *x) for x in _model_index(shp, view)]
+    if cut and not hatch:
+        vals = []
+        for _, shp, _ in srcs:
+            bb = shp.bounding_box()
+            vals += [
+                -look[k] * (bb.min.X, bb.min.Y, bb.min.Z)[k],
+                -look[k] * (bb.max.X, bb.max.Y, bb.max.Z)[k],
+            ]
+        raise InvalidArgument(
+            f"剖切面 depth={depth:g} 没有切到实体（视图 {view}）",
+            values={"depth": depth, "range": [round(min(vals), 3), round(max(vals), 3)]},
+            hint="depth 是剖切面离模型原点、朝观察者方向的距离，应落在 range 之内",
+        )
+    if len(pieces) == 1:
+        src = pieces[0][1]
+    else:
+        from build123d import Compound
+
+        src = Compound(children=[pc for _, pc in pieces])
+    owners = _owner_index(pieces, view, hidden) if len(pieces) > 1 else None
+    model_id = "assembly" if multi else model
     edges, wavy, seen = [], [], set()
     for cls, vis, e in hlr.project_classes(src, view, hidden=hidden):
         if not vis and cls == "smooth":
@@ -368,33 +421,61 @@ def compute(d, view, model, cut, depth, region, ribs, hidden, half="right"):
             continue
         hit = _match(pts, idx) if cls != "outline" else None
         if hit:
-            i, faces, me = hit
-            s3 = {"model": model, "edge": i, "faces": faces, "hash": _edge_hash(me)}
-        elif cls == "outline":
-            s3 = {"model": model, "outline": True}
-        else:  # a section boundary, or a curve the fit could not match back
-            s3 = {"model": model, "unmatched": True}
+            cid, i, faces, me = hit
+            s3 = {"model": model_id, "edge": i, "faces": faces, "hash": _edge_hash(me)}
+        else:
+            cid = _owner(pts, owners) if owners else srcs[0][0]
+            if cls == "outline":
+                s3 = {"model": model_id, "outline": True}
+            else:  # a section boundary, or a curve the fit could not match back
+                s3 = {"model": model_id, "unmatched": True}
+        if cid is not None:
+            s3["component"] = cid
         role = "hidden" if not vis else ("thin" if cls == "smooth" else "thick")
         for sh in fit(pts):
             kk = _key(sh)
-            if kk in seen:  # visible first: a hidden edge under a visible one is not drawn
+            if kk in seen:  # visible first; coincident edges of touching parts drawn once
                 continue
             seen.add(kk)
             tags = (["approx"] if sh.pop("approx", False) else []) + (
                 ["conv"] if cls == "smooth" else []
             )
-            edges.append({**sh, "role": role, "src3d": s3, "tags": tags})
+            ei = {**sh, "role": role, "src3d": s3, "tags": tags}
+            if cid is not None:
+                ei["component"] = cid
+            edges.append(ei)
     for rp in ribs or ():
         rp = [[_r(float(x)), _r(float(y))] for x, y in rp]
-        loops.append(rp)
+        if hatch:
+            hatch[0]["loops"].append(rp)
         for p, q in zip(rp, rp[1:] + rp[:1]):
             sh = {"shape": "line", "p1": p, "p2": q}
             if _key(sh) not in seen:
                 seen.add(_key(sh))
                 edges.append({**sh, "role": "thick", "tags": ["rib"]})
-    out = {"edges": edges, "hatch": loops, "wavy": wavy}
+    out = {"edges": edges, "hatch": hatch, "wavy": wavy}
     _save(cdir, cfile, out)
     return out
+
+
+def _owner_index(pieces, view, hidden):
+    from . import hlr
+
+    return [
+        (cid, [_samples(e, 24) for _, _, e in hlr.project_classes(pc, view, hidden=hidden)])
+        for cid, pc in pieces
+    ]
+
+
+def _owner(pts, owners):
+    probe = [pts[len(pts) // 2], pts[len(pts) // 4]]
+    best = (math.inf, None)
+    for cid, pls in owners:
+        for pl in pls:
+            dd = max(min(_seg_dist(p, a, b) for a, b in zip(pl, pl[1:])) for p in probe)
+            if dd < best[0]:
+                best = (dd, cid)
+    return best[1]
 
 
 def _pts(v, what, ps):
@@ -444,21 +525,20 @@ def view_project(
         ribs = [ribs]  # one polygon given as a point list
     rbs = [_pts(v, "ribs[k]", r) for r in ribs or ()]
     mid = model if str(model).startswith("M.") else f"M.{model}"
+    if getattr(d, "kind", "part") == "assembly" and mid not in d._els:
+        mid = "assembly"
     data = compute(d, v.name, mid, cut, float(depth), reg, rbs, bool(hidden), half)
     f = v._feature(name, {"type": "projection", "model": mid, "cut": cut, "closed": False})
     for ei in data["edges"]:
         e = v._edge(name, ei, feature=f.id)
         f._intent["edges"].append(e.id)
-    if data["hatch"]:
-        hid = f"H.{v.name}.{name}"
-        d._add(
-            Hatch(
-                d,
-                hid,
-                {"view": v.name, "loops": [{"points": lp} for lp in data["hatch"]]},
-                refs=[v.id, f.id],
-            )
-        )
+    for hd in data["hatch"]:
+        cid = hd.get("component")
+        hid = f"H.{v.name}.{name}" if cid is None else f"H.{v.name}.{cid.split('.', 1)[1]}"
+        intent = {"view": v.name, "loops": [{"points": lp} for lp in hd["loops"]]}
+        if cid is not None:
+            intent.update(component=cid, angle=hd["angle"], spacing=hd["spacing"])
+        d._add(Hatch(d, hid, intent, refs=[v.id, f.id] + ([cid] if cid else [])))
     for k, pts in enumerate(data["wavy"], 1):
         wid = f"W.{v.name}.{name}_{k}"
         d._add(Wavy(d, wid, {"view": v.name, "points": pts}, refs=[v.id, f.id]))
