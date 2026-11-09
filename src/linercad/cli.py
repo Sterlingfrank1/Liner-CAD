@@ -40,7 +40,7 @@ COMMANDS = {
     "context": "图纸摘要，或 lcad context <ID>... 看元素详情",
     "render": "出 PNG 自检：lcad render [--focus ID]",
     "check": "全部检查结果，按规则包分组（drafting / dimensioning / tolerancing / surface / layout）",
-    "skill": "打印 SKILL.md，或 lcad skill <零件族> 打印零件族卡片",
+    "skill": "打印 SKILL.md；lcad skill <页|零件族> 打印分页或零件族卡片；lcad skill install --target claude|codex|opencode|generic [--dir .] 装进 Agent 的工作目录",
     "view": "打开 Viewer（本机 127.0.0.1）：lcad view [--port 8765] [--no-open]",
     "log": "版本列表（每次成功修改一条，新的在前）：lcad log",
     "diff": "两个版本的差异：lcad diff e1 e3（编号 / 提交 / HEAD / 标签；缺省 B = 工作区）→ 增删改的 ID + 叠加 SVG",
@@ -88,6 +88,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--formats", default=None)
     s = sub.add_parser("skill")
     s.add_argument("family", nargs="?", default=None)
+    s.add_argument("--target", default=None)
+    s.add_argument("--dir", default=".")
     s = sub.add_parser("inspect")
     s.add_argument("file")
     s = sub.add_parser("template").add_subparsers(dest="action", parser_class=_Parser)
@@ -148,7 +150,10 @@ def _run(args, parser) -> int:
     elif args.cmd == "check":
         out = commands.check(d)
     elif args.cmd == "skill":
-        out = commands.skill(args.family)
+        if args.family == "install":
+            out = commands.skill_install(args.target, args.dir)
+        else:
+            out = commands.skill(args.family)
     elif args.cmd == "inspect":
         out = commands.inspect_dxf(d, args.file)
     elif args.cmd == "template":

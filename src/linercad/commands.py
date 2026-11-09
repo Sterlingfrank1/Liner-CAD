@@ -225,29 +225,93 @@ def inspect_dxf(dir, file):
     return importdxf.inspect(file, tmp if (Path(dir) / ".linercad").is_dir() else None)
 
 
-def skill(family=None):
-    """SKILL.md, or a part-family card from skill/families/<family>.md."""
+def _skill_files():
+    """{relative path: text} of the packaged skill: SKILL.md, pages/*.md, families/*.md."""
     from importlib import resources
 
+    base = resources.files("linercad") / "skill"
+    out = {"SKILL.md": (base / "SKILL.md").read_text(encoding="utf-8")}
+    for sub in ("pages", "families"):
+        d = base / sub
+        if d.is_dir():
+            for f in sorted(d.iterdir(), key=lambda x: x.name):
+                if f.name.endswith(".md"):
+                    out[f"{sub}/{f.name}"] = f.read_text(encoding="utf-8")
+    return out
+
+
+def skill(family=None):
+    """SKILL.md, a page (skill/pages/<name>.md) or a part-family card (skill/families/<name>.md)."""
     from .errors import NotFound
 
-    base = resources.files("linercad") / "skill"
+    files = _skill_files()
     if family is None:
-        return {
-            "ok": True,
-            "path": "SKILL.md",
-            "text": (base / "SKILL.md").read_text(encoding="utf-8"),
-        }
-    fam = base / "families"
-    names = (
-        sorted(p.name[:-3] for p in fam.iterdir() if p.name.endswith(".md")) if fam.is_dir() else []
-    )
-    if family not in names:
-        raise NotFound(f"没有零件族卡片 {family!r}", candidates=names)
+        return {"ok": True, "path": "SKILL.md", "text": files["SKILL.md"]}
+    for sub in ("families", "pages"):
+        key = f"{sub}/{family}.md"
+        if key in files:
+            return {"ok": True, "path": key, "text": files[key]}
+    names = sorted(k.split("/", 1)[1][:-3] for k in files if "/" in k)
+    raise NotFound(f"没有分页或零件族卡片 {family!r}", candidates=names + ["install"])
+
+
+MARK_BEGIN = "<!-- linercad:begin (lcad skill install) -->"
+MARK_END = "<!-- linercad:end -->"
+TARGETS = ("claude", "codex", "opencode", "generic")
+
+
+def _body(text):
+    """SKILL.md without its YAML front matter."""
+    if text.startswith("---"):
+        end = text.find("\n---", 3)
+        if end != -1:
+            return text[end + 4 :].lstrip("\n")
+    return text
+
+
+def skill_install(target, dir="."):
+    """Install the skill where an agent finds it (SPEC M3 §1.7): claude → .claude/skills/linercad/,
+    opencode → .opencode/skills/linercad/, codex → a marked section of AGENTS.md, generic →
+    LINERCAD.md. Pages stay reachable with ``lcad skill <page>``."""
+    from .errors import InvalidArgument
+
+    if target not in TARGETS:
+        raise InvalidArgument(
+            f"--target {target!r} 不对", candidates=list(TARGETS), values={"target": target}
+        )
+    root = Path(dir)
+    files = _skill_files()
+    written = []
+
+    def put(rel, text):
+        p = root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding="utf-8", newline="\n")
+        written.append(Path(rel).as_posix())
+
+    if target in ("claude", "opencode"):
+        base = ".claude/skills/linercad" if target == "claude" else ".opencode/skills/linercad"
+        for rel, text in files.items():
+            put(f"{base}/{rel}", text)
+    elif target == "generic":
+        put("LINERCAD.md", _body(files["SKILL.md"]))
+    else:
+        p = root / "AGENTS.md"
+        old = p.read_text(encoding="utf-8") if p.is_file() else ""
+        block = MARK_BEGIN + "\n" + _body(files["SKILL.md"]).rstrip() + "\n" + MARK_END
+        if MARK_BEGIN in old and MARK_END in old:
+            i = old.index(MARK_BEGIN)
+            j = old.index(MARK_END) + len(MARK_END)
+            new = old[:i] + block + old[j:]
+        else:
+            new = (old.rstrip("\n") + "\n\n" if old.strip() else "") + block + "\n"
+        put("AGENTS.md", new)
     return {
         "ok": True,
-        "path": f"families/{family}.md",
-        "text": (fam / f"{family}.md").read_text(encoding="utf-8"),
+        "target": target,
+        "dir": str(root),
+        "files": written,
+        "hint": "分页与零件族卡片用 lcad skill <页> 读取",
     }
 
 
