@@ -397,21 +397,22 @@ def anchor(d, view, cid):
             p = _inside(big, loops, point_in_poly)
             if p:
                 return p
-    xs, ys = [], []
-    for e in d._els.values():
-        if (
-            e.kind == "edge"
-            and e.view == view
-            and e._intent.get("component") == cid
-            and e._intent["role"] != "hidden"
-        ):
-            for p in (e.start, e.end, e.mid):
-                if p is not None:
-                    xs.append(p[0])
-                    ys.append(p[1])
-    if not xs:
+    if not any(
+        e.kind == "edge"
+        and e.view == view
+        and e._intent.get("component") == cid
+        and e._intent["role"] != "hidden"
+        for e in d._els.values()
+    ):
         return None
-    return ((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2)
+    from .hlr import CAMERA, to_view
+
+    if view not in CAMERA:
+        return None
+    shape = comp_shape(d, d._els[cid])
+    first = shape.children[0] if getattr(shape, "children", None) else shape  # one instance
+    c = first.bounding_box().center()
+    return to_view(view, (c.X, c.Y, c.Z))
 
 
 def _area(lp):

@@ -378,6 +378,13 @@ def compute(d, view, model, cut, depth, region, ribs, hidden, half="right"):
     hatch, pieces, idx = [], [], []
     for cid, shp, solid in srcs:
         piece = shp
+        if cut and solid and region is None and getattr(shp, "children", None):
+            from build123d import Compound
+
+            kept = [ch for ch in shp.children if _near(ch, look, k) <= depth + 1e-6]
+            if not kept:
+                continue
+            shp = kept[0] if len(kept) == 1 else Compound(children=kept)
         if cut and solid and region is None:
             bb = shp.bounding_box()
             near = min(
@@ -464,6 +471,13 @@ def compute(d, view, model, cut, depth, region, ribs, hidden, half="right"):
     out = {"edges": edges, "hatch": hatch, "wavy": wavy}
     _save(cdir, cfile, out)
     return out
+
+
+def _near(shape, look, k):
+    """Nearest coordinate of ``shape`` toward the viewer along the view axis."""
+    bb = shape.bounding_box()
+    lo, hi = (bb.min.X, bb.min.Y, bb.min.Z)[k], (bb.max.X, bb.max.Y, bb.max.Z)[k]
+    return min(-look[k] * lo, -look[k] * hi)
 
 
 def _owner_index(pieces, view, hidden):
