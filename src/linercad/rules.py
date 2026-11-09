@@ -125,9 +125,12 @@ def section_ref(d):
 def _on_center(c, centers):
     for ce in centers:
         i = ce._intent
-        if i["type"] in ("mark", "circle") and math.dist(i["c"], c) < 0.01:
+        kind = i.get("type") or i.get(
+            "shape"
+        )  # CenterLine.type, or the shape of a centre-role edge
+        if kind in ("mark", "circle") and math.dist(i["c"], c) < 0.01:
             return True
-        if i["type"] == "line":
+        if kind == "line":
             a, b = i["p1"], i["p2"]
             L = math.dist(a, b)
             if L < 1e-9:
@@ -143,6 +146,11 @@ def center_mark(d):
     out = []
     for v in d.views():
         centers = [e for e in _els(d, "center") if e.view == v.name]
+        centers += [  # centre lines drawn as plain edges (a DXF import has no CenterLine elements)
+            e
+            for e in _els(d, "edge")
+            if e.view == v.name and e.role == "center" and e.shape != "arc"
+        ]
         for e in _els(d, "edge"):
             if e.view == v.name and e.shape == "circle" and e.role in ("thick", "hidden"):
                 if not _on_center(e._intent["c"], centers):

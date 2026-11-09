@@ -372,6 +372,7 @@ class _ViewLayout:
                 pr = Arc(self.P(i["c"]), i["r"] * self.s, i["start"], i["end"], i["role"])
             self.put(e, [pr])
             boxes.append(prim_bbox(pr))
+        self._raw_curves(boxes)
         self.G = union(boxes) or (0.0, 0.0, 0.0, 0.0)
         ext = self.std["center"]["extend"]
         for e in self.els("center"):
@@ -445,6 +446,24 @@ class _ViewLayout:
             self.put(e, [Poly(tuple(pts), "thin")])
         if self.view.aux == "detail":
             self.detail_geometry()
+
+    def _raw_curves(self, boxes):
+        """Imported SPLINE / ELLIPSE: the DXF writer places the real entity; the flattened curve is
+        what the Viewer draws and what dimensions keep clear of."""
+        from .importdxf import raw_polylines
+
+        for e in self.els("raw"):
+            if "data" not in e._intent:
+                continue
+            role = e._intent.get("role", "thick")
+            prims = [
+                Poly(tuple(self.P(p) for p in pl), role)
+                for pl in raw_polylines(e._intent)
+                if len(pl) > 1
+            ]
+            if prims:
+                self.put(e, prims)
+                boxes.extend(prim_bbox(p) for p in prims)
 
     # -- detail views: parent geometry clipped to the circle, at this view's scale ---------------
     def detail_geometry(self):

@@ -19,6 +19,7 @@ from . import record
 from .errors import DirtySource, GitError, InvalidArgument, NoOps, UndoError
 from .runtime import BUILD_DIR, LOG, SRC, TMP_DIR, build, edit_number, run_script, write_artifacts
 
+REF_DXF = "ref.dxf"  # what `lcad init --from-dxf` copies in
 SOURCES = (SRC, LOG, ".gitignore", ".gitattributes", "templates")
 GITIGNORE = ".linercad/\n"
 GITATTRIBUTES = "* text=auto eol=lf\n"
@@ -46,6 +47,14 @@ front.rect((0, 0), P.L, P.H, name="body")
 front.dim.linear("L", (0, 0), (P.L, 0), value=P.L, side="bottom")
 front.dim.linear("H", (0, 0), (0, P.H), value=P.H, side="left")
 d.title(name="未命名零件", material="")
+'''
+
+DXF_STARTER = '''"""Liner-CAD 图纸构建层：导入 {ref}。改完运行 `lcad build -m "<说明>"`。"""
+
+from linercad import Drawing
+
+d = Drawing(sheet="{sheet}", std="GB", scale="{scale}")
+d.import_dxf("{ref}")
 '''
 
 
@@ -90,13 +99,14 @@ def _ident(dir):
 
 def source_paths(dir):
     """Tracked sources: drawing.py, the log, templates, plus 3D models next to drawing.py (other
-    ``*.py``, ``*.step``/``*.stp``) and sub-directories holding component models (M3)."""
+    ``*.py``, ``*.step``/``*.stp``), imported ``*.dxf`` and sub-directories holding component
+    models (M3)."""
     dir = Path(dir)
     out = [p for p in SOURCES if (dir / p).exists()]
     for f in sorted(dir.iterdir()) if dir.is_dir() else []:
         if f.name.startswith(".") or f.name in out:
             continue
-        if f.is_file() and f.suffix.lower() in (".py", ".step", ".stp"):
+        if f.is_file() and f.suffix.lower() in (".py", ".step", ".stp", ".dxf"):
             out.append(f.name)
         elif (
             f.is_dir()
@@ -238,26 +248,44 @@ def needs_3d(name) -> bool:
     return (resources.files("linercad") / "examples" / name / "model.py").is_file()
 
 
-def init(dir, from_=None, sheet="A3"):
+def init(dir, from_=None, sheet=None, from_dxf=None):
+    """New drawing directory: the starter, a package example (``from_``) or an imported DXF
+    (``from_dxf`` is copied to ``ref.dxf``; the sheet is guessed from its extents unless given)."""
     dir = Path(dir)
     if (dir / SRC).exists() or (dir / LOG).exists():
         raise InvalidArgument(f"{dir} 里已经有图纸（{SRC} 或 {LOG}）", hint="换一个空目录")
     if from_ is not None and from_ not in EXAMPLES:
         raise InvalidArgument(f"没有范例 {from_!r}", candidates=list(EXAMPLES))
+    if from_ is not None and from_dxf is not None:
+        raise InvalidArgument("--from 和 --from-dxf 只能用一个")
+    dxf_src, guess = None, None
+    if from_dxf is not None:
+        from . import importdxf
+
+        dxf_src = Path(from_dxf)
+        guess = importdxf.prepare_init(
+            dxf_src
+        )  # an unreadable file fails here, before anything is made
+        sheet = sheet or guess["sheet"]
+    sheet = sheet or "A3"
     existed = dir.exists()
     dir.mkdir(parents=True, exist_ok=True)
     created = []
     had_repo = repo_root(dir) is not None
     try:
+        if dxf_src is not None:
+            text0 = DXF_STARTER.format(ref=REF_DXF, sheet=sheet, scale=guess["scale"])
+            if not (dir / REF_DXF).exists():
+                shutil.copyfile(dxf_src, dir / REF_DXF)
+                created.append(dir / REF_DXF)
+        elif from_:
+            text0 = (resources.files("linercad") / "examples" / from_ / SRC).read_text(
+                encoding="utf-8"
+            )
+        else:
+            text0 = STARTER.format(sheet=sheet)
         for name, text in (
-            (
-                SRC,
-                STARTER.format(sheet=sheet)
-                if not from_
-                else (resources.files("linercad") / "examples" / from_ / SRC).read_text(
-                    encoding="utf-8"
-                ),
-            ),
+            (SRC, text0),
             *_example_extras(from_),
             (LOG, ""),
             (".gitignore", GITIGNORE),
@@ -281,7 +309,7 @@ def init(dir, from_=None, sheet="A3"):
     (dir / TMP_DIR).mkdir(parents=True, exist_ok=True)
     arts = write_artifacts(dir, res, "e0")
     h = commit(dir, "e0 · init")
-    return {
+    out = {
         "ok": True,
         "edit": "e0",
         "commit": h,
@@ -290,6 +318,13 @@ def init(dir, from_=None, sheet="A3"):
         "errors": _errors(res.findings),
         "warnings": _warnings(res.findings),
     }
+    if dxf_src is not None:
+        out["import"] = {
+            "sheet": sheet,
+            "scale": guess["scale"],
+            "elements": {e.id: e.counts for e in res.d.elements if e.kind == "import"},
+        }
+    return out
 
 
 def _model_sig(dir):

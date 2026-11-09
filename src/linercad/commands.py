@@ -9,7 +9,18 @@ from .errors import InvalidArgument, LinerError, NotFound
 from .model import check_name
 from .runtime import SRC, TMP_DIR, build
 
-BRIEF_KINDS = ("view", "feature", "center", "dim", "note", "hatch", "section", "table.cell", "raw")
+BRIEF_KINDS = (
+    "view",
+    "feature",
+    "center",
+    "dim",
+    "note",
+    "hatch",
+    "section",
+    "table.cell",
+    "raw",
+    "import",
+)
 SNIPPETS = {
     "dim": [
         'd["{id}"].place(side="top")          # 换侧：top/bottom/left/right/inside',
@@ -38,6 +49,8 @@ def brief(e) -> dict:
             out["edges"] = len(i.get("edges", []))
     elif e.kind == "section":
         out.update(letter=i["letter"], cut_in=i["cut_in"])
+    elif e.kind == "import":
+        out.update(path=i["path"], counts=i["counts"])
     elif e.kind == "view":
         out.update(origin=e._resolved.get("origin"), bbox=e._resolved.get("bbox"))
     if e.status != "ok":
@@ -201,6 +214,15 @@ def check(dir):
         packs.setdefault(f.get("pack") or RULES.get(f["rule"], "layout"), []).append(f)
     errors = sum(1 for f in res.findings if f.get("severity") == "error")
     return {"ok": True, "errors": errors, "warnings": len(res.findings) - errors, "packs": packs}
+
+
+def inspect_dxf(dir, file):
+    """Survey a DXF (layers, entity statistics, extents, how it would import) plus a temporary PNG
+    in ``<dir>/.linercad/tmp`` when ``dir`` is a drawing directory, else in the system temp dir."""
+    from . import importdxf
+
+    tmp = Path(dir) / TMP_DIR
+    return importdxf.inspect(file, tmp if (Path(dir) / ".linercad").is_dir() else None)
 
 
 def skill(family=None):
