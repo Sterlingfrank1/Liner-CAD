@@ -205,3 +205,12 @@ def test_every_instance_of_a_multi_placed_part_is_drawn(tmp_path):
             if e.kind == "edge" and e.view == view and e._intent.get("component") == "A.washer"
         ]
         assert min(xs) < -15 and max(xs) > 15, (view, xs)
+
+
+def test_parts_with_small_clearance_get_different_hatching():
+    from build123d import Box, Pos
+
+    from linercad.assembly import hatch_styles
+
+    s = hatch_styles({"A.a": Box(10, 10, 10), "A.b": Pos(10.3, 0, 0) * Box(10, 10, 10)})
+    assert s["A.a"] != s["A.b"]
