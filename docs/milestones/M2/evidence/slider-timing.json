@@ -1,0 +1,26 @@
+{
+ "shaft": {
+  "n": 26,
+  "rejected_by_rule": 4,
+  "p50_ms": 102.80000000000001,
+  "max_ms": 181.7
+ },
+ "sleeve": {
+  "n": 26,
+  "rejected_by_rule": 4,
+  "p50_ms": 32.1,
+  "max_ms": 61.8
+ },
+ "flange": {
+  "n": 21,
+  "rejected_by_rule": 9,
+  "p50_ms": 48.3,
+  "max_ms": 80.4
+ },
+ "pulley": {
+  "n": 24,
+  "rejected_by_rule": 6,
+  "p50_ms": 61.4,
+  "max_ms": 95.0
+ }
+}
