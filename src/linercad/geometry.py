@@ -295,6 +295,14 @@ class View(Element):
 
         return view_note(self, name, text, anchor, dir, length)
 
+    @mutator("project")
+    def project(self, name="model", cut=None, depth=0.0, region=None, ribs=(), hidden=True,
+                model="main", half="top"):
+        """Project the 3D model into this view → feature ``F.<view>.<name>`` (SPEC M3 §1.1)."""
+        from .source3d import view_project
+
+        return view_project(self, name, cut, depth, region, ribs, hidden, model, half)
+
     @mutator("hatch")
     def hatch(self, name, loops, outline=None):
         from .annotate import view_hatch

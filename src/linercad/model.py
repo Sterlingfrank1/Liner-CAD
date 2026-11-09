@@ -413,6 +413,13 @@ class Drawing:
         return self._P
 
     # ---- views ------------------------------------------------------------------------
+    @mutator("model")
+    def model(self, path, name="main"):
+        """3D source: ``model.py`` (``model(**P)`` → build123d shape) or a STEP file → ``M.<name>``."""
+        from .source3d import drawing_model
+
+        return drawing_model(self, path, name)
+
     def view(self, name):
         vid = f"V.{name}"
         if vid in self._els:
@@ -537,6 +544,10 @@ class Drawing:
                 hint="换一个名字",
             )
         object.__setattr__(el, "_src", self._src_override or caller_src())
+        if el.kind in ("dim", "gtol", "datum", "rough"):  # PMI keeps the 3D provenance (M3 §1.1)
+            s3 = [r._intent["src3d"] for r in map(self._els.get, el._refs) if r is not None and "src3d" in r._intent]
+            if s3:
+                el._intent["src3d_refs"] = s3
         self._els[el._id] = el
         return el
 
