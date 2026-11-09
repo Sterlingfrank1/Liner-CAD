@@ -25,12 +25,52 @@ def _dash(std, role, ltscale=1.0):
     return f' stroke-dasharray="{",".join(_f(x) for x in pat)}"'
 
 
+def _ctx(d):
+    std = d.std
+    W, H = d.template["size"]
+
+    def P(p):
+        return f"{_f(p[0])},{_f(H - p[1])}"
+
+    widths = {r: s["width"] for r, s in std["lines"].items() if isinstance(s, dict)}
+    return std, W, H, P, widths
+
+
+def svg_groups(d) -> list[tuple[str, str, str]]:
+    """``[(element id, kind, '<g data-id=..>..</g>')]`` of every drawn element, in paint order."""
+    std, _W, H, P, widths = _ctx(d)
+    out = []
+    for e in d._els.values():
+        if not e._prims:
+            continue
+        parts = [f'<g data-id="{escape(e.id)}" data-kind="{escape(e.kind)}">']
+        for k, pr in enumerate(e._prims):
+            parts.append(_prim(pr, k, std, widths, P, H))
+        parts.append("</g>")
+        out.append((e.id, e.kind, "\n".join(x for x in parts if x)))
+    return out
+
+
+def hatch_pattern(d, pid="hatch", stroke="currentColor") -> str:
+    """The section-lining ``<pattern>`` (GB/T 4457.5) the hatch prims fill with."""
+    std, _W, _H, _P, widths = _ctx(d)
+    hs = std["hatch"]
+    return (
+        f'<pattern id="{pid}" patternUnits="userSpaceOnUse" width="{_f(hs["spacing"])}" '
+        f'height="{_f(hs["spacing"])}" patternTransform="rotate({_f(-hs["angle"])})">'
+        f'<line x1="0" y1="0" x2="0" y2="{_f(hs["spacing"])}" stroke="{stroke}" '
+        f'stroke-width="{_f(widths.get("hatch", 0.25))}"/></pattern>'
+    )
+
+
 def _hid(angle, spacing):
     return f"hatch-{_f(angle or 0).replace('.', '_')}-{_f(spacing or 0).replace('.', '_')}"
 
 
-def _hatch_defs(d, hs, widths):
-    """One pattern per distinct per-part hatch style (assemblies)."""
+def hatch_defs(d) -> list[str]:
+    """One extra pattern per distinct per-part hatch style (assemblies, GB/T 4458.6)."""
+    std, _W, _H, _P, widths = _ctx(d)
+    hs = std["hatch"]
     out, done = [], set()
     for e in d._els.values():
         for pr in e._prims:
@@ -53,33 +93,17 @@ def _hatch_defs(d, hs, widths):
 
 def svg(d) -> str:
     """The whole sheet as an SVG string (millimetre units, y down)."""
-    std = d.std
-    W, H = d.template["size"]
-
-    def P(p):
-        return f"{_f(p[0])},{_f(H - p[1])}"
-
-    widths = {r: s["width"] for r, s in std["lines"].items() if isinstance(s, dict)}
-    hs = std["hatch"]
+    _std, W, H, _P, _widths = _ctx(d)
     out = [
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {_f(W)} {_f(H)}" '
         f'width="{_f(W)}mm" height="{_f(H)}mm" data-sheet="{escape(d.sheet)}">',
         "<defs>",
-        f'<pattern id="hatch" patternUnits="userSpaceOnUse" width="{_f(hs["spacing"])}" '
-        f'height="{_f(hs["spacing"])}" patternTransform="rotate({_f(-hs["angle"])})">'
-        f'<line x1="0" y1="0" x2="0" y2="{_f(hs["spacing"])}" stroke="currentColor" '
-        f'stroke-width="{_f(widths.get("hatch", 0.25))}"/></pattern>',
-        *_hatch_defs(d, hs, widths),
+        hatch_pattern(d),
+        *hatch_defs(d),
         "</defs>",
         f'<rect x="0" y="0" width="{_f(W)}" height="{_f(H)}" fill="white" class="paper"/>',
     ]
-    for e in d._els.values():
-        if not e._prims:
-            continue
-        out.append(f'<g data-id="{escape(e.id)}" data-kind="{escape(e.kind)}">')
-        for k, pr in enumerate(e._prims):
-            out.append(_prim(pr, k, std, widths, P, H))
-        out.append("</g>")
+    out.extend(html for _id, _kind, html in svg_groups(d))
     out.append("</svg>")
     return "\n".join(x for x in out if x)
 

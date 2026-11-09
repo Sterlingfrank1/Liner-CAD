@@ -33,15 +33,19 @@ class _Parser(argparse.ArgumentParser):
 
 
 COMMANDS = {
-    "init": "新建图纸目录：lcad init <dir> [--from <范例>] [--sheet A3]（范例见 lcad skill 的零件族卡片）",
+    "init": "新建图纸目录：lcad init <dir> [--from <范例> | --from-dxf x.dxf] [--sheet A3]（范例见 lcad skill 的零件族卡片）",
     "build": '重建产物；-m "<原话>" 时提交源文件改动',
     "edit": '事务执行临时脚本：lcad edit <script.py> -m "<用户原话>"',
     "undo": "撤销某一轮：lcad undo eK [-m ...]",
     "context": "图纸摘要，或 lcad context <ID>... 看元素详情",
     "render": "出 PNG 自检：lcad render [--focus ID]",
     "check": "全部检查结果，按规则包分组（drafting / dimensioning / tolerancing / surface / layout）",
-    "skill": "打印 SKILL.md，或 lcad skill <零件族> 打印零件族卡片",
+    "skill": "打印 SKILL.md；lcad skill <页|零件族> 打印分页或零件族卡片；lcad skill install --target claude|codex|opencode|generic [--dir .] 装进 Agent 的工作目录",
     "view": "打开 Viewer（本机 127.0.0.1）：lcad view [--port 8765] [--no-open]",
+    "log": "版本列表（每次成功修改一条，新的在前）：lcad log",
+    "diff": "两个版本的差异：lcad diff e1 e3（编号 / 提交 / HEAD / 标签；缺省 B = 工作区）→ 增删改的 ID + 叠加 SVG",
+    "export": "定稿：lcad export --to <目录> [--formats dxf,pdf]，标题栏加修订、提交并打标签 rev-A、rev-B …",
+    "inspect": "看一份 DXF：lcad inspect x.dxf → 图层、实体统计、范围、导入映射和一张临时 PNG",
     "template": '企业档：lcad template import <file.dxf> --name <名> → templates/<名>.toml，Drawing(overlay="<名>") 叠加',
 }
 
@@ -55,7 +59,8 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("init")
     s.add_argument("path")
     s.add_argument("--from", dest="from_", default=None)
-    s.add_argument("--sheet", default="A3")
+    s.add_argument("--from-dxf", dest="from_dxf", default=None)
+    s.add_argument("--sheet", default=None)
     s = sub.add_parser("build")
     s.add_argument("-m", dest="msg", default=None)
     s = sub.add_parser("edit")
@@ -74,8 +79,19 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("view")
     s.add_argument("--port", type=int, default=8765)
     s.add_argument("--no-open", action="store_true")
+    sub.add_parser("log")
+    s = sub.add_parser("diff")
+    s.add_argument("a")
+    s.add_argument("b", nargs="?", default=None)
+    s = sub.add_parser("export")
+    s.add_argument("--to", required=True)
+    s.add_argument("--formats", default=None)
     s = sub.add_parser("skill")
     s.add_argument("family", nargs="?", default=None)
+    s.add_argument("--target", default=None)
+    s.add_argument("--dir", default=".")
+    s = sub.add_parser("inspect")
+    s.add_argument("file")
     s = sub.add_parser("template").add_subparsers(dest="action", parser_class=_Parser)
     s = s.add_parser("import")
     s.add_argument("file")
@@ -99,7 +115,7 @@ def _usage(message: str) -> int:
 
 
 def _run(args, parser) -> int:
-    from . import commands, txn
+    from . import commands, txn, versions
 
     if args.help:
         emit({"ok": True, "help": parser.format_help(), "commands": COMMANDS})
@@ -111,7 +127,7 @@ def _run(args, parser) -> int:
         return _usage("缺少子命令")
     d = args.dir
     if args.cmd == "init":
-        out = txn.init(args.path, args.from_, args.sheet)
+        out = txn.init(args.path, args.from_, args.sheet, args.from_dxf)
     elif args.cmd == "build":
         out = txn.build_commit(d, args.msg)
     elif args.cmd == "edit":
@@ -125,10 +141,21 @@ def _run(args, parser) -> int:
 
         serve(d, args.port, not args.no_open)
         return 0
+    elif args.cmd == "log":
+        out = {"ok": True, "log": versions.log(d)}
+    elif args.cmd == "diff":
+        out = versions.diff(d, args.a, args.b)
+    elif args.cmd == "export":
+        out = versions.export(d, args.to, args.formats)
     elif args.cmd == "check":
         out = commands.check(d)
     elif args.cmd == "skill":
-        out = commands.skill(args.family)
+        if args.family == "install":
+            out = commands.skill_install(args.target, args.dir)
+        else:
+            out = commands.skill(args.family)
+    elif args.cmd == "inspect":
+        out = commands.inspect_dxf(d, args.file)
     elif args.cmd == "template":
         if args.action != "import":
             return _usage("lcad template 只有子命令 import")
@@ -153,7 +180,7 @@ def main(argv=None) -> int:
         emit(
             {
                 "ok": False,
-                "rolled_back": args.cmd in ("edit", "undo", "build", "init"),
+                "rolled_back": args.cmd in ("edit", "undo", "build", "init", "export"),
                 "error": e.to_dict(),
             }
         )

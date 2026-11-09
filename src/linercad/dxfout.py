@@ -136,6 +136,25 @@ def _write(msp, pr, std, text_boxes):
     raise TypeError(pr)
 
 
+def _raw_entity(d, msp, e):
+    """A raw element's entity. One from ``d.raw_add`` is written as given (sheet coordinates); one
+    imported from a DXF has view-local coordinates, moved to the sheet by its view's placement."""
+    from ezdxf.math import Matrix44
+
+    from .importdxf import make_raw
+
+    i = e._intent
+    if "data" not in i:
+        return msp.new_entity(i["dxftype"], dict(i["attribs"]))
+    ent = make_raw(msp, i, layer=_layer(d.std, i.get("role", "thick")))
+    v = d._els.get(f"V.{i.get('view')}")
+    origin = v._resolved.get("origin") if v is not None else None
+    if origin:
+        s = v.scale
+        ent.transform(Matrix44.chain(Matrix44.scale(s, s, 1), Matrix44.translate(*origin, 0)))
+    return ent
+
+
 def to_doc(d):
     """Build the ezdxf document. Returns (doc, index, raw_failures).
 
@@ -151,8 +170,7 @@ def to_doc(d):
     for e in d._els.values():
         ents = []
         if e.kind == "raw":
-            i = e._intent
-            ents.append(msp.new_entity(i["dxftype"], dict(i["attribs"])))
+            ents.append(_raw_entity(d, msp, e))
         else:
             for pr in e._prims:
                 ents.append(_write(msp, pr, std, text_boxes))

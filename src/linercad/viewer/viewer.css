@@ -56,3 +56,23 @@ code.sel { display: block; font-size: 11px; background: #f6f6f6; padding: 4px; w
 .kv .v.st-accepted { color: var(--acc); }
 #canvas svg g.sel { filter: drop-shadow(0 0 1.2px var(--sel)) drop-shadow(0 0 1.2px var(--sel)); }
 .issue { border-left-width: 4px; } .issue .muted { color: #666; }
+/* M3 S2: versions, compare overlay, preview marking on the canvas */
+[hidden] { display: none !important; }
+#versions { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 8px; }
+#versions > summary { cursor: pointer; color: var(--muted); font-weight: 600; letter-spacing: .05em; }
+#ver-hint { font-size: 11px; margin: 4px 0; }
+.ver { display: grid; grid-template-columns: 30px 1fr auto; gap: 6px; align-items: baseline; padding: 3px 4px; border-radius: 3px; cursor: pointer; }
+.ver:hover { background: #eef3fa; } .ver.picked { background: #dbe7f6; box-shadow: inset 3px 0 0 var(--sel); }
+.ver .vid { font-family: Consolas, monospace; font-weight: 600; }
+.ver .vmsg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ver .vtime { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+#canvas-wrap.is-preview { box-shadow: inset 0 0 0 3px #2e86de; }
+#preview-badge { position: absolute; left: 12px; top: 10px; padding: 3px 10px; border-radius: 10px; background: #2e86de; color: #fff; font-size: 12px; pointer-events: none; }
+#cmp-banner { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); display: flex; gap: 14px; align-items: center; padding: 5px 12px; background: #fff; border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,.15); font-size: 12px; white-space: nowrap; }
+#canvas-wrap.is-compare { box-shadow: inset 0 0 0 3px #1565c0; }
+.legend { color: var(--muted); } .lg { display: inline-block; width: 10px; height: 10px; margin: 0 2px 0 6px; border-radius: 2px; vertical-align: -1px; }
+.lg-a { background: #b9b9b9; } .lg-b { background: #111; } .lg-add { background: #1a9a3c; } .lg-del { background: #d62728; } .lg-chg { background: #1565c0; }
+#canvas svg g.df-a { color: #b9b9b9; } #canvas svg g.df-b { color: #111; } #canvas svg g.df-add { color: #1a9a3c; }
+#canvas svg g.df-del { color: #d62728; } #canvas svg g.df-chg { color: #1565c0; }
+.idlist { display: flex; flex-wrap: wrap; gap: 2px 8px; font-size: 12px; } .kv .k { word-break: break-all; }
+.param.pending .val { opacity: .6; }

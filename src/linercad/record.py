@@ -65,6 +65,7 @@ CREATE_OPS = (
     "component",
     "std_part",
     "bom",
+    "import_dxf",
 )
 MODIFY_OPS = ("place", "move", "set", "suppress", "accept", "raw")
 VIEW_SCOPED = (
@@ -119,6 +120,7 @@ DRAWING_CREATE = (
     "rough_default",
     "chain",
     "general_tol",
+    "import_dxf",
 )
 LAYOUT_GROUPS = {
     "linear": ("side", "row"),

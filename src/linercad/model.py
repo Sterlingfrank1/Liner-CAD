@@ -249,7 +249,7 @@ class Drawing:
             )
         self.kind = kind
         self._recorder = None
-        self._dir = DRAW_DIR.get()  # the drawing directory (relative model paths, cache)
+        self._dir = DRAW_DIR.get()  # the drawing directory (model paths, imported DXF, cache)
         self._src_override = None  # replay sets {"edit","line"} while applying a log operation
         self._forced_id = None  # replay sets the recorded ID of the element an op creates
         self._scope = None  # "e7" while a temp script runs: auto names become e7_<n> (SPEC §3.2)
@@ -330,6 +330,15 @@ class Drawing:
             raise InvalidArgument(f"不能创建 {dxftype}：{e}", values={"dxftype": dxftype})
         xid = self._alloc("X")
         return self._add(RawEl(self, xid, {"dxftype": dxftype, "attribs": attribs}))
+
+    @mutator("import_dxf")
+    def import_dxf(self, path, view="front"):
+        """Import a DXF (path relative to the drawing directory) into ``view`` → ``I.<file name>``:
+        LINE / ARC / CIRCLE / polylines → edges, DIMENSION → dimensions, TEXT / MTEXT → notes,
+        SPLINE / ELLIPSE → raw ``X``; the rest is skipped and counted (``lcad inspect`` shows it)."""
+        from .importdxf import import_dxf
+
+        return import_dxf(self, path, view)
 
     # ---- sheet-level annotations ---------------------------------------------------------
     @property
