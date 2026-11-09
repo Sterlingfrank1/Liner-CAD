@@ -60,6 +60,8 @@ CREATE_OPS = (
     "rough_default",
     "chain",
     "general_tol",
+    "model",
+    "project",
 )
 MODIFY_OPS = ("place", "move", "set", "suppress", "accept", "raw")
 VIEW_SCOPED = (
@@ -99,8 +101,10 @@ VIEW_SCOPED = (
     "dim.hole",
     "dim.keyway",
     "dim.spline",
+    "project",
 )
 DRAWING_CREATE = (
+    "model",
     "section",
     "raw_add",
     "removed_section",

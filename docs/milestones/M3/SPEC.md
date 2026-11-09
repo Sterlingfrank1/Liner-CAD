@@ -7,9 +7,9 @@
 ### 1.1 3D 来源（S1）
 
 - `d.model(path, name="main")` → `M.main`：`path` 相对图纸目录，`model.py`（定义 `model(**P) -> build123d 形体`，`P` 为图纸参数当前值）或 `.step/.stp`。只收路径，日志可重放；内容哈希写进意图。
-- `V.project(name="model", cut=None, depth=0, region=None, ribs=(), hidden=True, model="main")` → 特征 `F.<视图>.<name>`，子边 `E.<视图>.<name>.<k>`：
+- `V.project(name="model", cut=None, depth=0, region=None, ribs=(), hidden=True, model="main", half="right")` → 特征 `F.<视图>.<name>`，子边 `E.<视图>.<name>.<k>`：
   - 投影保留曲线类型：直线 → `line`，圆 / 圆弧 → `circle` / `arc`，椭圆 / 样条 → 分段 `line`（标 `approx` 标签）。可见边 `thick`，隐藏边 `hidden`，相切（光滑）边 `thin` 并打 `conv` 标签（过渡线）。
-  - `cut`：`None` / `"full"` / `"half"`；`depth` 为剖切面沿投射方向的偏移；`region`（视图坐标点列）= 局部剖，只在区域内剖开，边界自动画波浪线 `W`。剖面区域 = 剖开后位于剖切面上的面 → 剖面线 `H.<视图>.<name>`。`ribs`（视图坐标点列）作为剖面线孤岛并画粗实线边界（GB/T 4458.6 肋板纵剖不画剖面线），对 STEP 同样适用。
+  - `cut`：`None` / `"full"` / `"half"`；`depth` 为剖切面离模型原点、朝观察者方向的距离（切空报错并给出范围）；`half` 为半剖时剖开的一侧（`right` / `left` 以竖直轴分，`top` / `bottom` 以水平轴分）；`region`（视图坐标点列）= 局部剖，只在区域内剖开，边界自动画波浪线 `W`。剖面区域 = 剖开后位于剖切面上的面 → 剖面线 `H.<视图>.<name>`。`ribs`（视图坐标点列）作为剖面线孤岛并画粗实线边界（GB/T 4458.6 肋板纵剖不画剖面线），对 STEP 同样适用。
   - 一个模型可投多个视图、多种剖法；阶梯 / 旋转剖、移出断面对 3D 来源本里程碑不做（偏离记录）。
 - 来源记录 `intent.src3d = {"model": "M.main", "edge": i, "faces": [j, k], "hash": h}`：把投影边按几何回配到模型边（端点与中点投影距离 ≤ 0.05 mm）；轮廓线（圆柱 / 圆锥的转向线）无模型边，记 `{"model", "outline": true}`。`hash`（类型 + 端点 + 圆心 / 半径，3D、取 3 位小数）是权威，`edge` / `faces` 序号只是提示。尺寸、形位公差、基准引用 3D 来源边时把该边的 `src3d` 复制进自己的意图（`src3d_refs`），v0.2 由此映射 STEP 拓扑写 PMI。
 - 模型变动后边序号可能变，脚本应优先用 `d.q` 选择器（按几何）或坐标锚点；SKILL 写明。
