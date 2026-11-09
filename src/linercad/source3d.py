@@ -17,7 +17,7 @@ from .errors import InvalidArgument, LinerError, NotFound
 from .hlr import _t
 from .model import DRAW_DIR, Element, check_name
 
-CACHE_VERSION = 3
+CACHE_VERSION = 4
 TOL = 0.01  # curve fitting, mm
 MATCH = 0.05  # projected edge ↔ model edge, mm
 
@@ -378,13 +378,13 @@ def compute(d, view, model, cut, depth, region, ribs, hidden, half="right"):
     hatch, pieces, idx = [], [], []
     for cid, shp, solid in srcs:
         piece = shp
-        if cut and solid and region is None and getattr(shp, "children", None):
+        if cut and solid and region is None and len(shp.solids()) > 1:
             from build123d import Compound
 
-            kept = [ch for ch in shp.children if _near(ch, look, k) <= depth + 1e-6]
+            kept = [ch for ch in shp.solids() if _near(ch, look, k) <= depth + 1e-6]
             if not kept:
                 continue
-            shp = kept[0] if len(kept) == 1 else Compound(children=kept)
+            shp = kept[0] if len(kept) == 1 else Compound(kept)
         if cut and solid and region is None:
             bb = shp.bounding_box()
             near = min(
@@ -422,7 +422,7 @@ def compute(d, view, model, cut, depth, region, ribs, hidden, half="right"):
     else:
         from build123d import Compound
 
-        src = Compound(children=[pc for _, pc in pieces])
+        src = Compound([pc for _, pc in pieces])  # never Compound(children=): it re-parents
     owners = _owner_index(pieces, view, hidden) if len(pieces) > 1 else None
     model_id = "assembly" if multi else model
     edges, wavy, seen = [], [], set()

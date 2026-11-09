@@ -274,7 +274,7 @@ def comp_shape(d, c):
         base = fn(**kw)
     rx, ry, rz = it["rot"]
     placed = [Pos(*at) * Rot(rx, ry, rz) * base for at in it["at"]]
-    shape = placed[0] if len(placed) == 1 else Compound(children=placed)
+    shape = placed[0] if len(placed) == 1 else Compound(placed)  # no re-parenting (cached)
     if len(_SHAPES) > 64:
         _SHAPES.clear()
     _SHAPES[key] = shape
@@ -410,7 +410,8 @@ def anchor(d, view, cid):
     if view not in CAMERA:
         return None
     shape = comp_shape(d, d._els[cid])
-    first = shape.children[0] if getattr(shape, "children", None) else shape  # one instance
+    sols = list(shape.solids())
+    first = sols[0] if len(sols) > 1 else shape  # one instance
     c = first.bounding_box().center()
     return to_view(view, (c.X, c.Y, c.Z))
 

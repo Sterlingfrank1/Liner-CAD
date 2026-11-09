@@ -194,3 +194,14 @@ def test_l3_assembly_case(case, tmp_path):
     assert len(balloons) == len(rows)
     assert {b.component for b in balloons} == {row["id"] for row in rows}
     assert sorted(b.number for b in balloons) == list(range(1, len(rows) + 1))
+
+
+def test_every_instance_of_a_multi_placed_part_is_drawn(tmp_path):
+    d = make(tmp_path).d  # washers at x = ±22, uncut (standard part)
+    for view in ("front", "top"):
+        xs = [
+            e.mid[0]
+            for e in d._els.values()
+            if e.kind == "edge" and e.view == view and e._intent.get("component") == "A.washer"
+        ]
+        assert min(xs) < -15 and max(xs) > 15, (view, xs)
