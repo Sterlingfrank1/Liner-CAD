@@ -203,6 +203,26 @@ def _artifacts(dir, res, edit):
         }
 
 
+def _example_extras(from_):
+    """Other source files of an example (``model.py``, STEP …) copied next to ``drawing.py``."""
+    if not from_:
+        return []
+    root = resources.files("linercad") / "examples" / from_
+    return [
+        (f.name, f.read_text(encoding="utf-8"))
+        for f in root.iterdir()
+        if f.is_file()
+        and f.name != SRC
+        and f.name.endswith((".py", ".step", ".stp"))
+        and not f.name.startswith("_")
+    ]
+
+
+def needs_3d(name) -> bool:
+    """An example whose drawing projects a 3D model (needs ``linercad[3d]``)."""
+    return (resources.files("linercad") / "examples" / name / "model.py").is_file()
+
+
 def init(dir, from_=None, sheet="A3"):
     dir = Path(dir)
     if (dir / SRC).exists() or (dir / LOG).exists():
@@ -223,6 +243,7 @@ def init(dir, from_=None, sheet="A3"):
                     encoding="utf-8"
                 ),
             ),
+            *_example_extras(from_),
             (LOG, ""),
             (".gitignore", GITIGNORE),
             (".gitattributes", GITATTRIBUTES),

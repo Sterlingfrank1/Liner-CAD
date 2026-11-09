@@ -13,7 +13,7 @@ pytest.importorskip("build123d")
 from linercad import runtime  # noqa: E402
 from linercad.source3d import fit  # noqa: E402
 
-MODEL = '''
+MODEL = """
 from build123d import Box, Cylinder, Pos
 
 def model(L=120, W=80, T=12, D=50, H=40, d=30):
@@ -23,15 +23,15 @@ def model(L=120, W=80, T=12, D=50, H=40, d=30):
         for y in (-W / 2 + 12, W / 2 - 12):
             body = body - Pos(x, y, T / 2) * Cylinder(5, T + 2)
     return body
-'''
+"""
 
-DRAWING = '''
+DRAWING = """
 from linercad import Drawing, Param
 d = Drawing(sheet="A3")
 P = d.params(L=Param(120, min=80, max=200), d=Param(30, min=10, max=40, rule="d < 50"))
 d.model("model.py")
 {body}
-'''
+"""
 
 
 def make(tmp_path, body, model=MODEL):
@@ -84,7 +84,9 @@ def test_full_section_hatches_the_cut_face(tmp_path):
     d = r.d
     h = d["H.front.model"]
     assert len(h.loops) == 2  # the two halves left and right of the bore
-    assert not [e for e in edges(d, "front") if e.role == "hidden" and abs(e._intent.get("p1", [0])[0]) < 15]
+    assert not [
+        e for e in edges(d, "front") if e.role == "hidden" and abs(e._intent.get("p1", [0])[0]) < 15
+    ]
 
 
 def test_half_and_local_sections(tmp_path):
@@ -132,7 +134,11 @@ def test_fit_line_arc_circle():
     assert fit(circ)[0]["shape"] == "circle"
     cw = [(math.cos(a), math.sin(a)) for a in (math.pi / 2 - k * math.pi / 40 for k in range(21))]
     arc = fit(cw)[0]
-    assert arc["shape"] == "arc" and arc["start"] == pytest.approx(0) and arc["end"] == pytest.approx(90)
+    assert (
+        arc["shape"] == "arc"
+        and arc["start"] == pytest.approx(0)
+        and arc["end"] == pytest.approx(90)
+    )
 
 
 def test_missing_extra_message(tmp_path):

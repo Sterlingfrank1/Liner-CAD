@@ -545,7 +545,11 @@ class Drawing:
             )
         object.__setattr__(el, "_src", self._src_override or caller_src())
         if el.kind in ("dim", "gtol", "datum", "rough"):  # PMI keeps the 3D provenance (M3 §1.1)
-            s3 = [r._intent["src3d"] for r in map(self._els.get, el._refs) if r is not None and "src3d" in r._intent]
+            s3 = [
+                r._intent["src3d"]
+                for r in map(self._els.get, el._refs)
+                if r is not None and "src3d" in r._intent
+            ]
             if s3:
                 el._intent["src3d_refs"] = s3
         self._els[el._id] = el

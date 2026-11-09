@@ -123,10 +123,14 @@ def _circ3(a, b, c):
     if abs(dd) < 1e-12:
         return None
     ux = (
-        (ax * ax + ay * ay) * (by - cy) + (bx * bx + by * by) * (cy - ay) + (cx * cx + cy * cy) * (ay - by)
+        (ax * ax + ay * ay) * (by - cy)
+        + (bx * bx + by * by) * (cy - ay)
+        + (cx * cx + cy * cy) * (ay - by)
     ) / dd
     uy = (
-        (ax * ax + ay * ay) * (cx - bx) + (bx * bx + by * by) * (ax - cx) + (cx * cx + cy * cy) * (bx - ax)
+        (ax * ax + ay * ay) * (cx - bx)
+        + (bx * bx + by * by) * (ax - cx)
+        + (cx * cx + cy * cy) * (bx - ax)
     ) / dd
     return (ux, uy), math.dist((ux, uy), a)
 
@@ -180,7 +184,9 @@ def fit(pts):
             a0, am, a1 = ang(a), ang(pts[n // 2]), ang(b)
             if (am - a0) % 360 > (a1 - a0) % 360:  # clockwise as sampled
                 a0, a1 = a1, a0
-            return [{"shape": "arc", "c": c, "r": _r(r), "start": _r(a0) % 360, "end": _r(a1) % 360}]
+            return [
+                {"shape": "arc", "c": c, "r": _r(r), "start": _r(a0) % 360, "end": _r(a1) % 360}
+            ]
     q = _dp(pts, TOL * 2)
     return [
         {"shape": "line", "p1": [_r(p[0]), _r(p[1])], "p2": [_r(s[0]), _r(s[1])], "approx": True}
@@ -332,8 +338,17 @@ def _pts(v, what, ps):
     return out
 
 
-def view_project(v, name="model", cut=None, depth=0.0, region=None, ribs=(), hidden=True,
-                 model="main", half="top"):
+def view_project(
+    v,
+    name="model",
+    cut=None,
+    depth=0.0,
+    region=None,
+    ribs=(),
+    hidden=True,
+    model="main",
+    half="top",
+):
     from .annotate import Hatch
     from .views import Wavy
 
@@ -341,8 +356,9 @@ def view_project(v, name="model", cut=None, depth=0.0, region=None, ribs=(), hid
     d = v._d
     name = check_name(name)
     if cut not in (None, "full", "half"):
-        raise InvalidArgument("cut 只能是 None、'full'、'half'", values={"cut": cut},
-                              candidates=["full", "half"])
+        raise InvalidArgument(
+            "cut 只能是 None、'full'、'half'", values={"cut": cut}, candidates=["full", "half"]
+        )
     if half not in ("top", "bottom"):
         raise InvalidArgument("half 只能是 'top' 或 'bottom'", candidates=["top", "bottom"])
     if region is not None and not cut:
@@ -357,8 +373,14 @@ def view_project(v, name="model", cut=None, depth=0.0, region=None, ribs=(), hid
         f._intent["edges"].append(e.id)
     if data["hatch"]:
         hid = f"H.{v.name}.{name}"
-        d._add(Hatch(d, hid, {"view": v.name, "loops": [{"points": lp} for lp in data["hatch"]]},
-                     refs=[v.id, f.id]))
+        d._add(
+            Hatch(
+                d,
+                hid,
+                {"view": v.name, "loops": [{"points": lp} for lp in data["hatch"]]},
+                refs=[v.id, f.id],
+            )
+        )
     for k, pts in enumerate(data["wavy"], 1):
         wid = f"W.{v.name}.{name}_{k}"
         d._add(Wavy(d, wid, {"view": v.name, "points": pts}, refs=[v.id, f.id]))

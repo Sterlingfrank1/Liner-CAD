@@ -8,6 +8,8 @@ from linercad.runtime import build
 
 @pytest.mark.parametrize("name", txn.EXAMPLES)
 def test_example_builds_clean(tmp_path, name):
+    if txn.needs_3d(name):
+        pytest.importorskip("build123d")
     out = txn.init(tmp_path / name, from_=name)
     assert out["ok"] and out["warnings"] == []
     assert (tmp_path / name / ".linercad/build/drawing.dxf").exists()
