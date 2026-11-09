@@ -80,6 +80,25 @@ def has_3d():
     return importlib.util.find_spec("build123d") is not None
 
 
+def project(shape, view, hidden=False):
+    """``hlr.project`` with the smooth (tangent) edges split off into ``"smooth"``: a drawing
+    leaves a tangent junction out or draws it thin (GB/T 4458.1), so those edges may match a
+    drawn edge but a missing one does not lower the model coverage (casting / slot outlines)."""
+    from OCP.BRepLib import BRepLib
+
+    from linercad import hlr
+
+    BRepLib.EncodeRegularity_s(shape.wrapped)  # booleans (cuts) drop the tangency flags HLR needs
+    out = {"visible": [], "smooth": []}
+    if hidden:
+        out["hidden"] = []
+    for cls, vis, e in hlr.project_classes(shape, view, hidden):
+        out["smooth" if cls == "smooth" else ("visible" if vis else "hidden")].append(
+            hlr._sample(e)
+        )
+    return out
+
+
 def geometry(d, case):
     """Compare every listed view (and every removed section) with the model's projection."""
     from linercad import hlr
@@ -89,11 +108,10 @@ def geometry(d, case):
     for v in case["views"]:
         name, mode = v["name"], v.get("mode", "plain")
         if mode == "plain":
-            proj = hlr.project(shape, name, hidden=bool(v.get("hidden")))
+            proj = project(shape, name, hidden=bool(v.get("hidden")))
         else:
-            proj = hlr.section_project(
-                shape, name, mode, v.get("half", "top"), hidden=bool(v.get("hidden"))
-            )
+            cut = hlr.section(shape, name, mode, v.get("half", "top"))
+            proj = project(cut, name, hidden=bool(v.get("hidden")))
             if mode == "half":  # the median of a half section is the centre line, not an edge
                 proj = {
                     k: [pl for pl in pls if any(abs(p[1]) > 1e-6 for p in pl)]

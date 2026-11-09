@@ -1,0 +1,13 @@
+title = "连杆"
+
+[[view]]
+name = "front"
+mode = "plain"
+
+[[view]]
+name = "top"
+mode = "plain"
+
+[[view]]
+name = "left"
+mode = "plain"

@@ -1,0 +1,13 @@
+title = "叉形接头"
+
+[[view]]
+name = "front"
+mode = "full"
+
+[[view]]
+name = "top"
+mode = "plain"
+
+[[view]]
+name = "left"
+mode = "plain"

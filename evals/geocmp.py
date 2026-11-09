@@ -101,7 +101,7 @@ def compare(d, view, proj, roles=("thick",), tol=TOL, extra_mask=()):
             keep &= ~_in_poly(mpts, poly)
         mpts = mpts[keep]
     da, db = _segments(list(dr.values()))
-    ma, mb = _segments(model)
+    ma, mb = _segments(model + list(proj.get("smooth", [])))  # smooth edges: may match, not owed
     P = np.array([p for _, p in dpts], float).reshape(-1, 2)
     d1 = _dist(P, ma, mb) if len(P) else np.zeros(0)
     d2 = _dist(mpts, da, db) if len(mpts) else np.zeros(0)
