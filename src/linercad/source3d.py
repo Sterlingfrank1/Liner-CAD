@@ -44,14 +44,14 @@ class Model(Element):
     hash = property(lambda s: s._intent["hash"])
 
 
-def _dir() -> Path:
-    return Path(DRAW_DIR.get() or ".")
+def _dir(d=None) -> Path:
+    return Path((getattr(d, "_dir", None) if d is not None else None) or DRAW_DIR.get() or ".")
 
 
 def drawing_model(d, path, name="main"):
     need_3d()
     name = check_name(name)
-    p = _dir() / str(path)
+    p = _dir(d) / str(path)
     if not p.is_file():
         raise NotFound(f"模型文件 {path} 不存在（相对图纸目录）", values={"path": str(path)})
     if p.suffix.lower() not in (".py", ".step", ".stp"):
@@ -60,8 +60,21 @@ def drawing_model(d, path, name="main"):
             values={"path": str(path)},
             candidates=[".py", ".step", ".stp"],
         )
-    h = hashlib.sha1(p.read_bytes()).hexdigest()[:12]
-    return d._add(Model(d, f"M.{name}", {"path": str(path), "hash": h}))
+    return d._add(Model(d, f"M.{name}", {"path": str(path), "hash": model_hash(p)}))
+
+
+def model_hash(p: Path) -> str:
+    """Content hash of a model file plus its sibling modules (helpers ``model.py`` may import;
+    ``drawing.py`` excluded) and the build123d version."""
+    import build123d
+
+    h = hashlib.sha1(p.read_bytes())
+    if p.suffix.lower() == ".py":
+        for f in sorted(p.parent.glob("*.py")):
+            if f.name not in (p.name, "drawing.py"):
+                h.update(f.name.encode() + f.read_bytes())
+    h.update(str(getattr(build123d, "__version__", "")).encode())
+    return h.hexdigest()[:12]
 
 
 _SHAPES: dict = {}
@@ -76,13 +89,19 @@ def load_shape(d, mid):
             id=mid,
             candidates=[e.id for e in d._els.values() if e.kind == "model"],
         )
-    p = _dir() / m.path
+    p = _dir(d) / m.path
     P = d.P.values()
     key = (str(p.resolve()), m.hash, tuple(sorted(P.items())))
     if key in _SHAPES:
         return _SHAPES[key]
     if p.suffix.lower() == ".py":
-        ns = runpy.run_path(str(p), run_name="linercad_model")
+        import sys
+
+        sys.path.insert(0, str(p.parent))
+        try:
+            ns = runpy.run_path(str(p), run_name="linercad_model")
+        finally:
+            sys.path.remove(str(p.parent))
         fn = ns.get("model")
         if not callable(fn):
             raise InvalidArgument(f"{m.path} 里没有 model(**P) 函数", id=mid)
@@ -98,8 +117,14 @@ def load_shape(d, mid):
         from build123d import import_step
 
         shape = import_step(str(p))
+    if not hasattr(shape, "wrapped") and hasattr(shape, "part"):
+        shape = shape.part  # a BuildPart context
     if not hasattr(shape, "wrapped"):
-        raise InvalidArgument(f"{m.path} 的 model() 应返回 build123d 形体", id=mid)
+        raise InvalidArgument(
+            f"{m.path} 的 model() 应返回 build123d 形体，收到 {type(shape).__name__}",
+            id=mid,
+            hint="Builder 模式返回 part.part；参数是 float，range() 前先 int()",
+        )
     if len(_SHAPES) > 32:
         _SHAPES.clear()
     _SHAPES[key] = shape
@@ -200,12 +225,12 @@ def fit(pts):
 
 def _edge_hash(e):
     g = e.geom_type.name
-    p0, p1 = e.position_at(0), e.position_at(1)
-    parts = [g, *(round(c, 3) for c in (*_t(p0), *_t(p1)))]
+    ends = sorted(tuple(round(c, 3) + 0.0 for c in _t(e.position_at(t))) for t in (0, 1))
+    parts = [g, *ends[0], *ends[1]]
     if g == "CIRCLE":
-        parts += [round(c, 3) for c in _t(e.arc_center)] + [round(e.radius, 3)]
+        parts += [round(c, 3) + 0.0 for c in _t(e.arc_center)] + [round(e.radius, 3) + 0.0]
     else:
-        parts += [round(c, 3) for c in _t(e.position_at(0.5))]
+        parts += [round(c, 3) + 0.0 for c in _t(e.position_at(0.5))]
     return hashlib.sha1(json.dumps(parts).encode()).hexdigest()[:10]
 
 
@@ -231,12 +256,14 @@ def _model_index(shape, view):
 
 def _match(pts, idx):
     probe = [pts[len(pts) * k // 4] for k in (1, 2, 3)] + [pts[0], pts[-1]]
+    best = None
     for i, pl, bb, faces, e in idx:
         if not all(bb[0] <= p[0] <= bb[2] and bb[1] <= p[1] <= bb[3] for p in probe):
             continue
-        if all(min(_seg_dist(p, a, b) for a, b in zip(pl, pl[1:])) <= MATCH for p in probe):
-            return i, faces, e
-    return None
+        dd = max(min(_seg_dist(p, a, b) for a, b in zip(pl, pl[1:])) for p in probe)
+        if dd <= MATCH and (best is None or dd < best[0]):
+            best = (dd, (i, faces, e))
+    return best[1] if best else None
 
 
 # ---- projection ----------------------------------------------------------------------------------
@@ -262,37 +289,80 @@ def _wire_pts(w, view):
     return [[_r(x), _r(y)] for x, y in _dp(pts + [pts[0]], TOL)[:-1]]
 
 
-def compute(d, view, model, cut, depth, region, ribs, hidden, half="top"):
-    """The projection as plain data: {"edges": [intent], "hatch": [loop], "wavy": [points]}."""
+CACHE_KEEP = 200
+
+
+def _cache(d, key):
+    cdir = _dir(d) / ".linercad" / "cache"
+    return cdir, cdir / f"proj-{hashlib.sha1(key.encode()).hexdigest()[:16]}.json"
+
+
+def _save(cdir, cfile, out):
+    try:
+        cdir.mkdir(parents=True, exist_ok=True)
+        cfile.write_text(json.dumps(out), encoding="utf-8", newline="\n")
+        files = sorted(cdir.glob("proj-*.json"), key=lambda f: f.stat().st_mtime)
+        for f in files[:-CACHE_KEEP]:
+            f.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _key(sh):
+    """Dedup key: lines without direction (a reversed hidden line under a visible one)."""
+    g = {x: sh[x] for x in sh if x != "approx"}
+    if g["shape"] == "line":
+        g["p1"], g["p2"] = sorted([g["p1"], g["p2"]])
+    return json.dumps(g, sort_keys=True)
+
+
+def compute(d, view, model, cut, depth, region, ribs, hidden, half="right"):
+    """The projection as plain data: {"edges": [intent], "hatch": [loop], "wavy": [points]}.
+    ``depth``: the cutting plane's distance from the model origin toward the viewer."""
     from . import hlr
 
-    shape = load_shape(d, model)
-    m = d._els[model]
+    m = d._els.get(model)
+    if m is None or m.kind != "model":
+        load_shape(d, model)  # raises NotFound with candidates
     key = json.dumps(
         [CACHE_VERSION, m.path, m.hash, d.P.values(), view, cut, depth, region, ribs, hidden, half],
         sort_keys=True,
     )
-    cdir = _dir() / ".linercad" / "cache"
-    cfile = cdir / f"proj-{hashlib.sha1(key.encode()).hexdigest()[:16]}.json"
+    cdir, cfile = _cache(d, key)
     if cfile.is_file():
         try:
             return json.loads(cfile.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             pass
+    shape = load_shape(d, model)
+    look, _ = hlr.CAMERA[view]
+    k = next(i for i in range(3) if look[i])
+    at = -look[k] * depth
     src = shape
     loops = []
     if cut:
-        src = hlr.section(shape, view, cut, half=half, at=depth, region=region)
-        for f in hlr.cut_faces(src, view, depth):
+        src = hlr.section(shape, view, cut, half=half, at=at, region=region)
+        for f in hlr.cut_faces(src, view, at, original=shape):
             loops.append(_wire_pts(f.outer_wire(), view))
             loops.extend(_wire_pts(w, view) for w in f.inner_wires())
+        if not loops:
+            bb = shape.bounding_box()
+            lo, hi = sorted(
+                -look[k] * c
+                for c in ((bb.min.X, bb.min.Y, bb.min.Z)[k], (bb.max.X, bb.max.Y, bb.max.Z)[k])
+            )
+            raise InvalidArgument(
+                f"剖切面 depth={depth:g} 没有切到实体（视图 {view}）",
+                values={"depth": depth, "range": [round(lo, 3), round(hi, 3)]},
+                hint="depth 是剖切面离模型原点、朝观察者方向的距离，应落在 range 之内",
+            )
     idx = _model_index(shape, view)
     edges, wavy, seen = [], [], set()
     for cls, vis, e in hlr.project_classes(src, view, hidden=hidden):
         if not vis and cls == "smooth":
             continue
         pts = _samples(e)
-        if region and all(_on_poly(p, region) for p in pts[:: max(1, len(pts) // 6)]):
+        if region and all(_on_poly(p, region, 0.01) for p in pts[:: max(1, len(pts) // 24)]):
             if vis:
                 wavy.append([[_r(x), _r(y)] for x, y in _dp(pts, TOL)])
             continue
@@ -302,29 +372,28 @@ def compute(d, view, model, cut, depth, region, ribs, hidden, half="top"):
             s3 = {"model": model, "edge": i, "faces": faces, "hash": _edge_hash(me)}
         elif cls == "outline":
             s3 = {"model": model, "outline": True}
-        else:
-            s3 = {"model": model, "cut": True}
+        else:  # a section boundary, or a curve the fit could not match back
+            s3 = {"model": model, "unmatched": True}
         role = "hidden" if not vis else ("thin" if cls == "smooth" else "thick")
         for sh in fit(pts):
-            k = json.dumps({x: sh[x] for x in sh if x != "approx"}, sort_keys=True)
-            if k in seen:  # visible first: a hidden edge under a visible one is not drawn
+            kk = _key(sh)
+            if kk in seen:  # visible first: a hidden edge under a visible one is not drawn
                 continue
-            seen.add(k)
+            seen.add(kk)
             tags = (["approx"] if sh.pop("approx", False) else []) + (
                 ["conv"] if cls == "smooth" else []
             )
             edges.append({**sh, "role": role, "src3d": s3, "tags": tags})
-    for rb in ribs or ():
-        rp = [[_r(float(x)), _r(float(y))] for x, y in rb]
+    for rp in ribs or ():
+        rp = [[_r(float(x)), _r(float(y))] for x, y in rp]
         loops.append(rp)
         for p, q in zip(rp, rp[1:] + rp[:1]):
-            edges.append({"shape": "line", "p1": p, "p2": q, "role": "thick", "tags": ["rib"]})
+            sh = {"shape": "line", "p1": p, "p2": q}
+            if _key(sh) not in seen:
+                seen.add(_key(sh))
+                edges.append({**sh, "role": "thick", "tags": ["rib"]})
     out = {"edges": edges, "hatch": loops, "wavy": wavy}
-    try:
-        cdir.mkdir(parents=True, exist_ok=True)
-        cfile.write_text(json.dumps(out), encoding="utf-8", newline="\n")
-    except OSError:
-        pass
+    _save(cdir, cfile, out)
     return out
 
 
@@ -347,7 +416,7 @@ def view_project(
     ribs=(),
     hidden=True,
     model="main",
-    half="top",
+    half="right",
 ):
     from .annotate import Hatch
     from .views import Wavy
@@ -359,11 +428,20 @@ def view_project(
         raise InvalidArgument(
             "cut 只能是 None、'full'、'half'", values={"cut": cut}, candidates=["full", "half"]
         )
-    if half not in ("top", "bottom"):
-        raise InvalidArgument("half 只能是 'top' 或 'bottom'", candidates=["top", "bottom"])
+    if half not in ("left", "right", "top", "bottom"):
+        raise InvalidArgument(
+            "half 只能是 'right' / 'left'（以竖直轴分）或 'top' / 'bottom'（以水平轴分）",
+            candidates=["right", "left", "top", "bottom"],
+        )
     if region is not None and not cut:
         cut = "full"
     reg = _pts(v, "region", region) if region is not None else None
+    if ribs and not cut:
+        raise InvalidArgument(
+            "ribs 只用于剖视（肋板纵剖不画剖面线），先给 cut=", values={"cut": cut}
+        )
+    if ribs and ribs[0] and isinstance(ribs[0][0], (int, float)):
+        ribs = [ribs]  # one polygon given as a point list
     rbs = [_pts(v, "ribs[k]", r) for r in ribs or ()]
     mid = model if str(model).startswith("M.") else f"M.{model}"
     data = compute(d, v.name, mid, cut, float(depth), reg, rbs, bool(hidden), half)

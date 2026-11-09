@@ -89,7 +89,22 @@ def _ident(dir):
 
 
 def source_paths(dir):
-    return [p for p in SOURCES if (Path(dir) / p).exists()]
+    """Tracked sources: drawing.py, the log, templates, plus 3D models next to drawing.py (other
+    ``*.py``, ``*.step``/``*.stp``) and sub-directories holding component models (M3)."""
+    dir = Path(dir)
+    out = [p for p in SOURCES if (dir / p).exists()]
+    for f in sorted(dir.iterdir()) if dir.is_dir() else []:
+        if f.name.startswith(".") or f.name in out:
+            continue
+        if f.is_file() and f.suffix.lower() in (".py", ".step", ".stp"):
+            out.append(f.name)
+        elif (
+            f.is_dir()
+            and f.name not in ("templates", "__pycache__")
+            and any(f.glob("model.py")) | any(f.glob("*/model.py"))
+        ):
+            out.append(f.name)
+    return out
 
 
 def dirty_sources(dir):

@@ -242,6 +242,7 @@ class Drawing:
         from .std import load_overlay, load_std, load_template
 
         self._recorder = None
+        self._dir = DRAW_DIR.get()  # the drawing directory (relative model paths, cache)
         self._src_override = None  # replay sets {"edit","line"} while applying a log operation
         self._forced_id = None  # replay sets the recorded ID of the element an op creates
         self._scope = None  # "e7" while a temp script runs: auto names become e7_<n> (SPEC §3.2)

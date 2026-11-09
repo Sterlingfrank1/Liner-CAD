@@ -97,7 +97,7 @@ def test_half_and_local_sections(tmp_path):
         d.view("top").project(region=[(30, -40), (70, -40), (70, -20), (30, -20)], depth=6)
         """,
     ).d
-    assert "H.front.model" in d
+    assert len(d["H.front.model"].loops) == 1  # only the right half is cut
     assert "H.top.model" in d
     assert any(e.kind == "wavy" and e.view == "top" for e in d._els.values())
 
@@ -157,3 +157,40 @@ def test_missing_extra_message(tmp_path):
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
     err = json.loads(out.stdout)
     assert err["code"] == "missing_extra" and "linercad[3d]" in err["hint"]
+
+
+def test_cut_plane_depth_toward_viewer_and_miss(tmp_path):
+    d = make(tmp_path, 'd.view("top").project(cut="full", depth=6)').d
+    assert d["H.top.model"].loops  # z = 6 inside the 12 mm plate
+    with pytest.raises(Exception) as ei:
+        make(tmp_path, 'd.view("top").project(cut="full", depth=50)')  # above the part
+    assert "range" in str(getattr(ei.value, "values", {})) or "depth" in str(ei.value)
+
+
+def test_no_hidden_line_under_reversed_visible_line(tmp_path):
+    d = make(tmp_path, 'd.view("front").project()').d
+    keys = {}
+    for e in edges(d, "front"):
+        if e.shape == "line":
+            k = tuple(sorted([tuple(e._intent["p1"]), tuple(e._intent["p2"])]))
+            assert k not in keys, (e.id, keys.get(k))
+            keys[k] = e.id
+
+
+def test_edit_from_other_cwd_commits_model_and_replays(tmp_path, monkeypatch):
+    from linercad import txn
+
+    g = tmp_path / "g"
+    txn.init(g)
+    (g / "model.py").write_text(MODEL, encoding="utf-8")
+    (g / "e1.py").write_text(
+        'def apply(d):\n    d.model("model.py")\n    d.view("front").project(name="shell")\n',
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    out = txn.edit(g, "e1.py", "加 3D 主视图")
+    assert out["ok"], out
+    files = subprocess.run(["git", "ls-files"], cwd=g, capture_output=True, text=True).stdout
+    assert "model.py" in files.split()
+    r = runtime.build(g)
+    assert "F.front.shell" in r.d and not r.stale

@@ -48,7 +48,8 @@ def _box(lo, hi):
 
 def section(shape, view, mode="full", half="top", at=0.0, region=None):
     """``shape`` with the material toward the viewer removed: the whole near half for a full
-    section, the near quarter on the ``half`` side for a half section (axis through the origin).
+    section, the near quarter on the ``half`` side for a half section (``top`` / ``bottom`` split
+    at the view's horizontal axis, ``left`` / ``right`` at its vertical axis, through the origin).
     ``at``: the cutting plane's model coordinate along the viewing axis; ``region``: view-local
     polygon, a local (broken-out) section removes material only inside it."""
     look, up = CAMERA[view]
@@ -59,9 +60,14 @@ def section(shape, view, mode="full", half="top", at=0.0, region=None):
     else:
         lo[k] = at
     if mode == "half":
-        j = next(i for i in range(3) if up[i])
-        top = (up[j] > 0) == (half == "top")
-        if top:
+        if half in ("top", "bottom"):
+            ax, keep_pos = up, half == "top"
+        elif half in ("left", "right"):
+            ax, keep_pos = _cross(look, up), half == "right"
+        else:
+            raise ValueError(f"half {half!r}")
+        j = next(i for i in range(3) if ax[i])
+        if (ax[j] > 0) == keep_pos:
             lo[j] = 0.0
         else:
             hi[j] = 0.0
@@ -78,19 +84,32 @@ def section(shape, view, mode="full", half="top", at=0.0, region=None):
     return shape - cutter
 
 
-def cut_faces(cut, view, at=0.0):
-    """Planar faces of a sectioned shape lying on the cutting plane (the section area)."""
+def cut_faces(cut, view, at=0.0, original=None):
+    """Planar faces of a sectioned shape lying on the cutting plane and facing the viewer (the
+    section area); faces that already existed in ``original`` (a flush face, nothing cut) are
+    not section area."""
     look, _ = CAMERA[view]
     k = next(i for i in range(3) if look[i])
+
+    def on_plane(f):
+        if f.geom_type.name != "PLANE":
+            return False
+        n = _t(f.normal_at())
+        return n[k] * look[k] < -1 + 1e-6 and abs(_t(f.center())[k] - at) < 1e-4
+
+    old = []
+    if original is not None:
+        old = [(_t(f.center()), round(f.area, 4)) for f in original.faces() if on_plane(f)]
     out = []
     for f in cut.faces():
-        if f.geom_type.name != "PLANE":
+        if not on_plane(f):
             continue
-        n = f.normal_at()
-        if abs(abs(_t(n)[k]) - 1) > 1e-6:
+        c, a = _t(f.center()), round(f.area, 4)
+        if any(
+            abs(a - oa) < 1e-3 and max(abs(x - y) for x, y in zip(c, oc)) < 1e-4 for oc, oa in old
+        ):
             continue
-        if abs(_t(f.center())[k] - at) < 1e-4:
-            out.append(f)
+        out.append(f)
     return out
 
 
