@@ -1,12 +1,13 @@
-// Liner-CAD Viewer v0 — plain JS, no build step (M2 SPEC §2).
+// Liner-CAD Viewer v0 — plain JS, no build step (M2 SPEC §2; M3 S2: versions, compare).
 "use strict";
 const TOKEN = document.querySelector('meta[name="lcad-token"]').content;
 const $ = (id) => document.getElementById(id);
 const S = { version: -1, model: null, byId: {}, sel: [], svg: null, vb: null, full: null, params: [],
-  values: {}, dragging: false, previewTimer: null, previewSeq: 0 };
+  values: {}, dragging: false, previewTimer: null, previewSeq: 0, fitted: false,
+  versions: [], pick: [], cmp: null, busy: false };
 
 async function api(path, body) {
-  const opt = body === undefined ? {} : { method: "POST", body: JSON.stringify(body),
+  const opt = body === undefined ? { headers: { "X-LCAD-Token": TOKEN } } : { method: "POST", body: JSON.stringify(body),
     headers: { "Content-Type": "application/json", "X-LCAD-Token": TOKEN } };
   const r = await fetch(path, opt);
   return r.json();
@@ -27,32 +28,50 @@ function setStatus(st) {
   bar.classList.toggle("has-error", !!st.build_error || st.errors > 0);
   bar.classList.toggle("has-warn", !st.build_error && !st.errors && st.warnings > 0);
   bar.classList.toggle("is-preview", !!st.preview);
+  $("canvas-wrap").classList.toggle("is-preview", !!st.preview);  // marked on the canvas too
+  $("preview-badge").hidden = !st.preview;
   $("st-text").title = st.status || "";
   $("st-text").textContent = (st.status || "") + (st.preview ? " · 预览中（未写回）" : "") +
     (st.build_error ? " · 构建失败：" + st.build_error.message : "");
 }
 
 async function reload(st) {
-  const r = await fetch("/svg?v=" + S.version);
-  if (r.ok) {
+  const m = await api("/api/model");  // first: its content box sets the initial view
+  if (m.ok) {
+    S.model = m; S.byId = {};
+    for (const e of m.elements) S.byId[e.id] = e;
+  }
+  const r = S.cmp ? null : await fetch("/svg?v=" + S.version);  // a compare overlay stays up
+  if (r && r.ok) {
     const text = await r.text();
     $("canvas").innerHTML = text;
     S.svg = $("canvas").querySelector("svg");
     const vb = S.svg.viewBox.baseVal;
     S.full = [vb.x, vb.y, vb.width, vb.height];
+    const first = !S.fitted;
+    if (first) { S.fitted = true; S.vb = fitBox(); }  // first view: the content, not the whole sheet
     if (S.vb) setVB(S.vb); else S.vb = S.full.slice();
     S.svg.removeAttribute("width"); S.svg.removeAttribute("height");
     cacheBoxes();
+    if (first) viewChanged();
   }
-  const m = await api("/api/model");
-  if (m.ok) {
-    S.model = m; S.byId = {};
-    for (const e of m.elements) S.byId[e.id] = e;
-    colour();
-  }
+  if (m.ok && !S.cmp) colour();
   if (!S.dragging && !st.preview) await loadParams();
   S.sel = S.sel.filter((id) => S.byId[id]);
-  markSel(); inspect();
+  markSel(); inspect(); loadVersions();
+}
+
+// the drawing's content (views, dimensions, notes) and the title block plus a margin, as an SVG
+// viewBox (y runs down); the empty rest of the sheet is left out
+function fitBox() {
+  const c = S.model && S.model.content_bbox, t = S.model && S.model.title_bbox;
+  if (!c || !S.full) return S.full ? S.full.slice() : null;
+  const b = t ? [Math.min(c[0], t[0]), Math.min(c[1], t[1]), Math.max(c[2], t[2]), Math.max(c[3], t[3])] : c;
+  const [fx, , fw, fh] = S.full;
+  const m = Math.max(0.08 * Math.max(b[2] - b[0], b[3] - b[1]), 6);
+  const x0 = Math.max(b[0] - m, fx), x1 = Math.min(b[2] + m, fx + fw);
+  const y0 = Math.max(b[1] - m, 0), y1 = Math.min(b[3] + m, fh);
+  return [x0, fh - y1, Math.max(x1 - x0, 1), Math.max(y1 - y0, 1)];
 }
 
 function colour() {
@@ -110,8 +129,10 @@ window.addEventListener("mouseup", (ev) => {
   if (ev.target.closest && ev.target.closest("#canvas")) click(pick(ev), ev.ctrlKey || ev.metaKey);
 });
 window.addEventListener("keydown", (ev) => {
-  if (ev.key === "Escape") { S.sel = []; sendSel(); }
-  if (ev.key === "f" && document.activeElement === document.body) { setVB(S.full.slice()); viewChanged(); }
+  if (ev.key === "Escape") { if (S.cmp) exitCompare(); else { S.sel = []; sendSel(); } }
+  const idle = document.activeElement === document.body;
+  if (ev.key === "f" && idle && S.svg) { setVB(fitBox()); viewChanged(); }
+  if (ev.key === "0" && idle && S.svg) { setVB(S.full.slice()); viewChanged(); }
 });
 
 // nearest element under the cursor: geometric picking on cached child boxes (hairline strokes are
@@ -134,7 +155,7 @@ function cacheBoxes() {
   }
 }
 function pick(ev) {
-  if (!S.svg || !S.boxes) return null;
+  if (!S.svg || !S.boxes || S.cmp) return null;  // no picking in the compare overlay
   const [px, py, sc] = toSvg(ev), tol = 8 * sc;
   let best = null;
   for (const b of S.boxes) {
@@ -150,7 +171,7 @@ function pick(ev) {
 }
 let hovered = null;
 function hover(id) {
-  if (id === hovered || !S.svg) return;
+  if (id === hovered || !S.svg || S.cmp) return;
   if (hovered) for (const g of S.svg.querySelectorAll(`g[data-id="${CSS.escape(hovered)}"]`)) g.classList.remove("hover");
   hovered = id;
   if (id) for (const g of S.svg.querySelectorAll(`g[data-id="${CSS.escape(id)}"]`)) g.classList.add("hover");
@@ -158,6 +179,7 @@ function hover(id) {
 
 // ---- selection ---------------------------------------------------------------------------------
 function click(id, multi) {
+  if (S.cmp) return;
   if (!id) { if (!multi) S.sel = []; }
   else if (multi) S.sel = S.sel.includes(id) ? S.sel.filter((x) => x !== id) : S.sel.concat([id]);
   else S.sel = [id];
@@ -165,7 +187,7 @@ function click(id, multi) {
 }
 function sendSel() { markSel(); inspect(); api("/api/select", { ids: S.sel }); }
 function markSel() {
-  if (!S.svg) return;
+  if (!S.svg || S.cmp) return;
   for (const g of S.svg.querySelectorAll("g[data-id]")) g.classList.toggle("sel", S.sel.includes(g.dataset.id));
 }
 
@@ -180,6 +202,7 @@ function fmt(v, k) {
 
 function inspect() {
   const box = $("insp-body");
+  if (S.cmp) { cmpPanel(box); return; }
   if (!S.sel.length) { box.innerHTML = '<p class="muted">点选图上的元素（Ctrl 多选）</p>'; return; }
   const els = S.sel.map((id) => S.byId[id]).filter(Boolean);
   const refs = els.map((e) => e.ref).join(" ");
@@ -238,11 +261,17 @@ function paramRow(p) {
     <span class="val">${esc(p.value)} ${esc(p.unit || "")}</span></div>
     <input type="range" min="${lo}" max="${hi}" step="${step}" value="${p.value}">
     <div class="err"></div><button type="button" hidden>写回源码</button>`;
-  const inp = row.querySelector("input"), btn = row.querySelector("button");
+  const inp = row.querySelector("input"), btn = row.querySelector("button"), err = row.querySelector(".err");
+  // [写回源码] only for a changed value whose preview the rules accepted: not while the preview is
+  // pending, never for a value that breaks a rule (the reason is shown in the row instead)
+  row.sync = () => { btn.hidden = +inp.value === v0 || row.classList.contains("pending") || row.classList.contains("bad"); };
+  row.setBad = (msg) => { row.classList.add("bad"); err.textContent = "不能写回：" + msg; row.sync(); };
+  row.clearBad = () => { row.classList.remove("bad"); err.textContent = ""; row.sync(); };
   inp.addEventListener("input", () => {
     const v = +inp.value; row.querySelector(".val").textContent = `${v} ${p.unit || ""}`;
     if (v === v0) delete S.values[p.name]; else S.values[p.name] = v;
-    row.classList.toggle("changed", v !== v0); btn.hidden = v === v0;
+    row.classList.toggle("changed", v !== v0);
+    row.classList.add("pending"); row.clearBad();
     S.dragging = true; schedulePreview();
   });
   btn.onclick = () => writeback(p.name, +inp.value);
@@ -256,13 +285,17 @@ function schedulePreview() {
     try { r = await api("/api/preview", { values, seq }); } catch (e) { r = { ok: false, error: { message: String(e) } }; }
     if (seq !== S.previewSeq || r.superseded) return;  // a newer drag superseded this one
     S.dragging = false;
-    for (const row of document.querySelectorAll(".param")) { row.classList.remove("bad"); row.querySelector(".err").textContent = ""; }
+    const rows = [...document.querySelectorAll(".param")];
+    for (const row of rows) row.classList.remove("pending");
     const msg = $("param-msg");
     if (!r.ok) {
       msg.className = "msg bad"; msg.textContent = r.error.message;
-      for (const n of Object.keys(values)) document.querySelector(`.param[data-name="${CSS.escape(n)}"]`)?.classList.add("bad");
+      const bad = new Set(Object.keys(values));  // the changed rows, and the row whose rule failed
+      if (r.error.id) bad.add(r.error.id);
+      for (const row of rows) { if (bad.has(row.dataset.name)) row.setBad(r.error.message); else row.sync(); }
       return;
     }
+    for (const row of rows) row.clearBad();
     msg.className = "msg";
     msg.textContent = Object.keys(values).length ? `预览 ${r.timing_ms} ms` +
       (r.stale_ops && r.stale_ops.length ? `\n失效的日志操作：${r.stale_ops.map((s) => `${s.edit} ${s.op} ${s.id || ""}`).join("；")}` : "") : "";
@@ -277,5 +310,96 @@ async function writeback(name, value) {
   else { msg.className = "msg bad"; msg.textContent = r.error.message + (r.error.hint ? "\n" + r.error.hint : ""); }
 }
 $("btn-reset").onclick = async () => { S.values = {}; await api("/api/preview", { values: {} }); S.version = -2; await loadParams(); };
+
+// ---- versions and compare (M3 S2) -----------------------------------------------------------------
+const vref = (v) => v.edit || v.commit;
+async function loadVersions() {
+  let r;
+  try { r = await api("/api/versions"); } catch (e) { return; }
+  if (!r.ok) return;
+  S.versions = r.versions;
+  S.pick = S.pick.filter((i) => i < S.versions.length);
+  renderVersions();
+}
+function renderVersions() {
+  const list = $("ver-list");
+  list.innerHTML = "";
+  S.versions.forEach((v, i) => {
+    const row = document.createElement("div");
+    row.className = "ver" + (S.pick.includes(i) ? " picked" : "");
+    row.title = `${vref(v)} ${v.message}\n${v.time}`;
+    row.innerHTML = `<span class="vid">${esc(vref(v))}</span><span class="vmsg">${esc(v.message)}</span>` +
+      `<span class="vtime">${esc((v.time || "").slice(5, 16).replace("T", " "))}</span>`;
+    row.onclick = () => pickVersion(i);
+    list.appendChild(row);
+  });
+  $("ver-count").textContent = S.versions.length ? ` (${S.versions.length})` : "";
+  $("ver-hint").textContent = S.pick.length === 1 ? "再点一个版本进入对比" : S.cmp ? "" :
+    S.versions.length > 1 ? "点选两个版本，在画布上叠加对比" : "";
+}
+async function pickVersion(i) {
+  if (S.busy) return;
+  if (S.pick.length >= 2) S.pick = [];
+  S.pick = S.pick.includes(i) ? S.pick.filter((x) => x !== i) : S.pick.concat([i]);
+  renderVersions();
+  if (S.pick.length === 2) await compare(Math.max(...S.pick), Math.min(...S.pick));  // older first
+}
+async function compare(ia, ib) {
+  const a = vref(S.versions[ia]), b = vref(S.versions[ib]);
+  S.busy = true;
+  $("cmp-banner").hidden = false; $("cmp-text").textContent = `对比 ${a} → ${b}：计算中…`;
+  let r;
+  try { r = await api(`/api/diff?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`); }
+  catch (e) { r = { ok: false, error: { message: String(e) } }; }
+  S.busy = false;
+  if (!r.ok) { $("cmp-text").textContent = `对比 ${a} → ${b} 失败：${r.error.message}`; return; }
+  S.cmp = { a, b, summary: r.summary };
+  $("canvas").innerHTML = r.svg;
+  S.svg = $("canvas").querySelector("svg");
+  const vb = S.svg.viewBox.baseVal;
+  S.full = [vb.x, vb.y, vb.width, vb.height];
+  S.svg.removeAttribute("width"); S.svg.removeAttribute("height");
+  S.boxes = []; hovered = null;
+  setVB(S.vb || S.full.slice());  // keep the view the user had
+  const c = r.summary.counts;
+  $("cmp-text").textContent = `对比 ${a} → ${b}：新增 ${c.added} · 删除 ${c.removed} · 意图改动 ${c.intent_changed} · 位置改动 ${c.layout_changed}`;
+  $("canvas-wrap").classList.add("is-compare");
+  renderVersions(); inspect();
+}
+async function exitCompare() {
+  S.cmp = null; S.pick = [];
+  $("cmp-banner").hidden = true; $("canvas-wrap").classList.remove("is-compare");
+  renderVersions();
+  const st = await api("/api/state");
+  S.version = st.version; setStatus(st);
+  await reload(st);  // puts the live drawing back, same view
+}
+$("btn-exit-cmp").onclick = exitCompare;
+
+function cmpPanel(box) {
+  const s = S.cmp.summary;
+  const sect = (title, ids) => !ids.length ? "" : `<h3>${title}（${ids.length}）</h3><div class="idlist">` +
+    ids.slice(0, 60).map((id) => `<a class="ref" data-zoom="${esc(id)}">${esc(id)}</a>`).join(" ") +
+    (ids.length > 60 ? ` … 等 ${ids.length} 个` : "") + "</div>";
+  let h = `<div class="muted">${esc(s.a.ref)} → ${esc(s.b.ref)}　点 ID 缩放到该元素</div>`;
+  h += sect("新增", s.added) + sect("删除", s.removed) + sect("意图改动", s.intent_changed) + sect("位置改动", s.layout_changed);
+  const rows = s.intent_changed.slice(0, 30).map((id) => {
+    const f = (s.details[id] || {}).intent || {};
+    const txt = Object.entries(f).map(([k, [x, y]]) => `${k}: ${fmt(x ?? "—", k)} → ${fmt(y ?? "—", k)}`).join("；");
+    return `<div class="k">${esc(id)}</div><div class="v">${esc(txt)}</div>`;
+  });
+  if (rows.length) h += `<h3>意图变化</h3><div class="kv">${rows.join("")}</div>`;
+  if (!s.added.length && !s.removed.length && !s.intent_changed.length && !s.layout_changed.length) h += '<p class="muted">两个版本没有差别</p>';
+  box.innerHTML = h;
+  for (const a of box.querySelectorAll("a[data-zoom]")) a.onclick = () => zoomTo(a.dataset.zoom);
+}
+function zoomTo(id) {
+  if (!S.svg) return;
+  const gs = S.svg.querySelectorAll(`g[data-id="${CSS.escape(id)}"]`);
+  if (!gs.length) return;
+  const b = gs[gs.length - 1].getBBox();  // B's drawing when both versions have the element
+  const m = Math.max(0.6 * Math.max(b.width, b.height), 12);
+  setVB([b.x - m, b.y - m, b.width + 2 * m, b.height + 2 * m]); viewChanged();
+}
 
 poll();

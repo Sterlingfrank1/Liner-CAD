@@ -343,6 +343,11 @@ def build_commit(dir, msg=None):
 
 
 def edit(dir, script, msg):
+    return edit_full(dir, script, msg)[0]
+
+
+def edit_full(dir, script, msg):
+    """``edit`` plus the final ``BuildResult`` (``lcad export`` writes its files from it)."""
     dir = Path(dir)
     if not msg:
         raise InvalidArgument('lcad edit 需要 -m "<用户原话>"')
@@ -381,7 +386,7 @@ def edit(dir, script, msg):
     for op in filled:
         if op.get("id") and op["id"] not in changed:
             changed.append(op["id"])
-    return {
+    out = {
         "ok": True,
         "edit": edit_id,
         "commit": h,
@@ -391,6 +396,7 @@ def edit(dir, script, msg):
         "warnings": _warnings(r2.findings, base.findings),
         **arts,
     }
+    return out, r2
 
 
 def undo(dir, target, msg=None):

@@ -96,3 +96,7 @@
 | `component` / `std_part` 增加 `at` / `rot`、可选 `name` | DESIGN §3.5 未写装配位置；3D 组合投影需要 |
 | 组件参数缺省值用 AST 读字面量，不执行零件 `drawing.py` | 安全、快；表达式参数不支持，报错提示改写 |
 | 验收 DXF 一份由 ezdxf 生成 | 许可清楚、可复现；另一份为第三方 CAD 产出 |
+| `lcad log` 输出 `{"ok": true, "log": [...]}`，`/api/versions` 输出 `{"ok": true, "versions": [...]}`，不是裸数组 | CLI 约定“每条命令恰好一个 JSON 对象、成功带 `ok`”，裸数组会让成功与失败（对象）形状不一致 |
+| `lcad diff` 的叠加 SVG 写进 `.linercad/tmp/diff-<A>-<B>.svg`（不入库，保留最近 20 个临时文件）；检出用 `git worktree` 而非 `.linercad/cache/`（DESIGN §6） | Agent 需要拿到一个文件路径去看；装配的 `../零件` 相对路径要求整仓库检出 |
+| `lcad export` 的修订记录 = 把标题栏 `revision` 字段设为新版本字母（`set` 操作写进动作日志，随 `eN · 发布 rev-X` 提交）；模板没有 `revision` 字段时不提交，标签打在当前提交并在输出里说明；有未提交的源文件时拒绝 | 内置模板的修订栏只有一格；发布的应是已提交的版本；先写文件后提交，目标被占用时不留下半个版本 |
+| 新的 GET 接口 `/api/versions`、`/api/diff` 也要求令牌（Viewer 页面的 GET 请求现在都带 `X-LCAD-Token`） | 它们触发 git 检出和重建，比只读状态接口重；与 POST 同一套 Host / Origin / 令牌校验 |

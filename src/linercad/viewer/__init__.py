@@ -17,9 +17,10 @@ from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 from .. import svgout
-from ..errors import LinerError
+from ..errors import InvalidArgument, LinerError
 from ..runtime import LOG, SRC, build
 
 STATIC = {
@@ -212,6 +213,8 @@ class Viewer:
             return {
                 "ok": True,
                 "version": self.version,
+                "content_bbox": _content_bbox(r.d),
+                "title_bbox": _title_bbox(r.d),
                 "elements": out,
                 "issues": [
                     {k: f.get(k) for k in ("rule", "id", "severity", "message")} for f in r.findings
@@ -353,9 +356,51 @@ class Viewer:
             self.refresh(force=True)
             return out
 
+    # ---- versions (M3 S2) -------------------------------------------------------------------------
+    def versions(self):
+        from .. import versions
+
+        return {"ok": True, "versions": versions.log(self.dir)}
+
+    def diff(self, a, b=None):
+        """Overlay of two versions (``b`` empty = the working tree). Builds run under the viewer
+        lock: ``redirect_stdout`` in the build pipeline is process-wide."""
+        from .. import versions
+
+        if not a:
+            raise InvalidArgument("缺少版本 a", hint="/api/diff?a=e1&b=e2")
+        with self.lock:
+            summary, svg = versions.compare_revisions(self.dir, a, b or None)
+        return {"ok": True, "summary": summary, "svg": svg}
+
     def current_svg(self):
         with self.lock:
             return self.preview["svg"] if self.preview else self.svg
+
+
+def _content_bbox(d):
+    """Union of the drawn elements' boxes (sheet coordinates) without the sheet frame and the
+    title-block cells: what the initial view fits to. ``None`` for an empty drawing."""
+    boxes = [
+        e.bbox
+        for e in d._els.values()
+        if e._prims and e.bbox and e.kind not in ("frame", "table.cell")
+    ]
+    if not boxes:
+        return None
+    return [
+        min(b[0] for b in boxes),
+        min(b[1] for b in boxes),
+        max(b[2] for b in boxes),
+        max(b[3] for b in boxes),
+    ]
+
+
+def _title_bbox(d):
+    """The title block's box (sheet coordinates); the initial view keeps it in sight."""
+    tb = d.template["title_block"]
+    ox, oy = tb["origin"]
+    return [ox, oy, ox + tb["size"][0], oy + tb["size"][1]]
 
 
 def _num(v):
@@ -506,7 +551,22 @@ def make_handler(viewer: Viewer):
                     return self._json(viewer.model())
                 if path == "/api/params":
                     return self._json(viewer.params())
+                if path in ("/api/versions", "/api/diff"):  # git work: same guards as POST
+                    if not self._authorized():
+                        return self._json(
+                            {
+                                "ok": False,
+                                "error": {"code": "forbidden", "message": "origin / token"},
+                            },
+                            403,
+                        )
+                    if path == "/api/versions":
+                        return self._json(viewer.versions())
+                    q = {k: v[0] for k, v in parse_qs(urlsplit(self.path).query).items()}
+                    return self._json(viewer.diff(q.get("a", ""), q.get("b", "")))
                 self._json({"ok": False, "error": {"code": "not_found", "message": path}}, 404)
+            except LinerError as e:
+                self._json({"ok": False, "error": e.to_dict()}, 400)
             except Exception as e:  # noqa: BLE001
                 self._json({"ok": False, "error": {"code": "internal", "message": str(e)}}, 500)
 
@@ -514,10 +574,19 @@ def make_handler(viewer: Viewer):
             port = self.server.server_address[1]
             return self.headers.get("Host", "") in (f"127.0.0.1:{port}", f"localhost:{port}")
 
-        def do_POST(self):  # noqa: N802
-            # same origin + per-run token: another local page cannot drive the service
+        def _authorized(self):  # own Host + same Origin (when sent) + the per-run token
             origin = self.headers.get("Origin")
             host = self.headers.get("Host", "")
+            tok = self.headers.get("X-LCAD-Token", "")
+            return (
+                tok.isascii()
+                and self._host_ok()
+                and not (origin and origin.split("//", 1)[-1] != host)
+                and secrets.compare_digest(tok, viewer.token)
+            )
+
+        def do_POST(self):  # noqa: N802
+            # same origin + per-run token: another local page cannot drive the service
             tok = self.headers.get("X-LCAD-Token", "")
             try:
                 n = int(self.headers.get("Content-Length") or 0)
@@ -527,12 +596,7 @@ def make_handler(viewer: Viewer):
                 return self._json(
                     {"ok": False, "error": {"code": "bad_request", "message": "header"}}, 400
                 )
-            bad = (
-                not self._host_ok()
-                or (origin and origin.split("//", 1)[-1] != host)
-                or not secrets.compare_digest(tok, viewer.token)
-            )
-            if bad:
+            if not self._authorized():
                 return self._json(
                     {"ok": False, "error": {"code": "forbidden", "message": "origin / token"}}, 403
                 )

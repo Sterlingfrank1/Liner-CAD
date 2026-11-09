@@ -241,3 +241,90 @@ def test_context_at_sel_warns_on_an_old_selection(shaft):
     txn.edit(shaft, script, "挪")
     ctx = commands.context(shaft, ["@sel"])
     assert "e0" in ctx["warning"] and ctx["items"][0]["element"]["id"] == "D.L"
+
+
+# ---- M3 S2: versions, compare, fit-to-content ---------------------------------------------------
+
+
+def two_edits(p):
+    for name, body, msg in (
+        ("a.py", 'd["D.L"].tol = "±0.2"', "总长加公差"),
+        ("b.py", 'd.notes.tech("去毛刺。")', "加技术要求"),
+    ):
+        s = p / ".linercad" / "tmp" / name
+        s.write_text(f"def apply(d):\n    {body}\n", encoding="utf-8")
+        assert txn.edit(p, s, msg)["ok"]
+
+
+def test_versions_and_diff_api_behind_the_guards(server):
+    v, base = server
+    two_edits(v.dir)
+    tok = {"X-LCAD-Token": v.token}
+    assert req(base + "/api/versions")[0] == 403  # no token
+    assert req(base + "/api/diff?a=e0&b=e2")[0] == 403
+    assert req(base + "/api/versions", headers={**tok, "Origin": "http://evil.example"})[0] == 403
+    assert req(base + "/api/versions", headers={**tok, "Host": "evil.example"})[0] == 403
+    assert req(base + "/api/diff?a=e0&b=e2", headers={**tok, "Host": "evil.example"})[0] == 403
+    code, body = req(base + "/api/versions", headers=tok)
+    got = json.loads(body)
+    assert code == 200 and got["ok"]
+    assert [r["edit"] for r in got["versions"]] == ["e2", "e1", "e0"]
+    assert set(got["versions"][0]) == {"edit", "commit", "message", "time"}
+    assert got["versions"][0]["message"] == "加技术要求"
+    code, body = req(base + "/api/diff?a=e1&b=e2", headers=tok)
+    got = json.loads(body)
+    assert code == 200 and got["ok"] and got["svg"].startswith("<svg")
+    s = got["summary"]
+    assert any(i.startswith("N.tech") for i in s["added"]) and s["removed"] == []
+    assert s["a"]["ref"] == "e1" and s["b"]["ref"] == "e2" and "svg" not in s
+    assert 'class="df-add"' in got["svg"] and "<style>" not in got["svg"]  # the page CSP
+    code, body = req(base + "/api/diff?a=e0&b=e1", headers=tok)
+    assert json.loads(body)["summary"]["intent_changed"] == ["D.L"]
+    code, body = req(base + "/api/diff?a=e0", headers=tok)  # b omitted: the working tree
+    assert code == 200 and json.loads(body)["summary"]["b"]["ref"] == "working"
+    code, body = req(base + "/api/diff?a=e9&b=e1", headers=tok)
+    assert code == 400 and json.loads(body)["error"]["code"] == "not_found"
+    assert req(base + "/api/diff?b=e1", headers=tok)[0] == 400  # a is required
+    assert not txn.dirty_sources(v.dir)
+    wt = subprocess.run(
+        ["git", "-C", str(v.dir), "worktree", "list"], capture_output=True, text=True
+    ).stdout
+    assert len(wt.splitlines()) == 1
+
+
+def test_model_carries_the_content_box_without_frame_and_title(shaft):
+    v = Viewer(shaft)
+    d = v.res.d
+    box = v.model()["content_bbox"]
+    boxes = [
+        e.bbox
+        for e in d._els.values()
+        if e.bbox and e._prims and e.kind not in ("frame", "table.cell")
+    ]
+    want = [
+        min(b[0] for b in boxes),
+        min(b[1] for b in boxes),
+        max(b[2] for b in boxes),
+        max(b[3] for b in boxes),
+    ]
+    assert box == pytest.approx(want)
+    W, H = d.template["size"]
+    assert 0 < box[0] < box[2] < W and 0 < box[1] < box[3] < H
+    assert box[2] - box[0] < W - 40  # smaller than the sheet: the initial view can zoom in
+    tb = v.model()["title_bbox"]  # the view keeps the title block in sight
+    assert tb == pytest.approx([W - 5 - 180, 5, W - 5, 5 + 56]) and tb[3] - tb[1] == 56
+
+
+def test_viewer_page_has_the_compare_and_preview_hooks():
+    from importlib import resources
+
+    pkg = resources.files("linercad.viewer")
+    html = (pkg / "index.html").read_text(encoding="utf-8")
+    js = (pkg / "viewer.js").read_text(encoding="utf-8")
+    css = (pkg / "viewer.css").read_text(encoding="utf-8")
+    for needle in ("ver-list", "cmp-banner", "btn-exit-cmp", "preview-badge"):
+        assert needle in html, needle
+    for needle in ("/api/versions", "/api/diff", "content_bbox", "exitCompare"):
+        assert needle in js, needle
+    for c in ("df-a", "df-b", "df-add", "df-del", "df-chg", "is-preview"):
+        assert c in css, c

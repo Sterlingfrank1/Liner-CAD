@@ -16,10 +16,21 @@
     <div class="row">
       <button id="btn-reset" type="button" disabled>撤回预览</button>
     </div>
+    <details id="versions" open>
+      <summary>版本<span id="ver-count"></span></summary>
+      <div id="ver-hint" class="muted"></div>
+      <div id="ver-list"></div>
+    </details>
   </section>
   <section id="canvas-wrap" aria-label="图纸">
     <div id="canvas"></div>
-    <div id="hint">滚轮缩放 · 拖动平移 · 单击选中 · Ctrl 多选 · Esc 清空 · F 适应</div>
+    <div id="preview-badge" hidden>预览中 · 未写回源码</div>
+    <div id="cmp-banner" hidden>
+      <span id="cmp-text"></span>
+      <span class="legend"><i class="lg lg-a"></i>A <i class="lg lg-b"></i>B <i class="lg lg-add"></i>新增 <i class="lg lg-del"></i>删除 <i class="lg lg-chg"></i>改动</span>
+      <button id="btn-exit-cmp" type="button">退出对比</button>
+    </div>
+    <div id="hint">滚轮缩放 · 拖动平移 · 单击选中 · Ctrl 多选 · Esc 清空 · F 适应内容 · 0 整张图纸</div>
   </section>
   <section id="inspector" aria-label="检查器">
     <h2>检查器</h2>
