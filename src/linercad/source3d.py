@@ -17,7 +17,7 @@ from .errors import InvalidArgument, LinerError, NotFound
 from .hlr import _t
 from .model import DRAW_DIR, Element, check_name
 
-CACHE_VERSION = 1
+CACHE_VERSION = 2
 TOL = 0.01  # curve fitting, mm
 MATCH = 0.05  # projected edge ↔ model edge, mm
 
@@ -378,6 +378,14 @@ def compute(d, view, model, cut, depth, region, ribs, hidden, half="right"):
     hatch, pieces, idx = [], [], []
     for cid, shp, solid in srcs:
         piece = shp
+        if cut and solid and region is None:
+            bb = shp.bounding_box()
+            near = min(
+                -look[k] * (bb.min.X, bb.min.Y, bb.min.Z)[k],
+                -look[k] * (bb.max.X, bb.max.Y, bb.max.Z)[k],
+            )
+            if near > depth + 1e-6:
+                continue  # wholly on the viewer's side of the plane: removed with the cut material
         if cut and not solid:
             piece = hlr.section(shp, view, cut, half=half, at=at, region=region)
             loops = []
@@ -389,7 +397,7 @@ def compute(d, view, model, cut, depth, region, ribs, hidden, half="right"):
                 hatch.append({"loops": loops, "component": cid, "angle": ang, "spacing": sp})
         pieces.append((cid, piece))
         idx += [(cid, *x) for x in _model_index(shp, view)]
-    if cut and not hatch:
+    if cut and not hatch and any(not solid for _, _, solid in srcs):
         vals = []
         for _, shp, _ in srcs:
             bb = shp.bounding_box()

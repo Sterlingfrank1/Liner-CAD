@@ -1070,7 +1070,7 @@ class _ViewLayout:
     def balloons(self):
         """Assembly balloons (GB/T 4458.2): a dot on the part, a thin leader, the number in a
         circle; circles in a column left of / a row above the view, leaders not crossing."""
-        bs = sorted(self.els("balloon"), key=lambda e: e._intent["number"])
+        bs = sorted(self.els("balloon"), key=lambda e: e.number or 0)
         if not bs:
             return
         h = 5.0
@@ -1099,6 +1099,23 @@ class _ViewLayout:
                 pos[i] = max(pos[i], pos[i - 1] + step)
             shift = (sum(t[1][k] for t in items) - sum(pos)) / len(pos)
             pos = [p + shift for p in pos]
+
+            def centre(p, side=side):
+                return {
+                    "left": (B[0] - gap - r, p),
+                    "right": (B[2] + gap + r, p),
+                    "top": (p, B[3] + gap + r),
+                }.get(side, (p, B[1] - gap - r))
+
+            for _ in range(len(items) ** 2):  # swap slots until no two leaders cross
+                done = True
+                for i in range(len(items)):
+                    for j in range(i + 1, len(items)):
+                        if _seg_cross(items[i][1], centre(pos[i]), items[j][1], centre(pos[j])):
+                            pos[i], pos[j] = pos[j], pos[i]
+                            done = False
+                if done:
+                    break
             for (e, A), p in zip(items, pos):
                 if side == "left":
                     c = (B[0] - gap - r, p)
@@ -1122,7 +1139,7 @@ class _ViewLayout:
                     Line(A, q, "thin"),
                     Solid((w_, n_, e_), "thin"),  # the dot: two triangles (DXF SOLID)
                     Solid((w_, s_, e_), "thin"),
-                    make_text(str(e._intent["number"]), c, h, self.std, layer="text"),
+                    make_text(str(e.number), c, h, self.std, layer="text"),
                 ]
                 self.put(e, prims)
 
@@ -1425,6 +1442,15 @@ BOM_COLS = (("序号", 8), ("代号", 40), ("名称", 44), ("数量", 8), ("材�
 BOM_ROW = 7.0
 
 
+def _seg_cross(a, b, c, d):
+    def orient(p, q, r):
+        return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+
+    d1, d2 = orient(c, d, a), orient(c, d, b)
+    d3, d4 = orient(a, b, c), orient(a, b, d)
+    return d1 * d2 < 0 and d3 * d4 < 0
+
+
 def bom_prims(rows, TB, std):
     """Parts list on top of the title block: header row at the bottom, item 1 just above it."""
     x0, x1, y0 = TB[0], TB[2], TB[3]
@@ -1434,9 +1460,9 @@ def bom_prims(rows, TB, std):
         xs.append(xs[-1] + w)
     n = len(rows)
     top = y0 + BOM_ROW * (n + 1)
+    # GB/T 10609.2: vertical lines thick, horizontal lines thin (the top one too)
     prims = [Line((x, y0), (x, top), "thick") for x in xs]
-    prims += [Line((x0, y0 + BOM_ROW * k), (x1, y0 + BOM_ROW * k), "thin") for k in range(1, n + 1)]
-    prims.append(Line((x0, top), (x1, top), "thin"))
+    prims += [Line((x0, y0 + BOM_ROW * k), (x1, y0 + BOM_ROW * k), "thin") for k in range(1, n + 2)]
 
     def cell(text, k, j):
         if text in ("", None):

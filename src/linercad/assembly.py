@@ -18,7 +18,7 @@ from .model import DRAW_DIR, Element, check_name, num
 
 # GB/T 4458.6 (ISO 128-50): adjacent parts differ in hatch direction or spacing
 PALETTE = [(45, None), (135, None), (45, 1.5), (135, 1.5), (60, None), (120, None)]
-SOLID_KINDS = ("bolt", "pin", "csk_screw", "set_screw")  # not cut in a longitudinal section
+SOLID_KINDS = ("bolt", "nut", "washer", "pin", "csk_screw", "set_screw")  # GB/T 4458.6: not cut
 
 
 class Component(Element):
@@ -39,7 +39,7 @@ class Balloon(Element):
     LAYOUT = ("side",)
     READ = ("number", "component")
 
-    number = property(lambda s: s._intent["number"])
+    number = property(lambda s: number(s._d, s._intent["component"]))
     component = property(lambda s: s._intent["component"])
 
 
@@ -60,6 +60,20 @@ def _need_assembly(d):
     if getattr(d, "kind", "part") != "assembly":
         raise InvalidArgument(
             "组件只能加在装配图里", hint='Drawing(kind="assembly")', values={"kind": d.kind}
+        )
+
+
+def _before_projection(d):
+    done = [
+        e.id
+        for e in d._els.values()
+        if e.kind == "feature" and e._intent.get("type") == "projection"
+    ]
+    if done:
+        raise InvalidArgument(
+            "组件要在视图投影（V.project）之前加，否则不会出现在视图里",
+            id=done[0],
+            hint="加组件属于结构改动：改 drawing.py，把 d.component / d.std_part 放在 project() 前面，再 lcad build -m",
         )
 
 
@@ -118,6 +132,7 @@ def _rot(rot):
 
 def drawing_component(d, path, name=None, at=(0, 0, 0), rot=(0, 0, 0), params=None, solid=False):
     _need_assembly(d)
+    _before_projection(d)
     p = _dir(d) / str(path)
     if not (p / "model.py").is_file():
         raise NotFound(
@@ -137,10 +152,10 @@ def drawing_component(d, path, name=None, at=(0, 0, 0), rot=(0, 0, 0), params=No
             values={"params": over},
             candidates=list(part["params"]),
         )
-    h = hashlib.sha1(
-        (p / "model.py").read_bytes()
-        + ((p / "drawing.py").read_bytes() if (p / "drawing.py").is_file() else b"")
-    ).hexdigest()[:12]
+    hh = hashlib.sha1()
+    for f in sorted(p.glob("*.py")):
+        hh.update(f.name.encode() + f.read_bytes())
+    h = hh.hexdigest()[:12]
     pl = _places(at)
     intent = {
         "name": name,
@@ -153,18 +168,27 @@ def drawing_component(d, path, name=None, at=(0, 0, 0), rot=(0, 0, 0), params=No
         "title": part["title"],
         "hash": h,
     }
-    return d._add(Component(d, f"A.{name}", intent))
+    return _with_balloon(d, d._add(Component(d, f"A.{name}", intent)))
+
+
+def _with_balloon(d, c):
+    bom = d._els.get("T.bom")
+    if bom is not None:
+        balloon_for(d, c, bom._intent["balloons"])
+    return c
 
 
 def drawing_std_part(d, std, spec, qty=None, name=None, at=(0, 0, 0), rot=(0, 0, 0)):
     from . import res
 
     _need_assembly(d)
+    _before_projection(d)
     info = res.std_part(std, spec)
     pl = _places(at)
     if qty is not None and int(qty) < len(pl):
         raise InvalidArgument("qty 小于放置位置数", values={"qty": qty, "at": len(pl)})
-    name = check_name(name or f"{info['kind']}_{info['d']:g}")
+    stem = f"{info['kind']}_{info['d']:g}" + (f"x{info['l']:g}" if "l" in info else "")
+    name = check_name(name or stem.replace(".", "_"))
     intent = {
         "name": name,
         "std": info["std"],
@@ -176,7 +200,7 @@ def drawing_std_part(d, std, spec, qty=None, name=None, at=(0, 0, 0), rot=(0, 0,
         "qty": int(qty) if qty is not None else len(pl),
         "title": {"name": info["name"]},
     }
-    return d._add(Component(d, f"A.{name}", intent))
+    return _with_balloon(d, d._add(Component(d, f"A.{name}", intent)))
 
 
 def components(d):
@@ -276,6 +300,7 @@ def parts_key(d):
             c._intent["at"],
             c._intent["rot"],
             c._intent.get("spec"),
+            c._intent.get("info"),
             c.solid,
         ]
         for c in components(d)
@@ -313,7 +338,7 @@ def bom_rows(d):
     for k, c in enumerate(components(d), 1):
         t = c._intent.get("title", {})
         if c.std:
-            code = f"{c.std.rsplit('-', 1)[0]}"
+            code = c.std
             name = f"{t.get('name', '')} {c.spec}"
         else:
             code = t.get("drawing_no", "")
@@ -332,37 +357,35 @@ def bom_rows(d):
     return rows
 
 
-def drawing_balloons(d, view="front"):
-    _need_assembly(d)
-    v = d._els.get(f"V.{view}")
-    if v is None:
-        raise NotFound(f"视图 {view} 不存在", id=f"V.{view}", candidates=[e.id for e in d.views()])
-    out = []
-    for k, c in enumerate(components(d), 1):
-        a = anchor(d, view, c.id)
+def number(d, cid):
+    """Balloon number = the component's row in the parts list."""
+    ids = [c.id for c in components(d)]
+    return ids.index(cid) + 1 if cid in ids else None
+
+
+def balloon_for(d, c, view):
+    """Balloon ``B.<component name>`` for component ``c`` in ``view`` (else another projected
+    view); None when the component shows in no view."""
+    views = [view] + [v.name for v in d.views() if v.name != view]
+    for vn in views:
+        a = anchor(d, vn, c.id)
         if a is None:
             continue
-        bid = f"B.{k}"
-        out.append(
-            d._add(
-                Balloon(
-                    d,
-                    bid,
-                    {
-                        "view": view,
-                        "number": k,
-                        "component": c.id,
-                        "anchor": [round(a[0], 3), round(a[1], 3)],
-                    },
-                    refs=[v.id, c.id],
-                )
-            )
-        )
-    return out
+        intent = {"view": vn, "component": c.id, "anchor": [round(a[0], 3), round(a[1], 3)]}
+        return d._add(Balloon(d, f"B.{c.name}", intent, refs=[f"V.{vn}", c.id]))
+    return None
+
+
+def drawing_balloons(d, view="front"):
+    _need_assembly(d)
+    if f"V.{view}" not in d._els:
+        raise NotFound(f"视图 {view} 不存在", id=f"V.{view}", candidates=[e.id for e in d.views()])
+    return [b for c in components(d) if (b := balloon_for(d, c, view)) is not None]
 
 
 def anchor(d, view, cid):
-    """A point of the component in the view: inside its section area, else on its longest edge."""
+    """A point inside the component in the view: in its section area, else the middle of its
+    visible outline (on the axis for bolts, pins and shafts; GB/T 4458.2)."""
     from .views import point_in_poly
 
     for e in d._els.values():
@@ -374,7 +397,7 @@ def anchor(d, view, cid):
             p = _inside(big, loops, point_in_poly)
             if p:
                 return p
-    best = None
+    xs, ys = [], []
     for e in d._els.values():
         if (
             e.kind == "edge"
@@ -382,10 +405,13 @@ def anchor(d, view, cid):
             and e._intent.get("component") == cid
             and e._intent["role"] != "hidden"
         ):
-            L = e.length
-            if best is None or L > best[0]:
-                best = (L, e.mid)
-    return best[1] if best else None
+            for p in (e.start, e.end, e.mid):
+                if p is not None:
+                    xs.append(p[0])
+                    ys.append(p[1])
+    if not xs:
+        return None
+    return ((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2)
 
 
 def _area(lp):

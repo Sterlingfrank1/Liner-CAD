@@ -65,13 +65,14 @@ d.bom()
 """
 
 
-def make(tmp_path, extra="", D=20):
+def make(tmp_path, extra="", D=20, pre=""):
     for name, (model, drawing) in PARTS.items():
         p = tmp_path / "parts" / name
         p.mkdir(parents=True, exist_ok=True)
         (p / "model.py").write_text(textwrap.dedent(model), encoding="utf-8")
         (p / "drawing.py").write_text(textwrap.dedent(drawing), encoding="utf-8")
     src = ASM.format(extra=extra).replace("Param(20,", f"Param({D},")
+    src = src.replace('front = d.view("front")', pre + '\nfront = d.view("front")')
     (tmp_path / "drawing.py").write_text(src, encoding="utf-8")
     return runtime.build(tmp_path)
 
@@ -82,9 +83,10 @@ def test_bom_rows_and_balloons(tmp_path):
     rows = d["T.bom"].rows
     assert [x["name"] for x in rows] == ["底座", "轴套", "轴", "平垫圈 6"]
     assert rows[0]["code"] == "T-01" and rows[0]["material"] == "HT200"
-    assert rows[3]["code"] == "GB/T 97.1" and rows[3]["qty"] == 2
+    assert rows[3]["qty"] == 2
     balloons = [e for e in d._els.values() if e.kind == "balloon"]
-    assert [b.number for b in balloons] == [1, 2, 3, 4]
+    assert sorted(b.number for b in balloons) == [1, 2, 3, 4]
+    assert d["B.washer"].number == 4 and rows[3]["code"] == "GB/T 97.1-2002"
     assert all(b._prims for b in balloons)
     errs = [f for f in r.findings if f["severity"] == "error"]
     assert not errs, errs
@@ -138,5 +140,29 @@ def test_std_part_resource_and_errors(tmp_path):
 
 def test_component_unknown_param_reported(tmp_path):
     with pytest.raises(Exception) as ei:
-        make(tmp_path, extra='d.component("parts/base", name="b2", params={"X": 1})')
+        make(tmp_path, pre='d.component("parts/base", name="b2", params={"X": 1})')
     assert "X" in str(ei.value) or "L" in getattr(ei.value, "candidates", [])
+
+
+def test_component_after_projection_refused_and_washers_not_cut(tmp_path):
+    with pytest.raises(Exception) as ei:
+        make(tmp_path, extra='d.std_part("GB/T 5782", "M6×30", at=(0, 30, 20))')
+    assert "project" in str(ei.value)
+    d = make(tmp_path).d
+    assert not [
+        e for e in d._els.values() if e.kind == "hatch" and e._intent.get("component") == "A.washer"
+    ]
+
+
+def test_balloon_leaders_do_not_cross(tmp_path):
+    from linercad.layout import Line, _seg_cross
+
+    d = make(tmp_path).d
+    leaders = [
+        next(p for p in b._prims if isinstance(p, Line))
+        for b in d._els.values()
+        if b.kind == "balloon"
+    ]
+    for i, a in enumerate(leaders):
+        for b in leaders[i + 1 :]:
+            assert not _seg_cross(a.p, a.q, b.p, b.q)
