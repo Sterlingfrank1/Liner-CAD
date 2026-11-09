@@ -17,7 +17,7 @@ from .errors import InvalidArgument, LinerError, NotFound
 from .hlr import _t
 from .model import DRAW_DIR, Element, check_name
 
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 TOL = 0.01  # curve fitting, mm
 MATCH = 0.05  # projected edge ↔ model edge, mm
 
@@ -398,7 +398,7 @@ def compute(d, view, model, cut, depth, region, ribs, hidden, half="right"):
             loops = []
             for f in hlr.cut_faces(piece, view, at, original=shp):
                 loops.append(_wire_pts(f.outer_wire(), view))
-                loops.extend(_wire_pts(w, view) for w in f.inner_wires())
+                loops.extend(_wire_pts(w, view) for w in f.inner_wires() if w.edges())
             if loops:
                 ang, sp = styles.get(cid, (None, None))
                 hatch.append({"loops": loops, "component": cid, "angle": ang, "spacing": sp})
@@ -468,7 +468,7 @@ def compute(d, view, model, cut, depth, region, ribs, hidden, half="right"):
             if _key(sh) not in seen:
                 seen.add(_key(sh))
                 edges.append({**sh, "role": "thick", "tags": ["rib"]})
-    out = {"edges": edges, "hatch": hatch, "wavy": wavy}
+    out = {"edges": _merge_arcs(edges), "hatch": hatch, "wavy": wavy}
     _save(cdir, cfile, out)
     return out
 
@@ -478,6 +478,48 @@ def _near(shape, look, k):
     bb = shape.bounding_box()
     lo, hi = (bb.min.X, bb.min.Y, bb.min.Z)[k], (bb.max.X, bb.max.Y, bb.max.Z)[k]
     return min(-look[k] * lo, -look[k] * hi)
+
+
+def _merge_arcs(edges):
+    """Arcs split at a cylinder seam (or by HLR) on the same circle → one arc, or one circle when
+    they close the full turn; so ``d.q.circles`` finds projected holes and bosses."""
+    groups, rest = {}, []
+    for e in edges:
+        if e["shape"] == "arc":
+            key = (
+                round(e["c"][0], 3),
+                round(e["c"][1], 3),
+                round(e["r"], 3),
+                e["role"],
+                e.get("component"),
+            )
+            groups.setdefault(key, []).append(e)
+        else:
+            rest.append(e)
+    out = list(rest)
+    for arcs in groups.values():
+        arcs.sort(key=lambda a: a["start"] % 360)
+        merged = [dict(arcs[0])]
+        for a in arcs[1:]:
+            m = merged[-1]
+            if (
+                abs((a["start"] - m["end"]) % 360) < 1e-2
+                or abs((a["start"] - m["end"]) % 360 - 360) < 1e-2
+            ):
+                m["end"] = a["end"]
+            else:
+                merged.append(dict(a))
+        if len(merged) > 1:
+            f, l_ = merged[0], merged[-1]
+            if abs((f["start"] - l_["end"]) % 360) < 1e-2:  # wrap-around join
+                l_["end"] = f["end"]
+                merged = merged[1:]
+        for m in merged:
+            if abs((m["end"] - m["start"]) % 360) < 1e-2:
+                m = {k: v for k, v in m.items() if k not in ("start", "end")}
+                m["shape"] = "circle"
+            out.append(m)
+    return out
 
 
 def _owner_index(pieces, view, hidden):

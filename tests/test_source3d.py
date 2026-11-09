@@ -194,3 +194,12 @@ def test_edit_from_other_cwd_commits_model_and_replays(tmp_path, monkeypatch):
     assert "model.py" in files.split()
     r = runtime.build(g)
     assert "F.front.shell" in r.d and not r.stale
+
+
+def test_split_arcs_merge_into_circle():
+    from linercad.source3d import _merge_arcs
+
+    a = {"shape": "arc", "c": [0, 0], "r": 5, "start": 0, "end": 180, "role": "thick"}
+    b = {**a, "start": 180, "end": 360}
+    out = _merge_arcs([a, b, {"shape": "line", "p1": [0, 0], "p2": [1, 0], "role": "thick"}])
+    assert sorted(e["shape"] for e in out) == ["circle", "line"]
