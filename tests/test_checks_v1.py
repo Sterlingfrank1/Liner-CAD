@@ -141,10 +141,17 @@ def test_accept_any_rule(shaft):
     assert not by_rule(run(d2), "param_cover")
 
 
-def test_forbidden_datum_letter(shaft):
+def test_discouraged_datum_letter_warns(shaft):
     d, P, f = shaft
     f.datum("I", ref="D.D")
-    assert [x for x in by_rule(run(d), "datum_letter") if x["severity"] == "error"]
+    assert [x["severity"] for x in by_rule(run(d), "datum_letter")] == ["warn"]
+
+
+def test_datum_letter_outside_gb_17851_note_is_allowed(shaft):
+    # GB/T 17851-2010 6.2 note 2 names only I, O, Q, X; the old E F J L M P R list is not applied
+    d, P, f = shaft
+    f.datum("E", ref="D.D")
+    assert not by_rule(run(d), "datum_letter")
 
 
 def test_coaxiality_on_axis_needs_dia_zone(shaft):
