@@ -59,9 +59,10 @@ def test_issue_colours_match_lcad_check(tmp_path):
     txn.init(p, from_="flange")
     script = p / ".linercad" / "tmp" / "x.py"
     script.write_text(
-        'def apply(d):\n    d.view("front").datum("I", ref="D.D")\n', encoding="utf-8"
+        'def apply(d):\n    d.view("front").gtol("zz", "perpendicularity", 0.03, datums=["Z"], ref="D.D")\n',
+        encoding="utf-8",
     )
-    assert txn.edit(p, script, "加基准")["ok"]  # a forbidden datum letter: an error finding
+    assert txn.edit(p, script, "加形位公差")["ok"]  # an undefined datum reference: an error finding
     v = Viewer(p)
     seen = {(i["rule"], i["id"], i["severity"]) for i in v.model()["issues"]}
     chk = commands.check(p)

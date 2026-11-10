@@ -26,10 +26,11 @@ iso = "ISO 773 / ISO 2491"
 unit = "mm"
 source = """b, h, t1, t2 for d over 6 up to 130 mm: matched row by row against fasten.it/en/norms/norm/din_6885-1 (DIN 6885-1, all 26 rows up to 500 mm), \
 aimsindustrial.com.au/blogs/product-guides/keyway-guide (ISO 773) and a Maryland Metrics key table (mdmetric.com, PDF at eclass.upatras.gr). Rows above 130 mm (36x20 ... 100x50) are not recorded because their depth tolerance group is not verified. \
-Depth deviation tol (t1 and t2 are +tol/0): +0.1/0 for 2x2 to 6x6 and +0.2/0 from 8x7 on, as in the JIS B 1301-1996 table (mikipulley.co.jp/en/resources/parallel-key-and-keyway-dimensions-and-tolerances, same as ISO 773), \
-the +0.2 group carrying on to 32x18 because that table shows no larger value; GB/T 1095-2003 itself was not read. \
-The (d - t1) dimension takes the sign-reversed deviation of t1 and (d + t2) the deviation of t2 (the convention of the standard, not seen in a fetched page). \
-Key width fits normal (N9 shaft, JS9 hub) and close (P9, P9): JIS B 1301-1996 on the Miki Pulley page above. The loose fit (H9, D10) is not recorded. \
+Depth deviation tol (t1 and t2 are +tol/0): +0.1/0 for 2x2 to 6x6, +0.2/0 for 8x7 to 32x18 (+0.3/0 from 36x20, not recorded here). Read on 2026-11-10 from the GB/T 1095-2003 keyway cross-section table as reproduced by www.164580.com/info_416738.html (groups taken from the table's merged cells), \
+in agreement with the JIS B 1301-1996 table (mikipulley.co.jp/en/resources/parallel-key-and-keyway-dimensions-and-tolerances, same as ISO 773). The 164580 page prints t1 = 5 for 14x9, a typo: the other three sources give 5.5, and t1 + t2 = h + 0.3 holds for every neighbouring row with 4 <= h <= 10; 5.5 is kept. \
+GB/T 1095-2003 itself was not read, only that web reproduction. The shaft-diameter ranges (d over / up to) are not on that page; they stay from DIN 6885-1 / ISO 773. \
+The (d - t1) dimension takes the sign-reversed deviation of t1 and (d + t2) the deviation of t2 (the convention of the standard; the 164580 page has no note on it, so still not seen). \
+Key width fits normal (N9 shaft, JS9 hub) and close (P9, P9): on the 164580 page (GB/T 1095-2003) and in JIS B 1301-1996. Its loose fit (H9 shaft, D10 hub) is not recorded. \
 Key length series: the part common with DIN 6885-1 (fasten.it) up to 280 mm; the GB/T 1096-2003 series above 280 mm was not verified."""
 
 [width_fit.normal]

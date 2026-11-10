@@ -1,12 +1,12 @@
-# Letters that must not be used as datum letters.
+# Letters recommended not to be used as datum letters (a recommendation in a note, not a prohibition).
 [ISO]
 std = "ISO 5459:2011"
 letters = ["I", "O", "Q", "X"]
-verified = true
-source = "Datum label rule of the PTC Creo Parametric model-based definition help for ISO datum labels (support.ptc.com/help/creo/creo_plus/usascii/model-based_definition/gdt_datum_label_invalid_2.html): may not include I, O, Q or X. A software rule, not the clause of ISO 5459 itself, which was not read."
+verified = false
+source = "Datum label rule of the PTC Creo Parametric model-based definition help for ISO datum labels (support.ptc.com/help/creo/creo_plus/usascii/model-based_definition/gdt_datum_label_invalid_2.html): may not include I, O, Q or X. A software rule, not the clause of ISO 5459 itself, which was not read. GB/T 17851-2010 clause 6.2 note 2 gives the same set (see [GB]); how it corresponds to ISO 5459 was not checked."
 
 [GB]
-std = "GB/T 1182-2018"
+std = "GB/T 17851-2010"
 letters = ["I", "O", "Q", "X"]
-verified = false
-source = "NOT VERIFIED. GB/T 1182-2018 and GB/T 17851-2010 could not be read; the ISO set is repeated because GB/T 1182-2018 is a modified adoption of ISO 1101:2017 / ISO 5459:2011. The older GB/T 1182-1996 is thought to have excluded more letters (E F I J L M O P R); not checked."
+verified = true
+source = "GB/T 17851-2010 clause 6.2 (基准字母) note 2: 建议不要用字母 I, O, Q 和 X. Read from a page image supplied by the user on 2026-11-10; clause 6.1 of that page refers the datum symbol to GB/T 1182, so GB/T 1182-2018 itself was not read. The longer list E F I J L M O P R thought to belong to GB/T 1182-1996 is not in this text and is not applied."

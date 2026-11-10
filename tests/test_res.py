@@ -292,7 +292,9 @@ def test_spline_unknown_gives_candidates():
 def test_datum_excluded_letters_and_roughness_series():
     iso = res.datum_excluded("ISO")
     assert iso["letters"] == ["I", "O", "Q", "X"] and "5459" in iso["std"] and iso["source"]
-    assert res.datum_excluded("GB")["std"].startswith("GB/T 1182")
+    gb = res.datum_excluded("GB")
+    assert gb["std"] == "GB/T 17851-2010" and gb["letters"] == ["I", "O", "Q", "X"]
+    assert gb["verified"] is True and not iso["verified"]
     with pytest.raises(InvalidArgument):
         res.datum_excluded("DIN")
     ra = res.rough_series()
