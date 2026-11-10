@@ -1,13 +1,28 @@
-# Centre holes, type A (without protecting chamfer, 60°)
+# Centre holes, 60 deg: type A (without protecting chamfer) and type B (with 120 deg protecting chamfer)
 [meta]
 std = "GB/T 145-2001"
 iso = "ISO 866:1975 Annex, Table 2"
+iso_B = "ISO 2540:1973 Annex (type B centre holes), same Annex A in ISO 2540:2016"
 source = "ISO 866:1975 preview (standards.iteh.ai sample), Annex Table 2, method 1: d nominal, D nominal, t reference value; GB/T 145-2001 type A uses the same d / D pairs"
+source_B = """GB/T 145-2001 Table 2 (type B) as printed on the YJT database page www.164580.com/info_369427.html and in the handbook page www.jlc-jdgf.com/mcbook/new01368.htm (mirrored at dev.inkcad.com), read 2026-11-09 and parsed from the HTML tables; the standard itself was not read. \
+The two pages agree in every cell of d, D1, D2, l2, t and l_min (the handbook is a second lineage of the same table). \
+Checked independently: D1 equals the type A diameter D and the d2 column of ISO 2540:2016 Table 1 (iTeh preview cdn.standards.iteh.ai/samples/64194/2a14d980bea94904bca92bcfb2a6daf7/ISO-2540-2016.pdf, whose Annex A table is cut off in the preview), \
+and l2 equals the depth of the 60 deg cone plus the 120 deg chamfer, (D1 - d) / 2 / tan 30 + (D2 - D1) / 2 / tan 60, to 0.01 mm for all 11 sizes. \
+The designation (B2.5/8: d / D2) follows the ISO 6411 convention and was not confirmed against the text of GB/T 4459.5."""
 unit = "mm"
-note = "Bracketed sizes of the standard (0.5, 0.63, 0.8, 1.25, 5.0, 8.0) are kept with avoid = true. Type B (ISO 2540) is not recorded."
+note = "Bracketed sizes of the standard (A: 0.5, 0.63, 0.8, 1.25, 5.0, 8.0; B: 1.25, 5.0, 8.0) are kept with avoid = true. Type B: D1 = cone diameter, D2 = protecting chamfer diameter (the manufacturer may give D2 or l2), l_min = minimum depth l1. Types R and C are not recorded."
 
 [A]
 d     = [0.5,  0.63, 0.8,  1.0,  1.25, 1.6,  2.0,  2.5,  3.15, 4.0,  5.0,   6.3,   8.0,   10.0]
 D     = [1.06, 1.32, 1.70, 2.12, 2.65, 3.35, 4.25, 5.30, 6.70, 8.50, 10.60, 13.20, 17.00, 21.20]
 t     = [0.5,  0.6,  0.7,  0.9,  1.1,  1.4,  1.8,  2.2,  2.8,  3.5,  4.4,   5.5,   7.0,   8.7]
 avoid = [true, true, true, false, true, false, false, false, false, false, true, false, true, false]
+
+[B]
+d     = [1.0,  1.25, 1.6,  2.0,  2.5,  3.15, 4.0,  5.0,   6.3,   8.0,   10.0]
+D1    = [2.12, 2.65, 3.35, 4.25, 5.30, 6.70, 8.50, 10.60, 13.20, 17.00, 21.20]
+D2    = [3.15, 4.00, 5.00, 6.30, 8.00, 10.00, 12.50, 16.00, 18.00, 22.40, 28.00]
+l2    = [1.27, 1.60, 1.99, 2.54, 3.20, 4.03, 5.05, 6.41, 7.36, 9.36, 11.66]
+t     = [0.9,  1.1,  1.4,  1.8,  2.2,  2.8,  3.5,  4.4,  5.5,  7.0,  8.7]
+l_min = [2.3,  2.8,  3.5,  4.4,  5.5,  7.0,  8.9,  11.2, 14.0, 17.9, 22.5]
+avoid = [false, true, false, false, false, false, false, true, false, true, false]

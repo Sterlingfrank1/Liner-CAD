@@ -4,7 +4,7 @@
 
 from linercad import Drawing, Param, res
 
-THREAD = "M24x1.5"
+THREAD = "M24x1.5"  # 退刀槽取 res.thread_undercut(THREAD)：槽宽 2.5–4.5、槽底 d − 2.3 = Ø21.7（GB/T 3-1997）
 
 d = Drawing(sheet="A3", std="GB", scale="1:1")
 P = d.params(
@@ -17,7 +17,7 @@ P = d.params(
     d3=Param(44, min=30, max=70, step=1, label="轴肩直径", rule="d3 > d4"),
     d4=Param(36, min=28, max=60, step=1, label="齿轮段直径", tol="n6"),
     tg=Param(4, min=2, max=6, step=0.5, label="退刀槽宽"),
-    dg=Param(21, min=14, max=22, step=0.5, label="退刀槽底径"),
+    dg=Param(21.7, min=14, max=22, step=0.1, label="退刀槽底径"),
     ks=Param(5, min=3, max=12, step=1, label="键槽距轴肩"),
     kl=Param(50, min=30, max=100, step=1, label="键槽长"),
 )

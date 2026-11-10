@@ -18,16 +18,20 @@ from importlib import resources
 from ..errors import InvalidArgument
 
 __all__ = [
+    "center_hole",
     "datum_excluded",
     "std_part",
     "fit",
     "general_tol",
+    "grinding_groove",
     "it",
     "key",
     "rough_series",
     "spline",
     "thread",
     "thread_classes",
+    "thread_runout",
+    "thread_undercut",
 ]
 
 
@@ -323,30 +327,139 @@ def rough_series(param: str = "Ra") -> dict:
 
 
 def center_hole(type: str = "A", d: float = 2.5) -> dict:
-    """Centre hole of ``type`` (only A is recorded) with pilot diameter ``d`` mm:
-    ``{"type", "d", "D", "t", "designation", "std"}``; designation as in GB/T 4459.5 ("A2.5/5.3")."""
+    """Centre hole of ``type`` ("A" or "B"; R and C are not recorded) with pilot diameter ``d`` mm:
+    ``{"type", "d", "D", "t", "avoid", "designation", "std"}``; ``D`` is the diameter in the designation
+    as in GB/T 4459.5 ("A2.5/5.3"; "B2.5/8"). Type A: ``D`` is the cone diameter. Type B adds ``D1``
+    (cone), ``D2`` (protecting chamfer, = ``D``), ``l2`` and ``l_min`` (minimum depth)."""
     data = _table("center_holes")
-    if type not in data or type == "meta":
-        raise InvalidArgument(
-            f"中心孔型式 {type!r} 未录入（只录了 A 型，ISO 866）",
-            candidates=[k for k in data if k != "meta"],
-        )
+    types = [k for k in data if k != "meta"]
+    if type not in types:
+        raise InvalidArgument(f"中心孔型式 {type!r} 未录入（只录了 A、B 型）", candidates=types)
     row = data[type]
     for k, dv in enumerate(row["d"]):
         if abs(dv - d) < 1e-9:
-            D = row["D"][k]
-            return {
-                "type": type,
-                "d": dv,
-                "D": D,
-                "t": row["t"][k],
-                "avoid": row["avoid"][k],
-                "designation": f"{type}{dv:g}/{D:g}",
-                "std": data["meta"]["std"],
-            }
+            out = {"type": type, "d": dv, "t": row["t"][k], "avoid": row["avoid"][k]}
+            if type == "A":
+                out["D"] = row["D"][k]
+            else:
+                out |= {key: row[key][k] for key in ("D1", "D2", "l2", "l_min")}
+                out["D"] = out["D2"]
+            out["designation"] = f"{type}{dv:g}/{out['D']:g}"
+            out["std"] = data["meta"]["std"]
+            return out
     raise InvalidArgument(
-        f"A 型中心孔没有 d = {d}", candidates=[f"{v:g}" for v in row["d"]], values={"d": d}
+        f"{type} 型中心孔没有 d = {d}", candidates=[f"{v:g}" for v in row["d"]], values={"d": d}
     )
+
+
+# ------------------------------------------------ GB/T 3 thread run-outs, shoulders, undercuts
+
+
+def _pitch(spec) -> tuple[float, float | None]:
+    """(P, d) of a pitch (number) or of a thread designation ("M24x1.5", "M10"); d is None for a pitch."""
+    if isinstance(spec, str):
+        t = thread(spec)
+        return t["P"], t["d"]
+    if isinstance(spec, (int, float)) and not isinstance(spec, bool):
+        return float(spec), None
+    raise InvalidArgument(
+        f"螺距应为数或螺纹规格（如 M24x1.5），得到 {spec!r}", values={"spec": spec}
+    )
+
+
+def _by_pitch(rows: list, P: float, what: str) -> dict:
+    row = next((r for r in rows if abs(r["P"] - P) < 1e-9), None)
+    if row is None:
+        near = sorted((r["P"] for r in rows), key=lambda p: abs(p - P))[:4]
+        raise InvalidArgument(
+            f"螺距 {P:g} 不在 GB/T 3 的{what}表中",
+            candidates=sorted(near),
+            values={"P": P},
+            hint=f"表中螺距 {rows[0]['P']:g} 至 {rows[-1]['P']:g}",
+        )
+    return row
+
+
+def thread_undercut(spec, kind: str = "ext") -> dict:
+    """Thread undercut (GB/T 3-1997) for a pitch or a thread designation ("M24x1.5"; "M10" = coarse).
+
+    External (``kind="ext"``): ``g1_min`` (groove width, at least), ``g2_max`` (at most), ``r``, ``dg_offset``
+    and, for a designation, ``d``, ``dg`` = d - dg_offset (the groove diameter) and ``dg_tol`` ("h13",
+    "h12" up to d = 3). Internal (``"int"``): ``G1`` (normal), ``G1_short``, ``R``, ``Dg_offset`` and,
+    for a designation, ``D``, ``Dg`` = D + Dg_offset with ``Dg_tol`` "H13". ``verified`` False: single source."""
+    if kind not in ("ext", "int"):
+        raise InvalidArgument(f"未知螺纹类别 {kind!r}", candidates=["ext", "int"])
+    data = _table("thread_relief")
+    P, d = _pitch(spec)
+    row = _by_pitch(
+        data[f"{kind}_undercut"], P, "外螺纹退刀槽" if kind == "ext" else "内螺纹退刀槽"
+    )
+    tol, std = data["tol"], data["meta"]["std"]
+    verified = data["meta"]["verified"][f"{kind}_undercut"]
+    if kind == "ext":
+        out = {"kind": kind, "P": P, "g1_min": row["g1"], "g2_max": row["g2"], "r": row["r"]}
+        out["dg_offset"] = row["dg_offset"]
+        if d is not None:
+            out |= {"d": d, "dg": round(d - row["dg_offset"], 3)}
+            out["dg_tol"] = tol["ext_dg"] if d > tol["ext_dg_over"] else tol["ext_dg_small"]
+    else:
+        out = {"kind": kind, "P": P, "G1": row["G1"], "G1_short": row["G1_short"], "R": row["R"]}
+        out["Dg_offset"] = row["Dg_offset"]
+        if d is not None:
+            out |= {"D": d, "Dg": round(d + row["Dg_offset"], 3), "Dg_tol": tol["int_Dg"]}
+    return out | {"std": std, "verified": verified}
+
+
+def thread_runout(spec) -> dict:
+    """Thread run-out and shoulder distance (GB/T 3-1997) for a pitch or a thread designation:
+    ``{"P", "ext": {"x", "x_short", "a", "a_short", "a_long"}, "int": {"X", "X_short", "A", "A_long"},
+    "std", "verified": {"ext", "int"}}``; x / X = run-out (max), a / A = shoulder distance (max)."""
+    data = _table("thread_relief")
+    P, _ = _pitch(spec)
+    ext = _by_pitch(data["ext_runout"], P, "外螺纹收尾")
+    inner = _by_pitch(data["int_runout"], P, "内螺纹收尾")
+    meta = data["meta"]
+    return {
+        "P": P,
+        "ext": {k: v for k, v in ext.items() if k != "P"},
+        "int": {k: v for k, v in inner.items() if k != "P"},
+        "std": meta["std"],
+        "verified": {"ext": meta["verified"]["ext_runout"], "int": meta["verified"]["int_runout"]},
+    }
+
+
+# -------------------------------------------------------------- GB/T 6403.5 grinding grooves
+
+
+def grinding_groove(d: float, b1: float | None = None) -> dict:
+    """Grinding wheel relief groove (GB/T 6403.5) for a turned surface of diameter ``d`` mm: the sizes the
+    table offers for that diameter as ``options`` (``b1``, ``b2``, ``h``, ``r``), ``d_range`` = [over, upto]
+    (upto None = unlimited), and the chosen one at top level: the smallest, or the one with ``b1``.
+    ``verified`` False: the table is of the 1986 edition, one lineage."""
+    data = _table("grinding_grooves")
+    if not isinstance(d, (int, float)) or isinstance(d, bool) or d <= 0:
+        raise InvalidArgument(f"磨削直径 d 应为正数，得到 {d!r}", values={"d": d})
+    d = round(float(d), 6)
+    band = [r for r in data["groove"] if r["over"] < d <= r.get("upto", float("inf"))]
+    options = [{k: r[k] for k in ("b1", "b2", "h", "r")} for r in band]
+    pick = options[0]
+    if b1 is not None:
+        pick = next((o for o in options if abs(o["b1"] - b1) < 1e-9), None)
+        if pick is None:
+            raise InvalidArgument(
+                f"d = {d:g} 的越程槽没有 b1 = {b1}",
+                candidates=[o["b1"] for o in options],
+                values={"d": d, "b1": b1},
+            )
+    meta = data["meta"]
+    return {
+        "d": d,
+        "d_range": [band[0]["over"], band[0].get("upto")],
+        **pick,
+        "options": options,
+        "std": meta["std"],
+        "verified": meta["verified"],
+    }
 
 
 _SPEC = {

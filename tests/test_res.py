@@ -414,15 +414,18 @@ def test_thread_undercut_internal_rules():
     for P in (0.5, 0.6, 0.7, 0.75, 0.8, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6):
         u = res.thread_undercut(P, kind="int")
         assert (u["G1"], u["G1_short"]) == (pytest.approx(4 * P), pytest.approx(2 * P))
-        assert u["Dg_offset"] == (0.3 if P <= 0.8 else 0.5) and u["R"] <= 0.5 * P + 0.05
+        assert u["Dg_offset"] == (0.3 if P <= 0.8 else 0.5)
+        assert u["R"] == pytest.approx(0.5 * P, abs=0.06)  # the table's reference value is R = 0.5P
 
 
 def test_thread_runout():
     r = res.thread_runout("M24x1.5")
     assert r["ext"] == {"x": 3.8, "x_short": 1.9, "a": 4.5, "a_short": 3, "a_long": 6}
-    assert r["int"] == {"X": 6, "A": 7, "A_short": 3, "A_long": 12}
+    assert r["int"] == {"X": 6, "X_short": 3, "A": 7, "A_long": 12}
     assert r["std"] == "GB/T 3-1997" and r["P"] == 1.5
-    assert res.thread_runout(1.75)["ext"]["x"] == 4.3  # the GB/T 3 page misprints it; ISO 3508 gives 4.3
+    assert (
+        res.thread_runout(1.75)["ext"]["x"] == 4.3
+    )  # the GB/T 3 page misprints it; ISO 3508 gives 4.3
     with pytest.raises(InvalidArgument):
         res.thread_runout(0.9)
 
@@ -432,8 +435,8 @@ def test_thread_runout_matches_iso_3508(P, x, xs, a, a_short, a_long):
     got = res.thread_runout(P)
     e = got["ext"]
     assert (e["x"], e["x_short"], e["a"], e["a_short"], e["a_long"]) == (x, xs, a, a_short, a_long)
-    assert got["int"]["X"] == pytest.approx(4 * P)  # GB/T 3: internal X = 4P, A short = 2P
-    assert got["int"]["A_short"] == pytest.approx(2 * P)
+    assert got["int"]["X"] == pytest.approx(4 * P)  # GB/T 3: internal run-out X = 4P, short = 2P
+    assert got["int"]["X_short"] == pytest.approx(2 * P)
 
 
 # ---------------------------------------------------------- GB/T 6403.5 grinding wheel grooves

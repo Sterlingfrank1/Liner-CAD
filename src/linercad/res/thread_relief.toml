@@ -1,0 +1,123 @@
+# Metric thread run-outs, shoulders and undercuts (P = pitch). Lengths in mm.
+# ext_*: external threads (x, a, g1, g2, dg, r); int_*: internal threads (X, A, G1, Dg, R).
+# Run-outs and shoulders: x / X = run-out, a / A = shoulder distance; "short" and "long" are the
+# variants of the standard. Groove diameters: dg = d - dg_offset (external), Dg = D + Dg_offset (internal).
+ext_runout = [
+  { P = 0.2, x = 0.5, x_short = 0.25, a = 0.6, a_short = 0.4, a_long = 0.8 },
+  { P = 0.25, x = 0.6, x_short = 0.3, a = 0.75, a_short = 0.5, a_long = 1 },
+  { P = 0.3, x = 0.75, x_short = 0.4, a = 0.9, a_short = 0.6, a_long = 1.2 },
+  { P = 0.35, x = 0.9, x_short = 0.45, a = 1.05, a_short = 0.7, a_long = 1.4 },
+  { P = 0.4, x = 1, x_short = 0.5, a = 1.2, a_short = 0.8, a_long = 1.6 },
+  { P = 0.45, x = 1.1, x_short = 0.6, a = 1.35, a_short = 0.9, a_long = 1.8 },
+  { P = 0.5, x = 1.25, x_short = 0.7, a = 1.5, a_short = 1, a_long = 2 },
+  { P = 0.6, x = 1.5, x_short = 0.75, a = 1.8, a_short = 1.2, a_long = 2.4 },
+  { P = 0.7, x = 1.75, x_short = 0.9, a = 2.1, a_short = 1.4, a_long = 2.8 },
+  { P = 0.75, x = 1.9, x_short = 1, a = 2.25, a_short = 1.5, a_long = 3 },
+  { P = 0.8, x = 2, x_short = 1, a = 2.4, a_short = 1.6, a_long = 3.2 },
+  { P = 1, x = 2.5, x_short = 1.25, a = 3, a_short = 2, a_long = 4 },
+  { P = 1.25, x = 3.2, x_short = 1.6, a = 4, a_short = 2.5, a_long = 5 },
+  { P = 1.5, x = 3.8, x_short = 1.9, a = 4.5, a_short = 3, a_long = 6 },
+  { P = 1.75, x = 4.3, x_short = 2.2, a = 5.3, a_short = 3.5, a_long = 7 },
+  { P = 2, x = 5, x_short = 2.5, a = 6, a_short = 4, a_long = 8 },
+  { P = 2.5, x = 6.3, x_short = 3.2, a = 7.5, a_short = 5, a_long = 10 },
+  { P = 3, x = 7.5, x_short = 3.8, a = 9, a_short = 6, a_long = 12 },
+  { P = 3.5, x = 9, x_short = 4.5, a = 10.5, a_short = 7, a_long = 14 },
+  { P = 4, x = 10, x_short = 5, a = 12, a_short = 8, a_long = 16 },
+  { P = 4.5, x = 11, x_short = 5.5, a = 13.5, a_short = 9, a_long = 18 },
+  { P = 5, x = 12.5, x_short = 6.3, a = 15, a_short = 10, a_long = 20 },
+  { P = 5.5, x = 14, x_short = 7, a = 16.5, a_short = 11, a_long = 22 },
+  { P = 6, x = 15, x_short = 7.5, a = 18, a_short = 12, a_long = 24 },
+]
+
+ext_undercut = [  # dg_offset: groove diameter dg = d - dg_offset
+  { P = 0.25, g1 = 0.4, g2 = 0.75, dg_offset = 0.4, r = 0.12 },
+  { P = 0.3, g1 = 0.5, g2 = 0.9, dg_offset = 0.5, r = 0.16 },
+  { P = 0.35, g1 = 0.6, g2 = 1.05, dg_offset = 0.6, r = 0.16 },
+  { P = 0.4, g1 = 0.6, g2 = 1.2, dg_offset = 0.7, r = 0.2 },
+  { P = 0.45, g1 = 0.7, g2 = 1.35, dg_offset = 0.7, r = 0.2 },
+  { P = 0.5, g1 = 0.8, g2 = 1.5, dg_offset = 0.8, r = 0.2 },
+  { P = 0.6, g1 = 0.9, g2 = 1.8, dg_offset = 1, r = 0.4 },
+  { P = 0.7, g1 = 1.1, g2 = 2.1, dg_offset = 1.1, r = 0.4 },
+  { P = 0.75, g1 = 1.2, g2 = 2.25, dg_offset = 1.2, r = 0.4 },
+  { P = 0.8, g1 = 1.3, g2 = 2.4, dg_offset = 1.3, r = 0.4 },
+  { P = 1, g1 = 1.6, g2 = 3, dg_offset = 1.6, r = 0.6 },
+  { P = 1.25, g1 = 2, g2 = 3.75, dg_offset = 2, r = 0.6 },
+  { P = 1.5, g1 = 2.5, g2 = 4.5, dg_offset = 2.3, r = 0.8 },
+  { P = 1.75, g1 = 3, g2 = 5.25, dg_offset = 2.6, r = 1 },
+  { P = 2, g1 = 3.4, g2 = 6, dg_offset = 3, r = 1 },
+  { P = 2.5, g1 = 4.4, g2 = 7.5, dg_offset = 3.6, r = 1.2 },
+  { P = 3, g1 = 5.2, g2 = 9, dg_offset = 4.4, r = 1.6 },
+  { P = 3.5, g1 = 6.2, g2 = 10.5, dg_offset = 5, r = 1.6 },
+  { P = 4, g1 = 7, g2 = 12, dg_offset = 5.7, r = 2 },
+  { P = 4.5, g1 = 8, g2 = 13.5, dg_offset = 6.4, r = 2.5 },
+  { P = 5, g1 = 9, g2 = 15, dg_offset = 7, r = 2.5 },
+  { P = 5.5, g1 = 11, g2 = 17.5, dg_offset = 7.7, r = 3.2 },
+  { P = 6, g1 = 11, g2 = 18, dg_offset = 8.3, r = 3.2 },
+]
+
+int_runout = [
+  { P = 0.2, X = 0.8, X_short = 0.4, A = 1.2, A_long = 1.6 },
+  { P = 0.25, X = 1, X_short = 0.5, A = 1.5, A_long = 2 },
+  { P = 0.3, X = 1.2, X_short = 0.6, A = 1.8, A_long = 2.4 },
+  { P = 0.35, X = 1.4, X_short = 0.7, A = 2.2, A_long = 2.8 },
+  { P = 0.4, X = 1.6, X_short = 0.8, A = 2.5, A_long = 3.2 },
+  { P = 0.45, X = 1.8, X_short = 0.9, A = 2.8, A_long = 3.6 },
+  { P = 0.5, X = 2, X_short = 1, A = 3, A_long = 4 },
+  { P = 0.6, X = 2.4, X_short = 1.2, A = 3.2, A_long = 4.8 },
+  { P = 0.7, X = 2.8, X_short = 1.4, A = 3.5, A_long = 5.6 },
+  { P = 0.75, X = 3, X_short = 1.5, A = 3.8, A_long = 6 },
+  { P = 0.8, X = 3.2, X_short = 1.6, A = 4, A_long = 6.4 },
+  { P = 1, X = 4, X_short = 2, A = 5, A_long = 8 },
+  { P = 1.25, X = 5, X_short = 2.5, A = 6, A_long = 10 },
+  { P = 1.5, X = 6, X_short = 3, A = 7, A_long = 12 },
+  { P = 1.75, X = 7, X_short = 3.5, A = 9, A_long = 14 },
+  { P = 2, X = 8, X_short = 4, A = 10, A_long = 16 },
+  { P = 2.5, X = 10, X_short = 5, A = 12, A_long = 18 },
+  { P = 3, X = 12, X_short = 6, A = 14, A_long = 22 },
+  { P = 3.5, X = 14, X_short = 7, A = 16, A_long = 24 },
+  { P = 4, X = 16, X_short = 8, A = 18, A_long = 26 },
+  { P = 4.5, X = 18, X_short = 9, A = 21, A_long = 29 },
+  { P = 5, X = 20, X_short = 10, A = 23, A_long = 32 },
+  { P = 5.5, X = 22, X_short = 11, A = 25, A_long = 35 },
+  { P = 6, X = 24, X_short = 12, A = 28, A_long = 38 },
+]
+
+int_undercut = [  # Dg_offset: groove diameter Dg = D + Dg_offset
+  { P = 0.5, G1 = 2, G1_short = 1, Dg_offset = 0.3, R = 0.2 },
+  { P = 0.6, G1 = 2.4, G1_short = 1.2, Dg_offset = 0.3, R = 0.3 },
+  { P = 0.7, G1 = 2.8, G1_short = 1.4, Dg_offset = 0.3, R = 0.4 },
+  { P = 0.75, G1 = 3, G1_short = 1.5, Dg_offset = 0.3, R = 0.4 },
+  { P = 0.8, G1 = 3.2, G1_short = 1.6, Dg_offset = 0.3, R = 0.4 },
+  { P = 1, G1 = 4, G1_short = 2, Dg_offset = 0.5, R = 0.5 },
+  { P = 1.25, G1 = 5, G1_short = 2.5, Dg_offset = 0.5, R = 0.6 },
+  { P = 1.5, G1 = 6, G1_short = 3, Dg_offset = 0.5, R = 0.8 },
+  { P = 1.75, G1 = 7, G1_short = 3.5, Dg_offset = 0.5, R = 0.9 },
+  { P = 2, G1 = 8, G1_short = 4, Dg_offset = 0.5, R = 1 },
+  { P = 2.5, G1 = 10, G1_short = 5, Dg_offset = 0.5, R = 1.2 },
+  { P = 3, G1 = 12, G1_short = 6, Dg_offset = 0.5, R = 1.5 },
+  { P = 3.5, G1 = 14, G1_short = 7, Dg_offset = 0.5, R = 1.8 },
+  { P = 4, G1 = 16, G1_short = 8, Dg_offset = 0.5, R = 2 },
+  { P = 4.5, G1 = 18, G1_short = 9, Dg_offset = 0.5, R = 2.2 },
+  { P = 5, G1 = 20, G1_short = 10, Dg_offset = 0.5, R = 2.5 },
+  { P = 5.5, G1 = 22, G1_short = 11, Dg_offset = 0.5, R = 2.8 },
+  { P = 6, G1 = 24, G1_short = 12, Dg_offset = 0.5, R = 3 },
+]
+
+[meta]
+std = "GB/T 3-1997"
+iso = "ISO 3508:1976 (external run-outs), ISO 4755:1983 (external undercuts); no ISO for internal threads"
+unit = "mm"
+verified = { ext_runout = true, ext_undercut = true, int_runout = false, int_undercut = false }
+source = """Tables 1-4 of GB/T 3-1997 as printed on the YJT fastener database page www.164580.com/info_369512.html (read 2026-11-09, parsed from the HTML table structure); the standard itself was not read. \
+External tables checked cell by cell against the same database's pages for ISO 4755:1983 (www.164580.com/info_65331.html, all 23 undercut rows) and ISO 3508:1976 (www.164580.com/info_65280.html, all 24 run-out rows); they agree, \
+except that the GB/T 3 page prints x = 1.3 for P = 1.75, a transcription error: ISO 3508 gives 4.3 (about 2.5P), which is recorded. \
+Internal-thread tables (run-out, undercut) have a single source (the GB/T 3 page; ISO 3508 / 4755 cover external threads only), so they are marked unverified here; they follow the standard's own rules (X = 4P, short X = 2P, G1 = 4P, short G1 = 2P, Dg = D + 0.3 up to P = 0.8 and D + 0.5 from P = 1). \
+The internal run-out table header reads run-out X (normal / short) and shoulder A (normal / long); the Dg cell is merged over P = 0.5-0.8 and P = 1-6 on the page and was filled from that merge."""
+
+[tol]
+ext_dg = "h13"        # tolerance of dg for d > 3 mm
+ext_dg_small = "h12"  # for d <= 3 mm
+ext_dg_over = 3
+int_Dg = "H13"
+min_transition_angle = 30  # deg, GB/T 3 clause 1.2
+
