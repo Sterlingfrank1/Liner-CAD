@@ -10,8 +10,8 @@ P = d.params(D=Param(20, min=10, max=30))
 d.component("parts/base", params={"D": P.D})           # → A.base；参数共享：装配参数传给零件
 d.component("parts/bush", params={"D": P.D}, at=(0, 0, 0), rot=(0, 0, 0))
 d.component("parts/shaft", solid=True)                 # 实心件（轴、螺杆、键、销）纵剖时不剖
-d.std_part("GB/T 5782", "M10×90", name="bolt", at=[(-40, 0, 30), (40, 0, 30)], rot=(180, 0, 0))
-d.std_part("GB/T 6170", "M10", name="nut", at=[(-40, 0, -20), (40, 0, -20)])
+d.std_part("GB/T 5782", "M10×90", name="bolt", at=[(-40, 0, 30), (40, 0, 30)], material="Q235")  # 头在上
+d.std_part("GB/T 6170", "M10", name="nut", at=[(-40, 0, -20), (40, 0, -20)], rot=(180, 0, 0))  # 在下方
 front = d.view("front")
 front.project(cut="full", hidden=False)                # 装配图一般不画虚线
 d.view("top").project(hidden=False)
@@ -20,7 +20,8 @@ front.dim.linear("H", (-60, 0), (-60, 75), value=75, role="overall", side="left"
 d.title(name="滑动轴承", drawing_no="LC-A-01")
 ```
 
-- `at` 是零件模型原点放到装配里的位置（mm），可给一组位置表示多件；`rot` 绕 X、Y、Z 转（度）。标准件局部坐标：轴线 +Z，支承面在 z = 0（螺栓头在 z ≥ 0、杆朝 −Z；螺母、垫圈在 z ≥ 0）。
+- `at` 是零件模型原点放到装配里的位置（mm），可给一组位置表示多件；`rot` 绕 X、Y、Z 转（度）。标准件局部坐标：轴线 +Z，支承面在 z = 0（螺栓头在 z ≥ 0、杆朝 −Z；螺母、垫圈在 z ≥ 0）。所以螺栓从上往下穿：`at` 放在上表面、不转；螺母拧在下方：`at` 放在下表面、`rot=(180, 0, 0)`。
+- 明细栏的材料：零件取自 `d.title(material=)`；标准件用 `d.std_part(..., material="Q235")`，不给就空着。
 - 标准件只有资源库里的：`GB/T 5782`（M6–M16）、`GB/T 6170`、`GB/T 97.1`、`GB/T 119.1`、`GB/T 68`、`GB/T 71`。`from linercad import res; res.std_part("GB/T 5782", "M10×90")` 查尺寸，数值带标准号；不在库里会列出候选。
 - 剖面线：每个零件一组，相接触的零件方向或间距不同，同一零件在各视图相同（GB/T 4458.6）；接触面只画一条线。螺栓、螺母、垫圈、销和 `solid=True` 的零件纵剖不剖。
 - 序号 `B.<组件名>`，编号 = 明细栏行号（组件加入的顺序）；`d["B.bush"].place(side="top")` 换到视图上方，`left/right/top/bottom` 都可以。

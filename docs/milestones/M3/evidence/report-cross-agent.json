@@ -57,6 +57,7 @@
   ],
   "errors": 0,
   "warnings": [],
+  "png": "C:\\Users\\XU\\AppData\\Local\\Temp\\lcx\\claude\\box\\drawing\\.linercad\\tmp\\render.png",
   "kinds": {
    "frame": 1,
    "table.cell": 16,
@@ -108,6 +109,7 @@
   "warnings": [
    "overlap:S.C"
   ],
+  "png": "C:\\Users\\XU\\AppData\\Local\\Temp\\lcx\\claude\\fork\\drawing\\.linercad\\tmp\\render.png",
   "kinds": {
    "frame": 1,
    "table.cell": 16,
@@ -161,6 +163,7 @@
    "overlap:D.P",
    "overlap:D.fit"
   ],
+  "png": "C:\\Users\\XU\\AppData\\Local\\Temp\\lcx\\claude\\asm\\drawing\\.linercad\\tmp\\render.png",
   "kinds": {
    "frame": 1,
    "table.cell": 16,
@@ -174,6 +177,207 @@
    "note": 1,
    "dim": 4
   }
+ },
+ "dsh/box": {
+  "rounds": [
+   {
+    "round": 0,
+    "code": -1,
+    "seconds": 1264.7,
+    "model": "deepseek-flash:high"
+   },
+   {
+    "round": 1,
+    "code": 0,
+    "seconds": 120.3,
+    "model": "deepseek-flash:high"
+   },
+   {
+    "round": 2,
+    "code": 0,
+    "seconds": 989.7,
+    "model": "deepseek-flash:high"
+   },
+   {
+    "round": 3,
+    "code": 0,
+    "seconds": 71.6,
+    "model": "deepseek-flash:high"
+   }
+  ],
+  "commits": [
+   "e8 · 技术要求再加一条：未注倒角 C1。",
+   "e7 · 加形位公差：轴承孔轴线对底板底面的垂直度 0.03，底面作基准 A。",
+   "e6 · 轴承孔改成 Φ30H7，凸台跟着改成 Φ50",
+   "e5 · 完善铸件质量技术要求",
+   "e4 · 轴承孔粗糙度关联孔径尺寸，壁厚尺寸移入剖面",
+   "e3 · 整体下移视图并调整轴承孔与凸台直径尺寸排布",
+   "e2 · 补全凸台高度和孔边距定位，调整左视图与尺寸布局",
+   "e1 · 按用户要求改为底板160×110的减速器箱盖",
+   "e0 · init"
+  ],
+  "errors": 0,
+  "warnings": [],
+  "png": "C:\\Users\\XU\\AppData\\Local\\Temp\\lcx\\dsh\\box\\drawing\\.linercad\\tmp\\render.png",
+  "kinds": {
+   "frame": 1,
+   "table.cell": 16,
+   "model": 1,
+   "view": 3,
+   "feature": 3,
+   "edge": 96,
+   "hatch": 1,
+   "center": 9,
+   "dim": 14,
+   "rough": 2,
+   "note": 5,
+   "datum": 1,
+   "gtol": 1
+  }
+ },
+ "dsh/fork": {
+  "rounds": [
+   {
+    "round": 0,
+    "code": 0,
+    "seconds": 1004.7,
+    "model": "deepseek-flash:high"
+   },
+   {
+    "round": 1,
+    "code": 0,
+    "seconds": 83.2,
+    "model": "deepseek-flash:high"
+   },
+   {
+    "round": 2,
+    "code": 0,
+    "seconds": 460.4,
+    "model": "deepseek-flash:high"
+   },
+   {
+    "round": 3,
+    "code": 0,
+    "seconds": 31.2,
+    "model": "deepseek-flash:high"
+   }
+  ],
+  "commits": [
+   "e25 · 标题栏图号填 TJ-02，设计人填 eval",
+   "e24 · 底板安装孔改为 Φ14，孔位尺寸置于俯视图下方",
+   "e23 · 底板安装孔改为 Φ14，孔位尺寸置于俯视图下方",
+   "e22 · 底板安装孔改为 Φ14，孔位尺寸置于俯视图下方",
+   "e21 · 底板安装孔改为 Φ14，孔位尺寸置于俯视图下方",
+   "e20 · 底板安装孔改为 Φ14，孔位尺寸置于俯视图下方",
+   "e19 · 圆筒内孔改成 Φ25H7",
+   "e18 · 发布 rev-A",
+   "e17 · 肋板厚度尺寸与孔位尺寸同排布置",
+   "e16 · 撤销肋板厚度排位测试",
+   "e15 · 测试肋板厚度尺寸提至第一排",
+   "e14 · 将肋板高度尺寸移入肋板轮廓内",
+   "e13 · 撤销肋板尺寸位置测试",
+   "e12 · 测试肋板高度尺寸靠近肋板",
+   "e11 · 去除肋板三角形重复边线",
+   "e10 · 将肋板高度移到左视标注，完善基准A和通孔注法",
+   "e9 · 撤销肋板高度临时标注",
+   "e8 · 撤销基准引线长度测试",
+   "e7 · 测试基准A引线长度",
+   "e6 · 测试肋板高度在左视标注",
+   "e5 · 撤销基准位置测试",
+   "e4 · 测试基准A标注位置",
+   "e3 · 调整俯视孔标注和左视圆筒长度尺寸",
+   "e2 · 整体右移并下移视图，避让图框",
+   "e1 · 按给定尺寸重建托架三视图",
+   "e0 · init"
+  ],
+  "errors": 0,
+  "warnings": [],
+  "png": "C:\\Users\\XU\\AppData\\Local\\Temp\\lcx\\dsh\\fork\\drawing\\.linercad\\tmp\\render.png",
+  "kinds": {
+   "frame": 1,
+   "table.cell": 16,
+   "view": 3,
+   "feature": 37,
+   "edge": 45,
+   "center": 7,
+   "hatch": 2,
+   "dim": 16,
+   "section": 1,
+   "datum": 1,
+   "rough": 2,
+   "gtol": 1,
+   "note": 4
+  }
+ },
+ "dsh/asm": {
+  "rounds": [
+   {
+    "round": 0,
+    "code": 0,
+    "seconds": 713.2,
+    "model": "deepseek-flash:high"
+   },
+   {
+    "round": 1,
+    "code": 0,
+    "seconds": 40.4,
+    "model": "deepseek-flash:high"
+   },
+   {
+    "round": 2,
+    "code": 0,
+    "seconds": 60.9,
+    "model": "deepseek-flash:high"
+   },
+   {
+    "round": 3,
+    "code": 0,
+    "seconds": 358.4,
+    "model": "deepseek-flash:high"
+   }
+  ],
+  "commits": [
+   "e10 · 主视图的配合尺寸挪到视图上方",
+   "e9 · 主视图的配合尺寸挪到视图上方",
+   "e8 · 明细栏里轴的材料改成 40Cr",
+   "e7 · 两螺栓孔中心距改成 100（底座长度不变）",
+   "e6 · 发布 rev-A",
+   "e5 · 精简参数代码并将配合标注改为 Φ30H7/k6",
+   "e4 · 改用自制标准件模型并完善明细栏材料、总尺寸关联和未注公差",
+   "e3 · 将零件序号集中到视图上方和左侧",
+   "e2 · 调整零件序号位置并移动配合标注",
+   "e1 · 创建轴承座装配图：底座、轴套、轴、螺栓、螺母",
+   "e0 · init"
+  ],
+  "errors": 0,
+  "warnings": [],
+  "png": "C:\\Users\\XU\\AppData\\Local\\Temp\\lcx\\dsh\\asm\\drawing\\.linercad\\tmp\\render.png",
+  "kinds": {
+   "frame": 1,
+   "table.cell": 16,
+   "component": 5,
+   "view": 2,
+   "feature": 2,
+   "edge": 98,
+   "hatch": 2,
+   "center": 7,
+   "dim": 5,
+   "note": 2,
+   "bom": 1,
+   "balloon": 5
+  }
+ },
+ "doubao/box": {
+  "rounds": [],
+  "commits": []
+ },
+ "doubao/fork": {
+  "rounds": [],
+  "commits": []
+ },
+ "doubao/asm": {
+  "rounds": [],
+  "commits": []
  },
  "baseline/box": {
   "rounds": [
@@ -201,7 +405,7 @@
   "init": {
    "ok": true,
    "edit": "e0",
-   "commit": "fa78e5d",
+   "commit": "96a48a9",
    "dir": "C:\\Users\\XU\\AppData\\Local\\Temp\\lcx\\baseline\\box\\_imported",
    "dxf": ".linercad/build/drawing.dxf",
    "model": ".linercad/build/model.json",
@@ -309,6 +513,7 @@
    "general_tol:D.dim_1",
    "overlap:N.txt_10"
   ],
+  "png": "C:\\Users\\XU\\AppData\\Local\\Temp\\lcx\\baseline\\box\\_imported\\.linercad\\tmp\\render.png",
   "kinds": {
    "frame": 1,
    "table.cell": 16,
@@ -327,7 +532,8 @@
    "LWPOLYLINE": 14,
    "SOLID": 3,
    "TEXT": 30
-  }
+  },
+  "dxf_png": "C:\\Users\\XU\\AppData\\Local\\Temp\\linercad-inspect\\inspect-drawing-8d7370a5.png"
  },
  "baseline/fork": {
   "rounds": [
@@ -355,7 +561,7 @@
   "init": {
    "ok": true,
    "edit": "e0",
-   "commit": "2f5aaf4",
+   "commit": "5acd75c",
    "dir": "C:\\Users\\XU\\AppData\\Local\\Temp\\lcx\\baseline\\fork\\_imported",
    "dxf": ".linercad/build/drawing.dxf",
    "model": ".linercad/build/model.json",
@@ -451,6 +657,7 @@
    "duplicate:D.dim_7",
    "general_tol:D.dim_1"
   ],
+  "png": "C:\\Users\\XU\\AppData\\Local\\Temp\\lcx\\baseline\\fork\\_imported\\.linercad\\tmp\\render.png",
   "kinds": {
    "frame": 1,
    "table.cell": 16,
@@ -467,7 +674,8 @@
    "LINE": 53,
    "LWPOLYLINE": 11,
    "TEXT": 26
-  }
+  },
+  "dxf_png": "C:\\Users\\XU\\AppData\\Local\\Temp\\linercad-inspect\\inspect-drawing-50b7a8d6.png"
  },
  "baseline/asm": {
   "rounds": [
@@ -495,7 +703,7 @@
   "init": {
    "ok": true,
    "edit": "e0",
-   "commit": "185ac80",
+   "commit": "4f657a3",
    "dir": "C:\\Users\\XU\\AppData\\Local\\Temp\\lcx\\baseline\\asm\\_imported",
    "dxf": ".linercad/build/drawing.dxf",
    "model": ".linercad/build/model.json",
@@ -551,6 +759,7 @@
   "warnings": [
    "general_tol:D.dim_1"
   ],
+  "png": "C:\\Users\\XU\\AppData\\Local\\Temp\\lcx\\baseline\\asm\\_imported\\.linercad\\tmp\\render.png",
   "kinds": {
    "frame": 1,
    "table.cell": 16,
@@ -567,6 +776,7 @@
    "LINE": 57,
    "LWPOLYLINE": 17,
    "TEXT": 47
-  }
+  },
+  "dxf_png": "C:\\Users\\XU\\AppData\\Local\\Temp\\linercad-inspect\\inspect-drawing-60a312ed.png"
  }
 }

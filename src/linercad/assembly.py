@@ -179,7 +179,7 @@ def _with_balloon(d, c):
     return c
 
 
-def drawing_std_part(d, std, spec, qty=None, name=None, at=(0, 0, 0), rot=(0, 0, 0)):
+def drawing_std_part(d, std, spec, qty=None, name=None, at=(0, 0, 0), rot=(0, 0, 0), material=None):
     from . import res
 
     _need_assembly(d)
@@ -199,7 +199,7 @@ def drawing_std_part(d, std, spec, qty=None, name=None, at=(0, 0, 0), rot=(0, 0,
         "rot": _rot(rot),
         "solid": info["kind"] in SOLID_KINDS,
         "qty": int(qty) if qty is not None else len(pl),
-        "title": {"name": info["name"]},
+        "title": {"name": info["name"], **({"material": str(material)} if material else {})},
     }
     return _with_balloon(d, d._add(Component(d, f"A.{name}", intent)))
 
