@@ -1,5 +1,7 @@
 """Resource library linercad.res (SPEC M1 §2, card C1): spot values, boundaries, formula guards."""
 
+import math
+
 import pytest
 
 from linercad import res
@@ -307,5 +309,163 @@ def test_center_hole_type_a():
     c = res.center_hole("A", 2.5)
     assert (c["D"], c["t"], c["designation"]) == (5.3, 2.2, "A2.5/5.3")
     assert res.center_hole("A", 4)["D"] == 8.5 and res.center_hole("A", 10)["D"] == 21.2
+    with pytest.raises(InvalidArgument) as err:
+        res.center_hole("C", 2.5)
+    assert err.value.candidates == ["A", "B"]
+
+
+# ------------------------------------------------- GB/T 145-2001 type B (ISO 2540 Annex A)
+
+# ISO 2540:2016 Table 1, column d2 (the 60 deg cone diameter of the centre drill), for d = 1.0 .. 10.0
+ISO_2540_D2 = [2.12, 2.65, 3.35, 4.25, 5.30, 6.70, 8.50, 10.60, 13.20, 17.00, 21.20]
+B_SIZES = [1.0, 1.25, 1.6, 2.0, 2.5, 3.15, 4.0, 5.0, 6.3, 8.0, 10.0]
+
+
+def test_center_hole_type_b():
+    c = res.center_hole("B", 2.5)
+    assert (c["D1"], c["D2"], c["l2"], c["t"], c["l_min"]) == (5.3, 8.0, 3.2, 2.2, 5.5)
+    assert (c["D"], c["designation"], c["std"]) == (8.0, "B2.5/8", "GB/T 145-2001")
+    assert res.center_hole("B", 1.0)["D2"] == 3.15 and res.center_hole("B", 10)["D2"] == 28.0
+    assert res.center_hole("B", 1.25)["avoid"] and not res.center_hole("B", 2.0)["avoid"]
+    with pytest.raises(InvalidArgument) as err:
+        res.center_hole("B", 2.6)
+    assert "2.5" in err.value.candidates
+
+
+@pytest.mark.parametrize("d", B_SIZES)
+def test_center_hole_type_b_consistency(d):
+    b = res.center_hole("B", d)
+    # D1 is the cone of type A and of the ISO 2540 drill
+    assert b["D1"] == res.center_hole("A", d)["D"] == ISO_2540_D2[B_SIZES.index(d)]
+    # l2 follows from the 60 deg cone plus the 120 deg protecting chamfer
+    cone = (b["D1"] - d) / 2 / math.tan(math.radians(30))
+    chamfer = (b["D2"] - b["D1"]) / 2 / math.tan(math.radians(60))
+    assert b["l2"] == pytest.approx(cone + chamfer, abs=0.011)
+    assert b["t"] == res.center_hole("A", d)["t"] and b["l_min"] > b["t"]
+
+
+# ------------------------------------------------------------- GB/T 3-1997 thread undercuts
+
+# ISO 4755:1983 (external thread undercuts): P, dg offset (dg = d - offset), g1 min, g2 max, r
+ISO_4755 = [
+    (0.25, 0.4, 0.4, 0.75, 0.12), (0.3, 0.5, 0.5, 0.9, 0.16), (0.35, 0.6, 0.6, 1.05, 0.16),
+    (0.4, 0.7, 0.6, 1.2, 0.2), (0.45, 0.7, 0.7, 1.35, 0.2), (0.5, 0.8, 0.8, 1.5, 0.2),
+    (0.6, 1.0, 0.9, 1.8, 0.4), (0.7, 1.1, 1.1, 2.1, 0.4), (0.75, 1.2, 1.2, 2.25, 0.4),
+    (0.8, 1.3, 1.3, 2.4, 0.4), (1, 1.6, 1.6, 3, 0.6), (1.25, 2.0, 2.0, 3.75, 0.6),
+    (1.5, 2.3, 2.5, 4.5, 0.8), (1.75, 2.6, 3.0, 5.25, 1.0), (2, 3.0, 3.4, 6, 1.0),
+    (2.5, 3.6, 4.4, 7.5, 1.2), (3, 4.4, 5.2, 9, 1.6), (3.5, 5.0, 6.2, 10.5, 1.6),
+    (4, 5.7, 7.0, 12, 2.0), (4.5, 6.4, 8.0, 13.5, 2.5), (5, 7.0, 9.0, 15, 2.5),
+    (5.5, 7.7, 11.0, 17.5, 3.2), (6, 8.3, 11.0, 18, 3.2),
+]  # fmt: skip
+
+# ISO 3508:1976 (external thread run-outs): P, x, x short, a, a short, a long
+ISO_3508 = [
+    (0.2, 0.5, 0.25, 0.6, 0.4, 0.8), (0.25, 0.6, 0.3, 0.75, 0.5, 1), (0.3, 0.75, 0.4, 0.9, 0.6, 1.2),
+    (0.35, 0.9, 0.45, 1.05, 0.7, 1.4), (0.4, 1, 0.5, 1.2, 0.8, 1.6), (0.45, 1.1, 0.6, 1.35, 0.9, 1.8),
+    (0.5, 1.25, 0.7, 1.5, 1, 2), (0.6, 1.5, 0.75, 1.8, 1.2, 2.4), (0.7, 1.75, 0.9, 2.1, 1.4, 2.8),
+    (0.75, 1.9, 1, 2.25, 1.5, 3), (0.8, 2, 1, 2.4, 1.6, 3.2), (1, 2.5, 1.25, 3, 2, 4),
+    (1.25, 3.2, 1.6, 4, 2.5, 5), (1.5, 3.8, 1.9, 4.5, 3, 6), (1.75, 4.3, 2.2, 5.3, 3.5, 7),
+    (2, 5, 2.5, 6, 4, 8), (2.5, 6.3, 3.2, 7.5, 5, 10), (3, 7.5, 3.8, 9, 6, 12),
+    (3.5, 9, 4.5, 10.5, 7, 14), (4, 10, 5, 12, 8, 16), (4.5, 11, 5.5, 13.5, 9, 18),
+    (5, 12.5, 6.3, 15, 10, 20), (5.5, 14, 7, 16.5, 11, 22), (6, 15, 7.5, 18, 12, 24),
+]  # fmt: skip
+
+
+def test_thread_undercut_external():
+    u = res.thread_undercut("M24x1.5")
+    assert (u["kind"], u["P"], u["d"]) == ("ext", 1.5, 24)
+    assert (u["g1_min"], u["g2_max"], u["r"], u["dg_offset"]) == (2.5, 4.5, 0.8, 2.3)
+    assert (u["dg"], u["dg_tol"], u["std"]) == (21.7, "h13", "GB/T 3-1997")
+    assert res.thread_undercut("M10")["dg"] == 7.7  # coarse pitch 1.5
+    assert res.thread_undercut("M3")["dg_tol"] == "h12"  # d <= 3 mm
+    bare = res.thread_undercut(2.5)  # pitch only: no diameter, so no dg
+    assert (bare["g1_min"], bare["g2_max"], bare["dg_offset"]) == (4.4, 7.5, 3.6)
+    assert "dg" not in bare
+
+
+def test_thread_undercut_internal():
+    u = res.thread_undercut("M20x2", kind="int")
+    assert (u["kind"], u["G1"], u["G1_short"], u["R"]) == ("int", 8, 4, 1.0)
+    assert (u["Dg"], u["Dg_tol"]) == (20.5, "H13")
+    assert res.thread_undercut(0.8, kind="int")["Dg_offset"] == 0.3
+    assert res.thread_undercut(1, kind="int")["Dg_offset"] == 0.5
+
+
+def test_thread_undercut_errors():
+    with pytest.raises(InvalidArgument) as err:
+        res.thread_undercut(0.9)
+    assert 1.0 in err.value.candidates and 0.8 in err.value.candidates
     with pytest.raises(InvalidArgument):
-        res.center_hole("B", 2.5)
+        res.thread_undercut(0.2)  # run-outs start at 0.2, undercuts at 0.25
+    with pytest.raises(InvalidArgument):
+        res.thread_undercut(0.25, kind="int")  # internal undercuts start at 0.5
+    with pytest.raises(InvalidArgument) as err:
+        res.thread_undercut("M24", kind="inner")
+    assert err.value.candidates == ["ext", "int"]
+
+
+@pytest.mark.parametrize("P, offset, g1, g2, r", ISO_4755)
+def test_thread_undercut_matches_iso_4755(P, offset, g1, g2, r):
+    u = res.thread_undercut(P)
+    assert (u["dg_offset"], u["g1_min"], u["g2_max"], u["r"]) == (offset, g1, g2, r)
+
+
+def test_thread_undercut_internal_rules():
+    for P in (0.5, 0.6, 0.7, 0.75, 0.8, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6):
+        u = res.thread_undercut(P, kind="int")
+        assert (u["G1"], u["G1_short"]) == (pytest.approx(4 * P), pytest.approx(2 * P))
+        assert u["Dg_offset"] == (0.3 if P <= 0.8 else 0.5) and u["R"] <= 0.5 * P + 0.05
+
+
+def test_thread_runout():
+    r = res.thread_runout("M24x1.5")
+    assert r["ext"] == {"x": 3.8, "x_short": 1.9, "a": 4.5, "a_short": 3, "a_long": 6}
+    assert r["int"] == {"X": 6, "A": 7, "A_short": 3, "A_long": 12}
+    assert r["std"] == "GB/T 3-1997" and r["P"] == 1.5
+    assert res.thread_runout(1.75)["ext"]["x"] == 4.3  # the GB/T 3 page misprints it; ISO 3508 gives 4.3
+    with pytest.raises(InvalidArgument):
+        res.thread_runout(0.9)
+
+
+@pytest.mark.parametrize("P, x, xs, a, a_short, a_long", ISO_3508)
+def test_thread_runout_matches_iso_3508(P, x, xs, a, a_short, a_long):
+    got = res.thread_runout(P)
+    e = got["ext"]
+    assert (e["x"], e["x_short"], e["a"], e["a_short"], e["a_long"]) == (x, xs, a, a_short, a_long)
+    assert got["int"]["X"] == pytest.approx(4 * P)  # GB/T 3: internal X = 4P, A short = 2P
+    assert got["int"]["A_short"] == pytest.approx(2 * P)
+
+
+# ---------------------------------------------------------- GB/T 6403.5 grinding wheel grooves
+
+
+def test_grinding_groove():
+    g = res.grinding_groove(30)
+    assert g["d_range"] == [10, 50] and g["std"].startswith("GB/T 6403.5")
+    assert (g["b1"], g["b2"], g["h"], g["r"]) == (2.0, 4.0, 0.3, 0.8)  # first (smallest) option
+    assert [o["b1"] for o in g["options"]] == [2.0, 3.0]
+    assert res.grinding_groove(30, b1=3.0)["h"] == 0.4
+    assert [o["b1"] for o in res.grinding_groove(8)["options"]] == [0.6, 1.0, 1.6]
+    assert [o["b1"] for o in res.grinding_groove(80)["options"]] == [4.0, 5.0]
+    big = res.grinding_groove(250)
+    assert [(o["b1"], o["h"], o["r"]) for o in big["options"]] == [(8.0, 0.8, 2.0), (10, 1.2, 3.0)]
+    assert big["d_range"] == [100, None]
+
+
+def test_grinding_groove_band_edges_and_errors():
+    assert res.grinding_groove(10)["d_range"] == [0, 10]
+    assert res.grinding_groove(10.001)["d_range"] == [10, 50]
+    assert res.grinding_groove(50)["d_range"] == [10, 50]
+    assert res.grinding_groove(100)["d_range"] == [50, 100]
+    with pytest.raises(InvalidArgument) as err:
+        res.grinding_groove(30, b1=1.0)
+    assert 3.0 in err.value.candidates
+    with pytest.raises(InvalidArgument):
+        res.grinding_groove(0)
+
+
+def test_grinding_groove_standard_rules():
+    for d in (5, 30, 80, 200):
+        for o in res.grinding_groove(d)["options"]:
+            assert o["r"] < 3 * o["h"]  # the note under the table: r < 3h
+            assert o["b1"] <= o["b2"]
