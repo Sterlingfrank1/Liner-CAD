@@ -11,7 +11,8 @@
 | #64 | S3 | 装配：`Drawing(kind="assembly")`、`d.component`、`d.std_part`（6 个标准，带标准号）、`d.bom`（明细栏 + 序号）、按接触着色的剖面线、实心件不剖、接触面单线、配合代号 `H7/k6`；L3 三例 bearing / jack / vise。G4 评审一轮（8 should-fix 已修） |
 | #65 | S2 + S4 + S5 | `lcad log` / `diff` / `export` 与 Viewer 版本对比、M2 遗留三项；DXF 导入（`init --from-dxf`、`import_dxf`、`inspect`）；SKILL 路由化（69 行 + 5 个分页）与 `lcad skill install --target claude|codex|opencode|generic` |
 | #66 | S6 | 叉架、箱体族卡片；范例 `shift_fork`、`bearing_support`、`pump_body`；L2 各 5 例；箱体完整性对照 `evals/completeness.py`；投影修复（空内环、接缝分裂的圆弧合并）；评测中发现的多件丢失 bug |
-| 本 PR | S7 | 跨 Agent 评测运行器与结果、出图评审、G5 证据、本交接；评审发现的“有间隙的相邻零件剖面线相同”已修 |
+| #67 | S7 | 跨 Agent 评测运行器与结果、出图评审、G5 证据、本交接；评审发现的“有间隙的相邻零件剖面线相同”已修 |
+| 本 PR | S7 补 | 跨 Agent 评测加 DeepSeek Harness（dsh）与豆包工作（运行器支持，豆包未跑）；dsh 暴露的 `std_part` 不能写材料已修（`material=`）、skill 装配页螺栓朝向示例改正、export 只在用户要求时用 |
 
 ## 2. 怎么验证
 
@@ -32,7 +33,7 @@ uv run pytest -q tests/test_source3d.py tests/test_assembly.py tests/test_import
 | 3 装配 | L3 三例零 error 零 warning，有明细栏、序号、逐件剖面线 | `tests/test_assembly.py`、`evals/L3` |
 | 4 DXF 导入 | 导入 ezdxf 生成的带原生尺寸的图，两轮 `lcad edit`（一轮被清楚的错误拒绝后改对）、`log`、`diff`、`export rev-A` | `evidence/clean-clone.md`、`tests/test_import_dxf.py` |
 | 5 版本 | `lcad log` / `diff` 与 Viewer 叠加对比可用 | `tests/test_versions.py`、`evidence/viewer-version-compare.jpg` |
-| 6 跨 Agent | Claude（只拿装好的 skill）与 ezdxf 基线：箱体、叉架、装配各首图 + 3 轮修改全部成功；**Codex 未运行**（见 §5） | `evidence/cross-agent.md`、`report-cross-agent.json`、`codex-403.log` |
+| 6 跨 Agent | Claude 与 DeepSeek Harness（DeepSeek-V4.1-Flash high，只拿装好的 skill）与 ezdxf 基线：箱体、叉架、装配各首图 + 3 轮修改全部落实，两种 Agent 的图检查 0 error；**Codex 未运行，按用户决定换成 dsh 与豆包工作；豆包未运行**（见 §5） | `evidence/cross-agent.md`、`report-cross-agent.json`、`codex-403.log` |
 | 7 出图评审 | 独立评审 1–3 分为主；1 条已修，其余列入 §4 | `evidence/render-review.md` |
 | 8 | 干净 clone 946 测试通过、ruff 通过、评测 40 / 40；CI 绿（含 3d job）、本 HANDOVER、tag `v0.1-m3` | `evidence/clean-clone.md` |
 
@@ -42,19 +43,21 @@ uv run pytest -q tests/test_source3d.py tests/test_assembly.py tests/test_import
 - 3D：不做阶梯 / 旋转剖与移出断面（用 2D 画法补）；`src3d` 的边号只是提示，哈希为准；组件必须在 `project()` 之前加。
 - DXF 导入：TEXT 导入成带引线的注释、HATCH 跳过、原图框保留在新图幅里；验收只用了 ezdxf 生成的图，没有第三方 CAD 原生文件（需要下载许可）。
 - Viewer：版本列表在轮询刷新时会自动折叠；`layout_changed` 在整视图移动时很长。
-- 跨 Agent：每项 n = 1；修改轮次 harness 比基线慢；箱体任务与范例相近，对 harness 有利。
+- 跨 Agent：每项 n = 1；修改轮次 harness 比基线慢；dsh 首图 12–21 分钟（箱体首图超 20 分钟上限，图已完整提交）；箱体任务与范例相近，对 harness 有利。
+- 没有“试改不提交”：Agent 调布局用 `edit` + `undo` 试错，历史里留下成对的“测试 / 撤销” commit（dsh 叉架 26 个）；v0.2 候选 `lcad edit --dry-run`。
 
 ## 5. 偏离与决定
 
 见 SPEC §4。另：
-- **BRIEF §5 跨 Agent 条款的 Codex 一半未完成**：2026-11-09 本机 `codex exec`（0.147.0）每次调用都被所配置的服务商拒绝 `403 用户额度不足`（`evidence/codex-403.log`）；opencode 的 API key 无效。按监督会话的决定记为外部阻塞的偏离，运行器保留 Codex 分支，充值后一条命令重跑：
+- **BRIEF §5 跨 Agent 条款的 Codex 换成 DeepSeek Harness 与豆包工作**：2026-11-09 本机 `codex exec`（0.147.0）每次调用都被所配置的服务商拒绝 `403 用户额度不足`（`evidence/codex-403.log`）；opencode 的 API key 无效。用户决定改用本机 DeepSeek Harness（`dsh` headless，DeepSeek-V4.1-Flash、推理 high）和豆包工作桌面版（云电脑、自动-高）。dsh 三项全部跑完；豆包只能靠 computer use 驱动界面，本次会话里没有该工具，未运行，运行器的 `prompt` / `record` 已备好。运行器保留 Codex 分支，充值后一条命令重跑：
   `python evals/cross_agent.py run --root <目录> --agent codex --task box`（再 `fork`、`asm`，然后 `score`）。
 - `lcad log` 输出包成 `{ok, log}`（CLI 一律一个 JSON 对象）。
 - 装配剖面线相邻判定用 0.5 mm（允许配合间隙）。
 
 ## 6. 待用户人工评审
 
-- 给 Codex 服务商充值或换服务商后，重跑跨 Agent 评测的 Codex 部分（命令见 §5）。
+- 豆包工作（云电脑、自动-高）三项评测：computer use 可用后由会话驱动，或人工按 `python evals/cross_agent.py prompt --agent doubao --task <box|fork|asm> --round <0-3>` 的文本逐轮粘贴，用 `record` 记时、把回传的 `drawing.zip` 解到 `<评测目录>/doubao/<任务>/drawing` 后 `score`。
+- （可选）给 Codex 服务商充值或换服务商后，重跑 Codex 部分（命令见 §5）。
 - 出图质量：评审指出的尺寸排布与装配图细节（`evidence/render-review.md`）是否作为 v0.2 第一优先级。
 - 跨 Agent 结论：出图观感 harness 与裸 ezdxf 相当，优势在首图速度、检查、语义元素与版本；是否接受这个定位。
 - 是否提供一份有明确许可的第三方 CAD DXF 作为导入验收样例。

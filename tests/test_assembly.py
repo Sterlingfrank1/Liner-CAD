@@ -140,6 +140,17 @@ def test_std_part_resource_and_errors(tmp_path):
     assert "10" in ei.value.candidates
 
 
+def test_std_part_material_fills_bom(tmp_path):
+    # cross-agent eval (dsh, asm task): the requirement asked for every part's material, std_part had
+    # no way to give one, so the agent replaced the standard bolts with hand-made models
+    d = make(
+        tmp_path, pre='d.std_part("GB/T 6170", "M6", name="nut", at=(0, 0, -5), material="Q235")'
+    ).d
+    rows = {r["id"]: r for r in d["T.bom"].rows}
+    assert rows["A.nut"]["material"] == "Q235"
+    assert rows["A.washer"]["material"] == ""
+
+
 def test_component_unknown_param_reported(tmp_path):
     with pytest.raises(Exception) as ei:
         make(tmp_path, pre='d.component("parts/base", name="b2", params={"X": 1})')

@@ -445,11 +445,11 @@ class Drawing:
         return drawing_component(self, path, name, at, rot, params, solid)
 
     @mutator("std_part")
-    def std_part(self, std, spec, qty=None, name=None, at=(0, 0, 0), rot=(0, 0, 0)):
+    def std_part(self, std, spec, qty=None, name=None, at=(0, 0, 0), rot=(0, 0, 0), material=None):
         """Assembly: a standard part from the resource library → ``A.<name>``."""
         from .assembly import drawing_std_part
 
-        return drawing_std_part(self, std, spec, qty, name, at, rot)
+        return drawing_std_part(self, std, spec, qty, name, at, rot, material)
 
     @mutator("bom")
     def bom(self, view="front"):
