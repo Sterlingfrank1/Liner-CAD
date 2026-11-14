@@ -97,3 +97,5 @@ BRIEF（监督会话写）
 
 **v0.1.1 的补充（2026-11-10）：** 出图质量与尺寸排布也放 v0.1.1 优化；Viewer 的 6 条界面缺口、DXF 导入评测、评测指标方案（`docs/proposals/benchmark-metrics.md`，已通过）同在 v0.1.1。以上各项的范围、拆分和先后由用户在“Liner-CAD v0.1.0 发布缺口处理”统一安排，上面“第一优先”的表述以那份计划为准。
 
+**v0.1.1 的补充（2026-11-13，用户本机试用后）：** 再加三件事——首次出图自动打开 Viewer；Viewer 选择同步到对话（复制引用对所有 Agent，Claude Code 另装提示钩子）；后续迭代提速（`lcad template save` 把画好的图沉淀成参数化模板、`lcad edit --dry-run`、迭代速度并入评测指标 P 过程）。已定：参数化模板由用户自己 `template save` 沉淀；钩子只装 Claude Code，dsh、opencode 等其余 Agent 先走复制引用。方案与验收见 `docs/releases/v0.1.0-review.md` “Viewer 自动打开、选择同步到对话、迭代速度”；范围、拆分和先后同样由“Liner-CAD v0.1.0 发布缺口处理”统一安排。
+
