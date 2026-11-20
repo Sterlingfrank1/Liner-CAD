@@ -1,6 +1,8 @@
 # v0.1.1 计划
 
-2026-11-14 · supervisor 会话“Liner-CAD v0.1.1开发”（Opus 5.5 / high，只规划、派活、核验、验收）· GitHub milestone `v0.1.1`（#5）· 卡片 issue #73–#102
+2026-11-14 · supervisor 会话“Liner-CAD v0.1.1开发”（Opus 5.5 / xhigh，只规划、派活、核验、验收；用户 2026-11-14 将 effort 由 high 调为 xhigh）· GitHub milestone `v0.1.1`（#5）· 卡片 issue #73–#102、#104–#108
+
+> **2026-11-20 更新**（续跑 2026-11-14 被中断的 supervisor 计划更新回合）：H1（#104，`lcad edit --dry-run`）入卡片表并入 W3 顺序；2026-11-13 用户试用后的“三项”（commit 49d8759：首次出图自动打开 Viewer、选择同步到对话、迭代提速）拆为 H2（#105）、H3（#106）、H4（#107）、E7（#108）并入；U1 / U2 / U3 / U5 按用户 2026-11-14 六条决定收口。
 
 ## 1. 目标
 
@@ -19,7 +21,7 @@
 | 已知缺口·出图 | 装配螺纹啮合画法 | D6 | v0.1.1 |
 | 已知缺口·出图 | 3D / 装配视图局部放大 | D7 | v0.1.1 |
 | 已知缺口·3D | 投影边按位置编号，diff 乱 | D4 | v0.1.1 |
-| 已知缺口·3D | 阶梯剖、旋转剖、移出断面（3D 来源） | **v0.2（建议，待用户确认 U1）** | review 未提及；现可用 2D 画法补 |
+| 已知缺口·3D | 阶梯剖、旋转剖、移出断面（3D 来源） | **v0.2（用户 2026-11-14 确认 U1）** | review 未提及；现可用 2D 画法补 |
 | 已知缺口·DXF 导入 | TEXT 成带引线注释、HATCH 被跳过 | C2、C3 | v0.1.1 |
 | 已知缺口·DXF 导入 | 验收只用 ezdxf 样例 → 用户第三方样例 | C1 | v0.1.1 |
 | review·DXF | 原图框保留在新图幅里 | C4 | v0.1.1 |
@@ -40,6 +42,11 @@
 | review·Viewer × 指标 | 画布标红消费 finding 元素 ID，检查器显示 clause / measured / expected / candidates | B3（依赖 E1） | v0.1.1 |
 | 待评审·第三方 DXF | 用户样例已到位（4 DXF + 3 PDF） | C1–C4；磨头 PDF 用于 V1 | v0.1.1 |
 | 用户 2026-11-10 | 评测指标方案 §8 六步 | E1、E2、E3、E4、E5、E6 | v0.1.1 |
+| 用户 2026-11-13 试用 | 首次出图自动打开 Viewer（后台常驻、空闲自退） | H3（#106） | v0.1.1 |
+| 用户 2026-11-13 试用 | Viewer 选择同步到对话（复制引用 + Claude Code 钩子） | H4（#107） | v0.1.1 |
+| 用户 2026-11-13 试用 | 迭代提速：`lcad template save` 沉淀参数化模板 | H2（#105） | v0.1.1 |
+| 用户 2026-11-13 试用 | 迭代提速：`lcad edit --dry-run` 试改不提交 | H1（#104） | v0.1.1 |
+| 用户 2026-11-13 试用 | 迭代速度并入评测指标（P 过程，两种口径） | E7（#108） | v0.1.1 |
 | M3 HANDOVER | 没有“试改不提交”（`lcad edit --dry-run`） | **v0.2 候选（待用户确认 U2）** | v0.1.0.md 未列 |
 | 已知缺口·出图 | 新范例与装配图出图评审 2–3 分 | D 流；V1 出图评审对比 v0.1.0 | v0.1.1 |
 
@@ -50,11 +57,11 @@
 同时运行的开发会话不超过 3 个（W1–W3）；W4 先握手后空闲，等全部卡片合并再做 V1。各流内按顺序做，一张卡片一个 PR；热点文件只在一个流里写。supervisor 可按进度把未开工的卡片在流之间重排（只用 `send_message`）。
 
 ```
-W1 指标 + 导入 : E1 → E5 → E2 → C1 → C2 → C3 → C4 → E6 → E3 → E4
+W1 指标 + 导入 : E1 → E5 → E2 → C1 → C2 → C3 → C4 → E6 → E3 → E4 → E7
 W2 布局       : D1 (合并等 E5) → D2 → D3 → D5 → D4 → D6 → D7
-W3 数据 + Viewer: A1+A3(合并 #69) → A2 → A4 → B3(等 E1) → B1/B2/B4/B5/B6 → B7 → F1
+W3 数据 + Viewer: A1+A3(合并 #69) → A2 → A4 → B3(等 E1) → B1/B2/B4/B5/B6 → B7 → H3 → H4 → H2 → H1(默认等 D2 合并，可提前) → F1
 W4 验收       : V1（全部卡片合并后）
-跨流依赖: E1 → B3；E5 → D1 合并；A4 → E4；C4、D3、E1 → F1
+跨流依赖: E1 → B3；E5 → D1 合并；A4 → E4；B2 → H4（复制引用合并做）；D2 → H1（默认）；C4、D3、E1、H1 → F1
 ```
 
 热点归属：`rules.py` / `checks.py` / `evals/run.py` / `importdxf.py` → W1；`layout.py` / `annotate.py` / `pmi_layout.py` / `assembly.py` / `views.py` / `source3d.py` / `hlr.py` → W2；`res/` / `viewer/` / `versions.py` / `skill/` → W3。跨流必须动对方热点时，先通知 supervisor 排期。
@@ -77,6 +84,7 @@ W4 验收       : V1（全部卡片合并后）
 | E6 | #80 | W1 | P2 | 仅 DXF 模式的指标：只靠渲染图元判的规则，用于任意来源图纸 | E5、C4 | 指标模块、evals |  | 对任意 DXF 输出仅 DXF 模式的分数向量（可判规则列表写明）；对 4 个样例 DXF 和 M3 基线图各出一份数字进证据；自造夹具的正反例测试；pytest、ruff、CI 绿；PR 已合并。 |
 | E3 | #81 | W1 | P2 | expect.py 约束语义与几何签名匹配；L2 的 20 例写 expect | E2 | linercad 的 expect 模块、evals/L2/*/expect.py |  | L2 的 20 例各有十来行的 expect.py，对参考图全部通过；变异（删一个必需尺寸、改配合）能被抓到；分数进向量、baseline 更新并说明；pytest、ruff、CI 绿；PR 已合并。 |
 | E4 | #82 | W1 | P2 | T.syntax / T.target / T.hier：按 GB/T 1182 数据判形位公差 | A4、E2 | rules.py（形位公差部分）、规则目录 |  | 三条规则读 res/gtol.toml、带条款、有正反例与变异算子（检出 1.0、误报 0）；评测报告 GB/T 1182 条款覆盖率；baseline 不退化；pytest、ruff、CI 绿；PR 已合并。 |
+| E7 | #108 | W1 | P2 | 迭代速度指标（P 过程）：run_demo.py 并入 evals/cross_agent.py，区分两种口径 | E1 | evals/cross_agent.py |  | 评测输出每轮耗时 / 新处理 token / 模型步数 / lcad 子命令统计；区分“每轮新开调用”与“同一对话连续修改”两种口径；4 个试用场景各出一份数字进证据；自造夹具测试；pytest、ruff、CI 绿；PR 已合并。 |
 | D1 | #83 | W2 | P0 | 放射状直径 / 半径引线的候选生成与代价函数 | E5 | layout.py、annotate.py | 是 | flange、end_cover、pulley、gear_cover、bearing_support 的圆视图直径 / 半径引线：E5 中与之相关的可避免交叉为 0，D 族排布分数提升并附前后渲染图；确定性测试（同输入同输出、固定元素不动）；每个修好的情形留回归用例；评测 40/40、几何 1.0、baseline 不退化；一轮独立评审已处理；CI 绿；PR 已合并。 |
 | D2 | #84 | W2 | P0 | 多层尺寸避让：排序外推、小内大外、文字内外与箭头外翻、PMI 引线 | D1 | layout.py、pmi_layout.py | 是 | 评测集与范例的 D.place 交叉、间距、嵌套子项较 D1 后的基线明显改善（PR 给出数字）且无回退；pulley 右侧拥挤处无交叉；前后渲染图进证据；确定性与固定元素测试；每个修复留回归用例；40/40、几何 1.0、baseline 不退化；一轮独立评审已处理；CI 绿；PR 已合并。 |
 | D3 | #85 | W2 | P1 | 装配序号：对齐、最小间距、顺序、引线不交叉 | D2 | assembly.py、layout.py |  | jack、vise、bearing 三个装配：A.place 序号引线交叉 0、间距 ≥ δ、对齐与顺序子项通过；前后渲染图进证据；回归用例；L3 评测通过、baseline 不退化；CI 绿；PR 已合并。 |
@@ -95,7 +103,11 @@ W4 验收       : V1（全部卡片合并后）
 | B5 | #98 | W3 | P2 | Viewer：状态栏可读性（字号、原话展开、警告数着色） | — | viewer/ |  | 复现与修复截图进证据；着色逻辑有测试；pytest、ruff、CI 绿；PR 已合并。 |
 | B6 | #99 | W3 | P2 | Viewer：版本列表在轮询刷新时保持展开 | — | viewer/ |  | 复现与修复截图进证据；回归用例；pytest、ruff、CI 绿；PR 已合并。 |
 | B7 | #100 | W3 | P2 | 版本对比：整视图移动时 layout_changed 归并为一条 | — | versions.py、viewer/ |  | 整视图平移的用例里 `lcad diff` 与 Viewer 对比只报一条视图平移、layout_changed 只含真正额外移动的元素（测试断言）；截图进证据；pytest、ruff、CI 绿；PR 已合并。 |
-| F1 | #101 | W3 | P3 | 文档：跨 Agent 措辞收紧；Skill 与 README 同步 v0.1.1 变更 | E1、C4、D3 | README、skill/、docs/ |  | README 与 Skill 中跨 Agent 表述与 #70 证据一致；Skill 覆盖本版新接口（逐项列在 PR 里）；`lcad skill install` 后的文件与源一致的测试通过；CI 绿；PR 已合并。 |
+| H3 | #106 | W3 | P1 | 首次出图自动打开 Viewer（后台常驻、空闲自退、--no-view / CI 默认关） | — | viewer/、commands.py、.linercad/ 状态（git 不跟踪） |  | 图纸目录第一次 build / edit 成功后自动起后台 Viewer 并开一次浏览器（JSON 带 viewer: {url, opened}，打不开时输出可用地址）；已在运行只刷新不开新标签；空闲超时自退、无遗留进程；CI 与 --no-view 默认关；Claude Code 与 dsh 各出一张图现场验收；pytest、ruff、CI 绿；PR 已合并。 |
+| H4 | #107 | W3 | P1 | Viewer 选择同步到对话：复制引用（所有 Agent）+ Claude Code 提示钩子 | B2（复制引用合并做） | viewer/、skill/（install 幂等合并 .claude/settings.json） | 是 | 多选 3 元素复制引用粘进 dsh 一轮改对；Claude Code 不复制、直接打字也能改对（钩子带当前 selection，过期 / 无选择不带）；settings.json 合并幂等、不覆盖用户已有设置；钩子走只读轻量入口；现场截图进证据；一轮独立评审已处理；pytest、ruff、CI 绿；PR 已合并。 |
+| H2 | #105 | W3 | P2 | `lcad template save/list`：用户沉淀参数化模板，`init --from` 一步出图 | — | commands.py、模板清单与存放、skill/pages/api.md |  | `save`（前提 check 0 error）后 `lcad init <目录> --from <名> --set …` 一步出图；清单含名称 / 描述 / 参数范围；`template list` 与 skill 列出用户模板并写“匹配即从模板起步”规则；修订层存在时提示；牛鼻刀基线（首次 vs 换规格）出数进证据；pytest、ruff、CI 绿；PR 已合并。 |
+| H1 | #104 | W3 | P2 | `lcad edit --dry-run`：试改不提交 | D2（默认） | txn.py；cli.py、commands.py 只加开关 | 是 | 临时目录图纸仓库里 `lcad edit --dry-run` 后 HEAD、git status、动作日志、源文件均不变（测试断言）；输出含变化元素、finding、预览路径；随后同一脚本真实 edit 的结果与 dry-run 报告一致；失败路径与 edit 同结构；一轮独立评审已处理；pytest、ruff、CI 绿；PR 已合并。 |
+| F1 | #101 | W3 | P3 | 文档：跨 Agent 措辞收紧；Skill 与 README 同步 v0.1.1 变更 | E1、C4、D3、H1 | README、skill/、docs/ |  | README 与 Skill 中跨 Agent 表述与 #70 证据一致；Skill 覆盖本版新接口（逐项列在 PR 里）；`lcad skill install` 后的文件与源一致的测试通过；CI 绿；PR 已合并。 |
 | V1 | #102 | W4 | P0 | v0.1.1 版本验收（G5）：干净 clone、独立 Agent 多轮修改与出图评审、版本号与发布说明 | 全部卡片 | pyproject、版本号、docs/releases/v0.1.1.md、docs/milestones/v0.1.1/HANDOVER.md |  | 干净 clone 全量测试、ruff、评测 40/40 零 error、几何 / 完整性 1.0、baseline 不退化；独立 Agent 多轮修改与出图评审记录进证据；版本号 0.1.1、docs/releases/v0.1.1.md 与 HANDOVER 合并；CI 四项绿；PR 已合并。 |
 
 ## 5. 质量标准
@@ -120,13 +132,15 @@ W4 验收       : V1（全部卡片合并后）
 
 ## 7. 待用户确认（不阻塞）
 
-| # | 事项 | supervisor 建议 |
+| # | 事项 | 结论 |
 |---|---|---|
-| U1 | 3D 来源的阶梯剖、旋转剖、移出断面（v0.1.0 已知缺口，review 未提及） | 转 v0.2：现有 2D 画法可补，v0.1.1 已很满 |
-| U2 | `lcad edit --dry-run`（M3：Agent 用 edit + undo 试错，历史留成对 commit） | 转 v0.2；若 D 流评测显示 Agent 调布局轮次多，可提前 |
-| U3 | 磨头只有 PDF | 不做导入评测；作 V1 独立 Agent 的出图参照（PDF 不入库）。若能导出 DXF，放进 `sample\` 后由 C1 补测 |
+| U1 | 3D 来源的阶梯剖、旋转剖、移出断面（v0.1.0 已知缺口，review 未提及） | **已确认转 v0.2**（用户 2026-11-14：通过） |
+| U2 | `lcad edit --dry-run`（M3：Agent 用 edit + undo 试错，历史留成对 commit） | **已确认放入 v0.1.1**（用户 2026-11-14）：卡片 H1（#104），默认排 D2 之后，评测显示轮次多可提前 |
+| U3 | 磨头只有 PDF | **已关闭**（用户 2026-11-14：仅作测试 / V1 出图参照，不再索要 DXF） |
 | U4 | ISO 2540 附录 A 原文 | 先由 A3 找独立来源；找不到再请用户提供 |
-| U5 | 指标落地顺序：E5（D.place）提前到 E1 之后 | 见偏离记录 1 |
+| U5 | 指标落地顺序：E5（D.place）提前到 E1 之后；核心卡也用 Sonnet xhigh | **已确认**（用户 2026-11-14 未提异议；见偏离记录 1、2） |
+
+2026-11-20 增补：按用户指示，2026-11-13 试用“三项”（commit 49d8759）并入计划，拆为 H2（#105）、H3（#106）、H4（#107）、E7（#108）；dry-run 即 H1（#104）。方案与验收见 `docs/releases/v0.1.0-review.md` “Viewer 自动打开、选择同步到对话、迭代速度”一节。
 
 ## 8. 风险
 
@@ -135,9 +149,13 @@ W4 验收       : V1（全部卡片合并后）
 - **D4 改投影边 ID：** 已有图纸仓库的动作日志可能引用旧 ID；要求失败时给 not_found + 候选，并写进发布说明。
 - **标准 PDF 为图片：** 本机缺 poppler，先转图片再多模态读；读不到的如实记录，不补编。
 - **样例许可：** 用户样例与标准原文不入库，证据只放数字与小的自身输出。
+- **Viewer 常驻进程（H3）：** 端口 / pid 记 `.linercad/`（git 不跟踪）、空闲超时自退、CI 与 `--no-view` 默认关；常驻后暴露时间变长的风险随卡评估（令牌加固仍在 v0.2）。
 
 ## 9. 偏离记录
 
 1. **E5 提前到 E1 之后**（方案 §8 原为第 5 步）：D 流是头号优先，需要 D.place 作尺子；E2 紧随其后，仍在 D 流大部分卡片之前完成。
 2. **核心卡也用 Sonnet 5.5 xhigh**（ROADMAP §4 原定核心卡用 Opus）：用户 2026-11-14 决策，开发只允许 Sonnet 5.5 xhigh；以独立评审与 supervisor 核验补足。
 3. **v0.1.1 不另写 BRIEF / SPEC**：本 PLAN 加卡片 issue 即 BRIEF + SPEC；G1 由用户在本会话审计划（回复“开始”）代替独立评审；设计细节在各卡 PR 里写明。
+4. **`lcad edit --dry-run` 转入 v0.1.1**（原 U2 建议 v0.2）：用户 2026-11-14 决定；卡片 H1（#104），默认排 D2 之后，D 流评测显示 Agent 调布局轮次多可提前。
+5. **“三项”并入 v0.1.1**（首次出图自动打开 Viewer、选择同步到对话、迭代提速）：用户 2026-11-13 试用后定方向（commit 49d8759），2026-11-20 指示吸收进 PLAN 与 ROADMAP；拆为 H2（#105）、H3（#106）、H4（#107）、E7（#108）。
+6. **supervisor effort high → xhigh**：用户 2026-11-14 直接调整（BRIEF.md 步骤 0 已同步接受两档；开发会话仍一律 Sonnet 5.5 xhigh）。

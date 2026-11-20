@@ -79,7 +79,7 @@ BRIEF（监督会话写）
 
 **v0.1.1 起（2026-11-14）：**
 
-- 组织：supervisor 会话（Opus 5.5 / high）只规划、派活、核验、验收；开发会话一律 Sonnet 5.5 + xhigh，按工作流（W1–W4）顺序处理卡片，同时运行不超过 3 个。开发会话的最后一条消息以 `CARD <id> DONE — PR #n merged` 或 `CARD <id> BLOCKED — <原因>` 开头。
+- 组织：supervisor 会话（Opus 5.5 / xhigh，用户 2026-11-14 调整）只规划、派活、核验、验收；开发会话一律 Sonnet 5.5 + xhigh，按工作流（W1–W4）顺序处理卡片，同时运行不超过 3 个。开发会话的最后一条消息以 `CARD <id> DONE — PR #n merged` 或 `CARD <id> BLOCKED — <原因>` 开头。
 - 状态在仓库外 `Liner-CAD-refs\v0.1.1-supervisor\`：`status.json`（`state`: planning / running / waiting_limit / waiting_user / done，`resumeAfter`，`sessions`，`lastNote`）、`progress.md`（人读）、`progress\<流>.md`（各开发会话）。
 - 会话内看门狗（`CronCreate`，只留一个）：任一额度窗口 ≥ 90% 或有会话因额度停下时，定在该窗口 `resetsAt` + 10 分钟；否则 ≤ 3 小时心跳。触发后确认额度恢复，给因额度停下的会话发“继续”，再设下一个。
 - 兜底：桌面计划任务 `liner-cad-watchdog-backstop` 每 6 小时检查 `status.json`，停滞 ≥ 3 小时或已过 `resumeAfter` 就唤醒 supervisor；`v0.1.1` 发布后停用。
@@ -106,5 +106,7 @@ BRIEF（监督会话写）
 
 **v0.1.1 的补充（2026-11-10）：** 出图质量与尺寸排布也放 v0.1.1 优化；Viewer 的 6 条界面缺口、DXF 导入评测、评测指标方案（`docs/proposals/benchmark-metrics.md`，已通过）同在 v0.1.1。拆分与先后见 `docs/milestones/v0.1.1/PLAN.md`（2026-11-14）。
 
-**v0.2 余项（v0.1.1 不做）：** 标题栏 GB/T 10609.1 图 2 与 GB/T 14692 投影符号原文对照；GB/T 1095-2003 遗留（松联结 H9/D10、36×20 以上行、(d−t1)/(d+t2) 符号约定）；ISO 5459 原文；Viewer 令牌加固；大样本评测验证跨 Agent 定位；STEP AP242 语义 PMI。待用户确认是否也转 v0.2：3D 来源的阶梯剖 / 旋转剖 / 移出断面，`lcad edit --dry-run`（PLAN §7 U1、U2）。
+**v0.1.1 的补充（2026-11-13，用户本机试用后）：** 再加三件事——首次出图自动打开 Viewer；Viewer 选择同步到对话（复制引用对所有 Agent，Claude Code 另装提示钩子）；后续迭代提速（`lcad template save` 把画好的图沉淀成参数化模板、`lcad edit --dry-run`、迭代速度并入评测指标 P 过程）。已定：参数化模板由用户自己 `template save` 沉淀；钩子只装 Claude Code，dsh、opencode 等其余 Agent 先走复制引用。方案与验收见 `docs/releases/v0.1.0-review.md` “Viewer 自动打开、选择同步到对话、迭代速度”；拆分与先后见 `docs/milestones/v0.1.1/PLAN.md`（卡片 H1 / H2 / H3 / H4、E7，2026-11-20 并入）。
+
+**v0.2 余项（v0.1.1 不做）：** 标题栏 GB/T 10609.1 图 2 与 GB/T 14692 投影符号原文对照；GB/T 1095-2003 遗留（松联结 H9/D10、36×20 以上行、(d−t1)/(d+t2) 符号约定）；ISO 5459 原文；Viewer 令牌加固；大样本评测验证跨 Agent 定位；STEP AP242 语义 PMI。3D 来源的阶梯剖 / 旋转剖 / 移出断面已确认转 v0.2（用户 2026-11-14）；`lcad edit --dry-run` 已确认放入 v0.1.1（卡片 H1，#104）。
 
