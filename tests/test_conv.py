@@ -121,6 +121,30 @@ def test_center_hole_type_b_designation(shaft):
     assert any("4459.5" in t and "B2.5/8" in t for t in texts(c))
 
 
+def test_center_hole_type_r_designation(shaft):
+    d, f = shaft
+    c = f.center_hole("chr", on="F.front.body", end="left", type="R", d=3.15)
+    assert c.intent["designation"] == "R3.15/6.7" and c.intent["D"] == 6.7
+    layout(d)
+    assert any("4459.5" in t and "R3.15/6.7" in t for t in texts(c))
+    assert c.intent["mask"]  # the drawn profile is simplified away: no real cone / arc edges
+
+
+def test_center_hole_type_c_designation(shaft):
+    d, f = shaft
+    c = f.center_hole("chc", on="F.front.body", end="right", type="C", d=6, length=10)
+    assert c.intent["designation"] == "CM6L10/10.5" and c.intent["D"] == 10.5
+    layout(d)
+    assert any("4459.5" in t and "CM6L10/10.5" in t for t in texts(c))
+
+
+def test_center_hole_type_c_requires_thread_length(shaft):
+    d, f = shaft
+    with pytest.raises(errors.InvalidArgument) as err:
+        f.center_hole("chc", on="F.front.body", end="right", type="C", d=6)
+    assert "length" in (err.value.hint or "") and "C" in err.value.message
+
+
 def test_groove_dimension(shaft):
     d = Drawing()
     f = d.view("front")
