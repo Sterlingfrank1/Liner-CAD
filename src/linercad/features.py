@@ -195,6 +195,13 @@ def center_hole(view, name, on, end="left", type="A", d=2.5, keep=True, length=N
             values={"type": type, "d": d},
             hint="给 length=10（mm）",
         )
+    # bool is a subclass of int: reject it before num() turns True into 1.0
+    if isinstance(d, bool):
+        raise InvalidArgument(f"中心孔 d 应为数或参数表达式，得到 {d!r}", values={"d": d})
+    if isinstance(length, bool):
+        raise InvalidArgument(
+            f"中心孔 length 应为数或参数表达式，得到 {length!r}", values={"length": length}
+        )
     if length is not None:
         length = num(length, "length")  # a parameter expression is resolved; NaN / inf rejected
     if not (type == "C" and isinstance(d, str)):

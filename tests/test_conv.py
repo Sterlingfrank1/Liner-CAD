@@ -166,6 +166,14 @@ def test_center_hole_type_c_length_accepts_a_parameter_expression():
         f.center_hole("bad", on="F.front.body", end="left", type="C", d=6, length=float("nan"))
 
 
+def test_center_hole_rejects_boolean_sizes(shaft):
+    d, f = shaft
+    with pytest.raises(errors.InvalidArgument):
+        f.center_hole("bad", on="F.front.body", end="left", type="A", d=True)
+    with pytest.raises(errors.InvalidArgument):
+        f.center_hole("bad", on="F.front.body", end="left", type="C", d=6, length=True)
+
+
 def test_center_hole_d_accepts_a_parameter_expression():
     d = Drawing(sheet="A3")
     P = d.params(ds=Param(3.15, min=1, max=10, step=0.01, label="中心孔导向孔直径"))
