@@ -164,3 +164,6 @@ W4 验收       : V1（全部卡片合并后）
 7. **跨 Agent 验证改用 dsh + Codex**（2026-11-21 用户指示）：v0.1.1 涉及跨 Agent 效果的地方（E7 的场景、F1 的措辞依据、V1 的独立 Agent 验收）以 DeepSeek Harness 与 Codex 为准；豆包工作不再使用。
 8. **A1、A3 随 PR #69 核对关闭**（2026-11-21）：GB/T 6403.5-2008 表 1 与原文逐格对上，`res/grinding_grooves.toml` 改 `verified = true`，逐格表作测试 fixture；B 型中心孔的 D1 / l2 对 ISO 2540:2016 表 1 与几何复核，D2 / l_min 仍单一谱系，保持 `verified = false` 并把待用户项写进 [meta]。
 9. **B2（Claude Code 提示钩子）转 v0.2，B1 细化**（2026-11-21 用户决定）：开发主平台已切至 DeepSeek Harness，钩子只对 Claude Code 宿主有意义，回到该宿主时再启用；H4（#107）收敛为两条路径——点选 / 多选后复制引用一行粘贴进任何 Agent；自然语言指代（用户直接说“修改什么…”，Agent 经 `lcad context @sel` / `selection.json` 知道针对与相关的修改对象，选择过期时如实报告、不猜测）。详见 `v0.1.0-review.md` 同名一节。
+10. **每张卡都评审，不分档**（2026-11-21 用户决定，取代 §5.7「核心卡合并前一轮」）：每张卡合并前经 Codex 评审（BRIEF-DSH §3：`codex exec`，本机默认 deepseek-v4.1-flash / max；最多 3 轮，第 3 轮仍不过升级 lead 仲裁，禁止拉锯烧额度）；核心卡（E1、E2、C4、D1、D2、B3、H4、H1）另加一道 glm-5.3-flash（max）短命子代理第二道评审，与 Codex 形成跨模型交叉。
+11. **不做 Code Simplifier**（2026-11-21 用户决定）：不设独立的代码简化轮；以「代码只写当前验收需要的」在编写时把住（ROADMAP §4.1 精简规则）。
+12. **开发档位与会话机制改由 DSH 团队章程承担**（2026-11-21）：v0.1.1 开发自本日起在 DeepSeek Harness 下进行，成员一律 deepseek-v4.1-flash（1017）+ max，取代 §4「执行档位一律 Sonnet 5.5 xhigh」与 §6 的 Claude Code 会话机制；单卡闭环、评审纪律、额度续跑见仓库外 `Liner-CAD-refs\v0.1.1-supervisor\BRIEF-DSH.md` 与 `KICKOFF-DSH-TEAM.md`；某卡评审反复不过时由 lead 开 deepseek-v4-pro（max）一次性替身接卡（升级路径）。
