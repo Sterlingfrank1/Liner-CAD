@@ -252,12 +252,12 @@ def test_lcad_check_outputs_opportunities(tmp_path):
 # ---- family score vector -------------------------------------------------------------------------
 
 
-def _case(rules=None, errors=0, passed=True, case_id=None, geo=True):
+def _case(rules=None, errors=0, passed=True, case_id=None, geo=True, geo_pass=True):
     out = {"errors": errors, "warnings": 0, "passed": passed, "rules": rules or {}}
     if case_id:
         out["id"] = case_id
     if geo:
-        out["geo"] = {"front": {"pass": True}}
+        out["geo"] = {"front": {"pass": geo_pass}}
         out["completeness"] = {"pass": True}
     return out
 
@@ -371,6 +371,8 @@ def test_baseline_rejects_an_unusable_file():
     bad_bool_errors["errors"] = False
     inf_p = evals.baseline_vector(good)
     inf_p["P"]["rules"]["stale_op"] = {"opportunities": float("inf"), "violations": 0}
+    bad_family_type = evals.baseline_vector(good)
+    bad_family_type["families"]["D"] = ["oops"]
     for bad in (
         None,
         {},
@@ -393,8 +395,34 @@ def test_baseline_rejects_an_unusable_file():
         bool_counts,
         bad_bool_errors,
         inf_p,
+        bad_family_type,
     ):
         assert evals.compare_baseline(good, bad), bad
+
+
+def test_baseline_flags_a_geometry_pass_rate_drop():
+    # the same number of model cases is compared, but one of them now fails
+    good = _report(_case({"duplicate": {"opportunities": 4, "violations": 0}}))
+    base = evals.baseline_vector(good)
+    bad = _report(_case({"duplicate": {"opportunities": 4, "violations": 0}}, geo_pass=False))
+    problems = evals.compare_baseline(bad, base)
+    assert any(p.startswith("geometry:") for p in problems), problems
+
+
+def test_baseline_flags_removed_cases():
+    base = evals.baseline_vector(_report(_case(case_id="L1/a"), _case(case_id="L1/b")))
+    fewer = _report(_case(case_id="L1/a"))
+    assert any(p.startswith("cases:") for p in evals.compare_baseline(fewer, base))
+    # a same-size run that swapped a case still lost one of the baseline cases
+    swap = _report(_case(case_id="L1/a"), _case(case_id="L1/c"))
+    assert any("cases removed" in p for p in evals.compare_baseline(swap, base))
+
+
+def test_baseline_flags_inconsistent_zero_error_rate():
+    good = _report(_case({"duplicate": {"opportunities": 4, "violations": 0}}))
+    base = evals.baseline_vector(good)
+    base["errors"] = 5  # 5 error findings but still "every case has zero errors"
+    assert any("zero_error_rate" in p for p in evals.compare_baseline(good, base))
 
 
 def test_baseline_flags_lost_geometry_comparisons():
@@ -483,6 +511,12 @@ def test_save_baseline_refuses_partial_runs(monkeypatch, tmp_path):
     ):
         assert evals.main(["--save-baseline", str(baseline), "--out", str(out), *argv]) == 1, argv
         assert not baseline.exists(), argv
+
+
+def test_cli_rejects_an_unreadable_baseline(monkeypatch, tmp_path):
+    _stub_results(monkeypatch)
+    missing = tmp_path / "does-not-exist.json"
+    assert evals.main(["--baseline", str(missing), "--out", str(tmp_path / "r.json")]) == 1
 
 
 def test_cli_rejects_a_run_with_no_cases(monkeypatch, tmp_path):

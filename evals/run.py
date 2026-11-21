@@ -407,6 +407,11 @@ def _baseline_problems(base):
     rate = base.get("zero_error_rate")
     if not _is_finite(rate) or not 0.0 <= rate <= 1.0:
         out.append(f"baseline: zero_error_rate {rate!r} is not a rate")
+    elif _is_int(errors):
+        if errors == 0 and abs(rate - 1.0) > 1e-12:
+            out.append(f"baseline: zero_error_rate {rate!r} inconsistent with 0 errors")
+        elif errors > 0 and rate >= 1.0:
+            out.append(f"baseline: zero_error_rate {rate!r} inconsistent with {errors} errors")
     proc = base.get("P")
     if not isinstance(proc, dict):
         out.append("baseline: P block missing")
@@ -467,9 +472,10 @@ def compare_baseline(report, base):
     if isinstance(base.get("errors"), int) and errors > base["errors"]:
         out.append(f"errors: {errors} > baseline {base['errors']}")
     for fam in FAMILIES:
-        entry = fams.get(fam) or {}
+        raw = fams.get(fam)
+        entry = raw if isinstance(raw, dict) else {}
         before = entry.get("score")
-        if not isinstance(before, (int, float)) or not math.isfinite(before):
+        if not _is_finite(before):
             continue
         cur = (s.get("families") or {}).get(fam) or {}
         now = cur.get("score")
