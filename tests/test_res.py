@@ -345,6 +345,7 @@ def test_center_hole_type_b_consistency(d):
     assert b["l2"] == pytest.approx(cone + chamfer, abs=0.011)
     assert b["t"] == res.center_hole("A", d)["t"] and b["l_min"] > b["t"]
 
+
 # ---------------------------------------- GB/T 145-2001 types R and C (card A2)
 
 # Cell-by-cell sources of the two tables added by A2, read from the local copies of the pages

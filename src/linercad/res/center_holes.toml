@@ -1,8 +1,11 @@
-# Centre holes, 60 deg: type A (without protecting chamfer) and type B (with 120 deg protecting chamfer)
+# Centre holes, 60 deg: type A (without protecting chamfer) and type B (with 120 deg protecting
+# chamfer), plus type R (radius form) and type C (threaded), card A2.
 [meta]
 std = "GB/T 145-2001"
 iso = "ISO 866:1975 Annex, Table 2"
 iso_B = "ISO 2540:1973 Annex (type B centre holes), same Annex A in ISO 2540:2016"
+iso_R = "ISO 2541:1972 Annex (type R centre holes)"
+iso_C = "DIN 332-2:1970 (type C threaded centre holes)"
 verified = false
 source = "ISO 866:1975 preview (standards.iteh.ai sample), Annex Table 2, method 1: d nominal, D nominal, t reference value; GB/T 145-2001 type A uses the same d / D pairs"
 source_B = """GB/T 145-2001 Table 2 (type B) as printed on the YJT database page www.164580.com/info_369427.html and in the handbook page www.jlc-jdgf.com/mcbook/new01368.htm (mirrored at dev.inkcad.com), read 2026-11-09 and parsed from the HTML tables; the standard itself was not read. \
@@ -12,8 +15,30 @@ and l2 equals the depth of the 60 deg cone plus the 120 deg chamfer, (D1 - d) / 
 The designation (B2.5/8: d / D2) follows the ISO 6411 convention and was not confirmed against the text of GB/T 4459.5. \
 Read again 2026-11-21 from the same ISO 2540:2016 preview: its Table 1 d2 column gives these same 11 D1 values and the l2 geometry holds, so D1 and l2 are cross-checked. \
 Annex A, which gives the type B centre-hole dimensions directly, is cut off in that preview, so D2 and l_min rest on the single GB/T 145-2001 lineage and the table stays unverified. If the exact GB/T 145-2001 Table 2 text is needed, ask the user for the standard."""
+source_R = """GB/T 145-2001 type R table as reproduced on the YJT database page www.164580.com/info_369427.html (read 2026-11-09, re-read 2026-11-21 from the local copy of the page; that page titles the type R table "table 3" like the type C table - a numbering slip on the page) \
+and the A/B/R/C combined table of the handbook page www.jlc-jdgf.com/mcbook/new01368.htm (mirrored at dev.inkcad.com, so both handbook pages are one lineage, not two independent sources), whose R columns are d1, d2, l min, r max and r min. \
+Both sources agree in every one of the 11 cells of d1, d2, l_min, r_max and r_min. \
+Cross-checks inside GB/T 145: d2 equals the type A diameter D and the type B D1, and l_min equals the type B l_min, for all 11 sizes. \
+The bracketed sizes of the R table (1.25, 5.00, 8.00) are kept with avoid = true. \
+The designation (R2.5/5.3: d1 / d2) follows GB/T 4459.5-1999 clause 4.1 and its figures (R3.15/6.7, 2xR3.15/6.7), read from the handbook reproduction of GB/T 4459.5 (www.jlcfa.com static 2-1-22.files image007.gif and image011.gif) and from secondary transcriptions; the text of GB/T 4459.5 is not in the public full-text system (it adopts ISO 6411:1982) and was not read. \
+ISO 2541:1972, the standard type R is equivalent to, was not read either, so verified stays false."""
+source_C = """GB/T 145-2001 type C table as reproduced on the YJT database page www.164580.com/info_369427.html (read 2026-11-09, re-read 2026-11-21 from the local copy of the page; columns d = thread M3 to M24, D1, D2, D3, l, t reference) \
+and the A/B/R/C combined table of the handbook page www.jlc-jdgf.com/mcbook/new01368.htm (mirrored at dev.inkcad.com; its reference column is headed l1 while the standard page heads it t - same values, this file uses t). \
+Both sources agree in every one of the 60 cells; the C table has no bracketed sizes, so avoid = false for all rows. \
+Geometric cross-check: t equals the depth of the 60 deg cone between D2 and D1, (D2 - D1) / 2 / tan 30, to 0.06 mm for every row but M24: the printed t = 8.0 gives 7.10 there. The printed value is kept as is and M24 is recorded as a discrepancy to check against the standard (see pending). \
+The designation (CM6L10/10.5) follows GB/T 4459.5-1999 clause 4.2 and its figure 1 (CM10L30/16.3), read from the handbook reproduction of GB/T 4459.5 (www.jlcfa.com static 2-1-22.files image007.gif): type C, thread, thread length L, then the outside cone-face diameter. L is chosen with the part and is not in this table, so res.center_hole("C", d, length=L) supplies it; the cone-face diameter used here is D3 (16.3 for M10, as in the GB/T 4459.5 example). \
+DIN 332-2:1970, the standard type C is equivalent to, was not read, so verified stays false."""
 unit = "mm"
-note = "Bracketed sizes of the standard (A: 0.5, 0.63, 0.8, 1.25, 5.0, 8.0; B: 1.25, 5.0, 8.0) are kept with avoid = true. Type B: D1 = cone diameter, D2 = protecting chamfer diameter (the manufacturer may give D2 or l2), l_min = minimum depth l1. Types R and C are not recorded."
+note = """Bracketed sizes of the standard (A: 0.5, 0.63, 0.8, 1.25, 5.0, 8.0; B: 1.25, 5.0, 8.0; R: 1.25, 5.0, 8.0) are kept with avoid = true; the C table has none. \
+Type A: D is the cone diameter. Type B: D1 = cone diameter, D2 = protecting chamfer diameter (the manufacturer may give D2 or l2), l_min = minimum depth l1. \
+Type R: d = d1 = pilot diameter, d2 = outside countersink diameter (= D of the designation), l_min = minimum depth, r_max / r_min = limits of the radius form. \
+Type C: d = thread M3 to M24 (res.center_hole takes 6 or "M6"), D1 = thread relief / cylinder diameter, D2 = diameter where the 60 deg cone meets the protecting chamfer, D3 = outside diameter at the end face (= D of the designation), l = depth of the unthreaded part from the end face, t = reference depth of the 60 deg cone (D2 to D1)."""
+pending = [
+    "C type: the marking rule in GB/T 4459.5-1999 4.2 names the parameter after the solidus differently from this file's D3; the example CM10L30/16.3 matches D3 here, but the original text was not read - check against the standard.",
+    "C type M24: printed t = 8.0 does not follow the cone geometry (7.10) that holds for the other 9 rows; both sources print 8.0. Check against the standard.",
+    "C type reference column: the 164580 page heads it t, the handbook heads it l1; same numbers, this file uses t.",
+    "Types R and C: ISO 2541:1972 / DIN 332-2:1970 originals were not read; the numbers rest on the two GB/T 145-2001 reproductions of the same lineage. Ask the user for the originals if an independent check is needed.",
+]
 
 [A]
 d     = [0.5,  0.63, 0.8,  1.0,  1.25, 1.6,  2.0,  2.5,  3.15, 4.0,  5.0,   6.3,   8.0,   10.0]
@@ -29,3 +54,20 @@ l2    = [1.27, 1.60, 1.99, 2.54, 3.20, 4.03, 5.05, 6.41, 7.36, 9.36, 11.66]
 t     = [0.9,  1.1,  1.4,  1.8,  2.2,  2.8,  3.5,  4.4,  5.5,  7.0,  8.7]
 l_min = [2.3,  2.8,  3.5,  4.4,  5.5,  7.0,  8.9,  11.2, 14.0, 17.9, 22.5]
 avoid = [false, true, false, false, false, false, false, true, false, true, false]
+
+[R]
+d     = [1.0,  1.25, 1.6,  2.0,  2.5,  3.15, 4.0,  5.0,  6.3,  8.0,  10.0]
+d2    = [2.12, 2.65, 3.35, 4.25, 5.30, 6.70, 8.50, 10.60, 13.20, 17.00, 21.20]
+l_min = [2.3,  2.8,  3.5,  4.4,  5.5,  7.0,  8.9,  11.2, 14.0, 17.9, 22.5]
+r_max = [3.15, 4.00, 5.00, 6.30, 8.00, 10.00, 12.50, 16.00, 20.00, 25.00, 31.50]
+r_min = [2.50, 3.15, 4.00, 5.00, 6.30, 8.00, 10.00, 12.50, 16.00, 20.00, 25.00]
+avoid = [false, true, false, false, false, false, false, true, false, true, false]
+
+[C]
+d     = ["M3", "M4", "M5", "M6", "M8", "M10", "M12", "M16", "M20", "M24"]
+D1    = [3.2,  4.3,  5.3,  6.4,  8.4,  10.5, 13.0, 17.0, 21.0, 26.0]
+D2    = [5.3,  6.7,  8.1,  9.6,  12.2, 14.9, 18.1, 23.0, 28.4, 34.2]
+D3    = [5.8,  7.4,  8.8,  10.5, 13.2, 16.3, 19.8, 25.3, 31.3, 38.0]
+l     = [2.6,  3.2,  4.0,  5.0,  6.0,  7.5,  9.5,  12.0, 15.0, 18.0]
+t     = [1.8,  2.1,  2.4,  2.8,  3.3,  3.8,  4.4,  5.2,  6.4,  8.0]
+avoid = [false, false, false, false, false, false, false, false, false, false]

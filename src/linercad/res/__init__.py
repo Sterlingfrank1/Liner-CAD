@@ -325,27 +325,103 @@ def rough_series(param: str = "Ra") -> dict:
 
 # ---------------------------------------------------------------------- GB/T 145 centre holes
 
+_THREAD_MARKING = re.compile(r"[Mm]\s*(\d+(?:\.\d+)?)")
 
-def center_hole(type: str = "A", d: float = 2.5) -> dict:
-    """Centre hole of ``type`` ("A" or "B"; R and C are not recorded) with pilot diameter ``d`` mm:
-    ``{"type", "d", "D", "t", "avoid", "designation", "std"}``; ``D`` is the diameter in the designation
-    as in GB/T 4459.5 ("A2.5/5.3"; "B2.5/8"). Type A: ``D`` is the cone diameter. Type B adds ``D1``
-    (cone), ``D2`` (protecting chamfer, = ``D``), ``l2`` and ``l_min`` (minimum depth). Type B's ``D1``
-    and ``l2`` are cross-checked against ISO 2540:2016 Table 1 and the cone geometry; ``D2`` and ``l_min``
-    are single-lineage, so the file's [meta] keeps ``verified = false``."""
+
+def _thread_marking(d) -> str:
+    """Normalise a type C thread argument (6, 6.0, "M6", "m6") to the table marking "M6"."""
+    if isinstance(d, (int, float)) and not isinstance(d, bool):
+        return f"M{d:g}"
+    match = _THREAD_MARKING.fullmatch(str(d).strip()) if d is not None else None
+    if match:
+        return f"M{float(match.group(1)):g}"
+    raise InvalidArgument(
+        f"C 型中心孔：d 应为螺纹公称直径（6）或螺纹代号（M6），得到 {d!r}",
+        values={"d": d},
+        hint="GB/T 145 的 C 型螺纹从 M3 到 M24",
+    )
+
+
+def center_hole(type: str = "A", d=2.5, length: float | None = None) -> dict:
+    """Centre hole of ``type`` ("A", "B", "R" or "C", GB/T 145-2001) with pilot diameter ``d`` mm.
+
+    Every type returns ``{"type", "d", "D", "t", "avoid", "designation", "std"}``; ``D`` is the
+    diameter in the designation as in GB/T 4459.5:
+
+    - A: ``D`` = cone diameter, designation "A2.5/5.3";
+    - B: adds ``D1`` (cone), ``D2`` (protecting chamfer, = ``D``), ``l2`` and ``l_min`` (minimum
+      depth), designation "B2.5/8";
+    - R: ``d`` is ``d1``; adds ``d2`` (= ``D``, the outside countersink diameter), ``l_min``,
+      ``r_max`` and ``r_min``, designation "R2.5/5.3";
+    - C: ``d`` is the thread marking (6 or "M6") and ``length`` is the thread length L of the
+      designation; adds ``thread``, ``D1``, ``D2``, ``D3`` (= ``D``, the outside diameter at the
+      end face), ``l`` (unthreaded depth from the end face) and ``t`` (reference depth of the
+      60 deg cone). With ``length`` the designation is "CM6L10/10.5", without it only "CM6".
+
+    ``avoid`` = True for a size the standard brackets as "avoid". The designations follow
+    GB/T 4459.5-1999. The numbers and the verification state (``verified = false``: reproductions
+    of GB/T 145 rather than the standard itself) are recorded in the [meta] of center_holes.toml.
+    """
     data = _table("center_holes")
     types = [k for k in data if k != "meta"]
     if type not in types:
-        raise InvalidArgument(f"中心孔型式 {type!r} 未录入（只录了 A、B 型）", candidates=types)
+        raise InvalidArgument(
+            f"中心孔型式 {type!r} 未录入（只录了 {'、'.join(types)} 型）", candidates=types
+        )
     row = data[type]
+    if type == "C":
+        if length is not None and (
+            not isinstance(length, (int, float)) or isinstance(length, bool) or length <= 0
+        ):
+            raise InvalidArgument(
+                f"C 型中心孔的螺纹长度 length 应为正数（mm），得到 {length!r}",
+                values={"length": length},
+            )
+        spec = _thread_marking(d)
+        if spec not in row["d"]:
+            near = sorted(row["d"], key=lambda s: abs(float(s[1:]) - float(spec[1:])))[:4]
+            raise InvalidArgument(
+                f"C 型中心孔没有螺纹 {spec}",
+                candidates=near,
+                values={"d": d},
+                hint="GB/T 145 的 C 型螺纹从 M3 到 M24，写 6 或 M6",
+            )
+        k = row["d"].index(spec)
+        out = {
+            "type": "C",
+            "d": float(spec[1:]),
+            "thread": spec,
+            "t": row["t"][k],
+            "avoid": False,
+        }
+        out |= {key: row[key][k] for key in ("D1", "D2", "D3", "l")}
+        out["D"] = out["D3"]
+        out["designation"] = f"C{spec}" + (
+            f"L{length:g}/{out['D']:g}" if length is not None else ""
+        )
+        out["std"] = data["meta"]["std"]
+        return out
+    if length is not None:
+        raise InvalidArgument("length（螺纹长度）只用于 C 型中心孔", values={"length": length})
+    if not isinstance(d, (int, float)) or isinstance(d, bool):
+        raise InvalidArgument(
+            f"{type} 型中心孔的 d 应为数（导向孔直径，mm），得到 {d!r}",
+            values={"d": d},
+            candidates=[f"{v:g}" for v in row["d"]],
+        )
     for k, dv in enumerate(row["d"]):
         if abs(dv - d) < 1e-9:
-            out = {"type": type, "d": dv, "t": row["t"][k], "avoid": row["avoid"][k]}
+            out = {"type": type, "d": dv, "avoid": row["avoid"][k]}
+            if "t" in row:  # type R has no reference depth t
+                out["t"] = row["t"][k]
             if type == "A":
                 out["D"] = row["D"][k]
-            else:
+            elif type == "B":
                 out |= {key: row[key][k] for key in ("D1", "D2", "l2", "l_min")}
                 out["D"] = out["D2"]
+            else:  # R
+                out |= {key: row[key][k] for key in ("d2", "l_min", "r_max", "r_min")}
+                out["D"] = out["d2"]
             out["designation"] = f"{type}{dv:g}/{out['D']:g}"
             out["std"] = data["meta"]["std"]
             return out
