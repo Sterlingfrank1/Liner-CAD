@@ -174,7 +174,12 @@ def tapped_hole(view, name, at, dir, spec, depth, drill_depth=None, cut=True):
     return _feat(view, name, "tapped_hole", intent, edges)
 
 
-def center_hole(view, name, on, end="left", type="A", d=2.5, keep=True):
+def center_hole(view, name, on, end="left", type="A", d=2.5, keep=True, length=None):
+    """Simplified representation of a standard centre hole (GB/T 4459.5): a leader from the axis
+    end, the keep symbol and the designation ``GB/T 4459.5-<type><d>/<D>``; the real cone / arc /
+    thread edges are not drawn and ``intent.mask`` covers them. ``type`` = "A" / "B" / "R" / "C";
+    type C needs the thread length ``length`` for its designation ("CM6L10/10.5"). The sizes come
+    from ``res.center_hole`` (GB/T 145-2001)."""
     from .geometry import Feature as F
 
     body = view._d[on] if isinstance(on, str) else on
@@ -184,17 +189,38 @@ def center_hole(view, name, on, end="left", type="A", d=2.5, keep=True):
         )
     if end not in ("left", "right"):
         raise InvalidArgument("end 只能是 left / right", candidates=["left", "right"])
-    ch = res.center_hole(type, d)
+    if type == "C" and length is None:
+        raise InvalidArgument(
+            "C 型中心孔的代号需要螺纹长度 L（GB/T 4459.5-1999 4.2，如 CM6L10/10.5）",
+            values={"type": type, "d": d},
+            hint="给 length=10（mm）",
+        )
+    # bool is a subclass of int: reject it before num() turns True into 1.0
+    if isinstance(d, bool):
+        raise InvalidArgument(f"中心孔 d 应为数或参数表达式，得到 {d!r}", values={"d": d})
+    if isinstance(length, bool):
+        raise InvalidArgument(
+            f"中心孔 length 应为数或参数表达式，得到 {length!r}", values={"length": length}
+        )
+    if length is not None:
+        length = num(length, "length")  # a parameter expression is resolved; NaN / inf rejected
+    if not (type == "C" and isinstance(d, str)):
+        d = num(d, "d")  # a parameter expression is resolved (type C also takes "M6")
+    ch = res.center_hole(type, d, length=length)
     prof, ax = body._intent["profile"], body._intent["axis"]
     x = prof[0][0] if end == "left" else prof[-1][0]
     sg = 1 if end == "left" else -1
-    D = ch.get("D") or ch.get("D2")
-    depth = D / 2 / math.tan(math.radians(30)) + d * 1.5  # cone plus pilot, generous for the mask
+    D = ch["D"]
+    depth = (
+        D / 2 / math.tan(math.radians(30)) + ch["d"] * 1.5
+    )  # cone plus pilot, generous for the mask
+    if length is not None:  # type C: the mask also covers the whole threaded length L
+        depth = max(depth, ch["l"] + length + GAP)
     mask = _rect(x, ax - D / 2 - 0.5, x + sg * depth, ax + D / 2 + 0.5)
     intent = {
         "designation": ch["designation"],
-        "form": type,
-        "d": d,
+        "form": ch["type"],
+        "d": ch["d"],
         "D": D,
         "keep": keep,
         "on": body.id,
@@ -205,6 +231,14 @@ def center_hole(view, name, on, end="left", type="A", d=2.5, keep=True):
         "mark_std": "GB/T 4459.5",
         "mask": [list(p) for p in mask],
     }
+    # the sizes the resource library returned are part of the feature's semantics, not just the text
+    for key in ("D1", "D2", "D3", "l2", "l_min", "d2", "r_max", "r_min", "l", "t"):
+        if key in ch:
+            intent[key] = ch[key]
+    if "thread" in ch:
+        intent["thread"] = ch["thread"]
+    if length is not None:
+        intent["length"] = length
     f = view._feature(check_name(name), {"type": "center_hole", **intent})
     f._refs.append(body.id)
     return f

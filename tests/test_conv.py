@@ -5,7 +5,7 @@ import math
 
 import pytest
 
-from linercad import Drawing, errors
+from linercad import Drawing, Param, errors
 from linercad.layout import Text, layout
 
 
@@ -119,6 +119,70 @@ def test_center_hole_type_b_designation(shaft):
     assert c.intent["designation"] == "B2.5/8" and c.intent["D"] == 8.0
     layout(d)
     assert any("4459.5" in t and "B2.5/8" in t for t in texts(c))
+
+
+def test_center_hole_type_r_designation(shaft):
+    d, f = shaft
+    c = f.center_hole("chr", on="F.front.body", end="left", type="R", d=3.15)
+    assert c.intent["designation"] == "R3.15/6.7" and c.intent["D"] == 6.7
+    # the resource library sizes are part of the feature's semantics
+    assert (c.intent["d2"], c.intent["l_min"], c.intent["r_max"], c.intent["r_min"]) == (
+        6.7,
+        7.0,
+        10.0,
+        8.0,
+    )
+    layout(d)
+    assert any("4459.5" in t and "R3.15/6.7" in t for t in texts(c))
+    assert c.intent["mask"]  # the drawn profile is simplified away: no real cone / arc edges
+
+
+def test_center_hole_type_c_designation(shaft):
+    d, f = shaft
+    c = f.center_hole("chc", on="F.front.body", end="right", type="C", d=6, length=10)
+    assert c.intent["designation"] == "CM6L10/10.5" and c.intent["D"] == 10.5
+    assert (c.intent["thread"], c.intent["D3"], c.intent["length"]) == ("M6", 10.5, 10.0)
+    layout(d)
+    assert any("4459.5" in t and "CM6L10/10.5" in t for t in texts(c))
+
+
+def test_center_hole_type_c_requires_thread_length(shaft):
+    d, f = shaft
+    with pytest.raises(errors.InvalidArgument) as err:
+        f.center_hole("chc", on="F.front.body", end="right", type="C", d=6)
+    assert "length" in (err.value.hint or "") and "C" in err.value.message
+
+
+def test_center_hole_type_c_length_accepts_a_parameter_expression():
+    d = Drawing(sheet="A3")
+    P = d.params(L=Param(30, min=10, max=80, step=1, label="螺纹长"))
+    f = d.view("front")
+    f.turned("body", [(0, 10), (40, 10)])
+    c = f.center_hole("chc", on="F.front.body", end="left", type="C", d=6, length=P.L)
+    assert c.intent["length"] == 30.0 and c.intent["designation"] == "CM6L30/10.5"
+    # the mask covers the unthreaded depth plus the whole thread length L (M6: l = 5.0)
+    assert c.intent["mask"][1][0] >= 5.0 + 30.0
+    with pytest.raises(errors.InvalidArgument):
+        f.center_hole("bad", on="F.front.body", end="left", type="C", d=6, length=float("nan"))
+
+
+def test_center_hole_rejects_boolean_sizes(shaft):
+    d, f = shaft
+    with pytest.raises(errors.InvalidArgument):
+        f.center_hole("bad", on="F.front.body", end="left", type="A", d=True)
+    with pytest.raises(errors.InvalidArgument):
+        f.center_hole("bad", on="F.front.body", end="left", type="C", d=6, length=True)
+
+
+def test_center_hole_d_accepts_a_parameter_expression():
+    d = Drawing(sheet="A3")
+    P = d.params(ds=Param(3.15, min=1, max=10, step=0.01, label="中心孔导向孔直径"))
+    f = d.view("front")
+    f.turned("body", [(0, 10), (40, 10)])
+    a = f.center_hole("cha", on="F.front.body", end="left", type="A", d=P.ds)
+    assert a.intent["d"] == 3.15 and a.intent["designation"] == "A3.15/6.7"
+    r = f.center_hole("chr", on="F.front.body", end="right", type="R", d=P.ds)
+    assert r.intent["designation"] == "R3.15/6.7"
 
 
 def test_groove_dimension(shaft):

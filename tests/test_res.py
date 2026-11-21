@@ -312,8 +312,8 @@ def test_center_hole_type_a():
     assert (c["D"], c["t"], c["designation"]) == (5.3, 2.2, "A2.5/5.3")
     assert res.center_hole("A", 4)["D"] == 8.5 and res.center_hole("A", 10)["D"] == 21.2
     with pytest.raises(InvalidArgument) as err:
-        res.center_hole("C", 2.5)
-    assert err.value.candidates == ["A", "B"]
+        res.center_hole("X", 2.5)
+    assert err.value.candidates == ["A", "B", "R", "C"]
 
 
 # ------------------------------------------------- GB/T 145-2001 type B (ISO 2540 Annex A)
@@ -344,6 +344,144 @@ def test_center_hole_type_b_consistency(d):
     chamfer = (b["D2"] - b["D1"]) / 2 / math.tan(math.radians(60))
     assert b["l2"] == pytest.approx(cone + chamfer, abs=0.011)
     assert b["t"] == res.center_hole("A", d)["t"] and b["l_min"] > b["t"]
+
+
+# ---------------------------------------- GB/T 145-2001 types R and C (card A2)
+
+# Cell-by-cell sources of the two tables added by A2, read from the local copies of the pages
+# (2026-11-09, re-read 2026-11-21):
+#   * SOURCE_164580_*: the GB/T 145-2001 tables reproduced at www.164580.com/info_369427.html
+#     (that page titles the R table "table 3" as well - a numbering slip on the page);
+#   * SOURCE_HANDBOOK_*: the A/B/R/C combined table of the handbook page at
+#     www.jlc-jdgf.com/mcbook/new01368.htm, mirrored at dev.inkcad.com (the mirror is the same
+#     handbook, so both handbook pages are one lineage, not two independent sources).
+# The two sources agree in every R and C cell. They are kept as separate fixtures so that the
+# tests below compare them cell by cell and then check the resource library against the standard
+# page. Both lineage notes are in the [meta] of center_holes.toml.
+SOURCE_164580_R = {
+    "d": [1.00, 1.25, 1.60, 2.00, 2.50, 3.15, 4.00, 5.00, 6.30, 8.00, 10.00],
+    "d2": [2.12, 2.65, 3.35, 4.25, 5.30, 6.70, 8.50, 10.60, 13.20, 17.00, 21.20],
+    "l_min": [2.3, 2.8, 3.5, 4.4, 5.5, 7.0, 8.9, 11.2, 14.0, 17.9, 22.5],
+    "r_max": [3.15, 4.00, 5.00, 6.30, 8.00, 10.00, 12.50, 16.00, 20.00, 25.00, 31.50],
+    "r_min": [2.50, 3.15, 4.00, 5.00, 6.30, 8.00, 10.00, 12.50, 16.00, 20.00, 25.00],
+    "avoid": [False, True, False, False, False, False, False, True, False, True, False],
+}
+SOURCE_HANDBOOK_R = {
+    "d": [1.00, 1.25, 1.60, 2.00, 2.50, 3.15, 4.00, 5.00, 6.30, 8.00, 10.00],
+    "d2": [2.12, 2.65, 3.35, 4.25, 5.30, 6.70, 8.50, 10.60, 13.20, 17.00, 21.20],
+    "l_min": [2.3, 2.8, 3.5, 4.4, 5.5, 7.0, 8.9, 11.2, 14.0, 17.9, 22.5],
+    "r_max": [3.15, 4.00, 5.00, 6.30, 8.00, 10.00, 12.50, 16.00, 20.00, 25.00, 31.50],
+    "r_min": [2.50, 3.15, 4.00, 5.00, 6.30, 8.00, 10.00, 12.50, 16.00, 20.00, 25.00],
+    "avoid": [False, True, False, False, False, False, False, True, False, True, False],
+}
+SOURCE_164580_C = {
+    "d": ["M3", "M4", "M5", "M6", "M8", "M10", "M12", "M16", "M20", "M24"],
+    "D1": [3.2, 4.3, 5.3, 6.4, 8.4, 10.5, 13.0, 17.0, 21.0, 26.0],
+    "D2": [5.3, 6.7, 8.1, 9.6, 12.2, 14.9, 18.1, 23.0, 28.4, 34.2],
+    "D3": [5.8, 7.4, 8.8, 10.5, 13.2, 16.3, 19.8, 25.3, 31.3, 38.0],
+    "l": [2.6, 3.2, 4.0, 5.0, 6.0, 7.5, 9.5, 12.0, 15.0, 18.0],
+    "t": [1.8, 2.1, 2.4, 2.8, 3.3, 3.8, 4.4, 5.2, 6.4, 8.0],
+}
+SOURCE_HANDBOOK_C = {
+    "d": ["M3", "M4", "M5", "M6", "M8", "M10", "M12", "M16", "M20", "M24"],
+    "D1": [3.2, 4.3, 5.3, 6.4, 8.4, 10.5, 13.0, 17.0, 21.0, 26.0],
+    "D2": [5.3, 6.7, 8.1, 9.6, 12.2, 14.9, 18.1, 23.0, 28.4, 34.2],
+    "D3": [5.8, 7.4, 8.8, 10.5, 13.2, 16.3, 19.8, 25.3, 31.3, 38.0],
+    "l": [2.6, 3.2, 4.0, 5.0, 6.0, 7.5, 9.5, 12.0, 15.0, 18.0],
+    # the handbook heads this reference column l1, the standard page heads it t; same numbers
+    "t": [1.8, 2.1, 2.4, 2.8, 3.3, 3.8, 4.4, 5.2, 6.4, 8.0],
+}
+
+
+def test_center_hole_type_r_sources_agree_cell_by_cell():
+    assert SOURCE_164580_R == SOURCE_HANDBOOK_R
+
+
+@pytest.mark.parametrize("i", range(len(SOURCE_164580_R["d"])))
+def test_center_hole_type_r_matches_sources(i):
+    src, d = SOURCE_164580_R, SOURCE_164580_R["d"][i]
+    c = res.center_hole("R", d)
+    assert (c["type"], c["d"]) == ("R", d)
+    for key in ("d2", "l_min", "r_max", "r_min"):
+        assert c[key] == src[key][i], key
+    assert c["avoid"] == src["avoid"][i] and c["D"] == c["d2"]
+    # cross-checks inside the standard: R's outside diameter is A's D and B's D1, and R's minimum
+    # depth is B's l_min
+    assert c["d2"] == res.center_hole("A", d)["D"] == res.center_hole("B", d)["D1"]
+    assert c["l_min"] == res.center_hole("B", d)["l_min"]
+    assert c["std"] == "GB/T 145-2001"
+    assert c["verified"] is False  # single GB/T 145 lineage, ISO 2541 not read
+
+
+def test_center_hole_type_r_designation():
+    # GB/T 4459.5-1999 4.1: R + pilot diameter / outside countersink diameter (R3.15/6.7)
+    c = res.center_hole("R", 2.5)
+    assert (c["designation"], c["D"]) == ("R2.5/5.3", 5.3)
+    assert res.center_hole("R", 10)["designation"] == "R10/21.2"
+    assert res.center_hole("R", 1.25)["avoid"] and not res.center_hole("R", 2.0)["avoid"]
+    with pytest.raises(InvalidArgument) as err:
+        res.center_hole("R", 2.6)
+    assert "2.5" in err.value.candidates
+
+
+def test_center_hole_type_c_sources_agree_cell_by_cell():
+    assert SOURCE_164580_C == SOURCE_HANDBOOK_C
+
+
+@pytest.mark.parametrize("i", range(len(SOURCE_164580_C["d"])))
+def test_center_hole_type_c_matches_sources(i):
+    src, thread = SOURCE_164580_C, SOURCE_164580_C["d"][i]
+    c = res.center_hole("C", thread)
+    assert (c["type"], c["thread"], c["d"]) == ("C", thread, float(thread[1:]))
+    for key in ("D1", "D2", "D3", "l", "t"):
+        assert c[key] == src[key][i], key
+    assert c["D"] == c["D3"] and not c["avoid"]
+    assert c["std"] == "GB/T 145-2001"
+    assert c["verified"] is False  # single GB/T 145 lineage, DIN 332-2 not read
+
+
+def test_center_hole_type_c_designation():
+    c = res.center_hole("C", 6)
+    assert (c["thread"], c["D1"], c["D2"], c["D3"], c["l"], c["t"], c["D"]) == (
+        "M6",
+        6.4,
+        9.6,
+        10.5,
+        5.0,
+        2.8,
+        10.5,
+    )
+    # GB/T 4459.5-1999: C + thread + L + "/" + face diameter (CM10L30/16.3); the thread length L
+    # is chosen with the part, so it is passed in; without it only the type and thread are marked
+    assert c["designation"] == "CM6"
+    assert res.center_hole("C", "M6", length=10)["designation"] == "CM6L10/10.5"
+    assert res.center_hole("C", 10, length=30)["designation"] == "CM10L30/16.3"
+    # the same shaft-end diameter M10 gives D3 = 16.3, as in the GB/T 4459.5 example
+    with pytest.raises(InvalidArgument) as err:
+        res.center_hole("C", 7)
+    assert {"M6", "M8"} & set(err.value.candidates)
+    with pytest.raises(InvalidArgument) as err:
+        res.center_hole("C", 6, length=-1)
+    assert err.value.values["length"] == -1
+    for bad in (float("nan"), float("inf")):
+        with pytest.raises(InvalidArgument):
+            res.center_hole("C", 6, length=bad)
+    with pytest.raises(InvalidArgument):
+        res.center_hole("A", 2.5, length=10)  # L belongs to type C only
+
+
+def test_center_hole_type_c_cone_geometry():
+    # t is the reference depth of the 60 deg cone between D2 and D1 for every row but M24: the
+    # printed t = 8.0 does not follow that geometry (7.10). The printed value is kept and the
+    # discrepancy is recorded in the [meta] of center_holes.toml for a check against the original.
+    for thread in SOURCE_164580_C["d"]:
+        c = res.center_hole("C", thread)
+        assert c["D3"] > c["D2"] > c["D1"] and c["l"] > c["t"]
+        cone = (c["D2"] - c["D1"]) / 2 / math.tan(math.radians(30))
+        if thread == "M24":
+            assert c["t"] == 8.0 and abs(cone - c["t"]) > 0.5
+        else:
+            assert c["t"] == pytest.approx(cone, abs=0.06), thread
 
 
 # ------------------------------------------------------------- GB/T 3-1997 thread undercuts
