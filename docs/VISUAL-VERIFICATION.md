@@ -55,6 +55,7 @@
 | 栅格文字用 ezdxf 解析出的 TTF：`LC` 样式 → `simfang.ttf`（28522 字形，含中文），`Standard` → 回退字体（3506 字形，**不含中文**） | 中文注释依赖 simfang 在本机可用 |
 | **U+2316 ⌖ 在两个字体里都没有** | 形位公差符号**必须矢量绘制**，绝不能用字符；空框在图上看起来像"没有标注" |
 | 缺字形不会报错，只会画一个方框 | 必须主动检查：`missing_text_glyphs(doc)` |
+| CI 的 ubuntu / windows runner 都没有 `simfang.ttf` | 那里中文注释确实会变空框：缺字形用例在缺中文字体时跳过，只对非中文字符（Φ ± ° Ø ×）断言。要评审中文注释，本机需装仿宋或思源 |
 
 守门测试：`test_example_text_has_no_missing_glyphs` 逐样式核对示例图全部文字；`test_glyph_guard_catches_a_known_missing_character` 钉住"⌖ 确实不在字体里"这个前提，字体哪天变了测试会提醒我们放宽。
 
