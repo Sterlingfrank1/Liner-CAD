@@ -30,6 +30,11 @@ class BuildResult:
     stale: list
     log_ops: list = field(default_factory=list)
 
+    @property
+    def opportunities(self):
+        """{rule: objects checked} of this build, reported by ``checks.run``."""
+        return dict(getattr(self.findings, "opportunities", {}))
+
 
 def frames_in(exc, path: Path):
     """'file:line  code' entries of the traceback frames that belong to ``path``."""
@@ -106,14 +111,14 @@ def build(dir, extra_ops=(), current_edit=None, params=None, dxf=True) -> BuildR
     stale = record.replay(d, log_ops + list(extra_ops), current_edit)
     layout(d)
     if not dxf:
-        return BuildResult(d, None, {}, checks.run(d, stale), stale, log_ops)
+        return BuildResult(d, None, {}, checks.run(d, stale, log_ops), stale, log_ops)
     doc, index, raw_fail = dxfout.to_doc(d)
     for f in raw_fail:
         if current_edit is not None and f["edit"] == current_edit:
             raise StaleOp(f"本次修改的 raw 操作无法应用：{f['reason']}", id=f["id"])
     stale += raw_fail
     d._dxf_index = index
-    findings = checks.run(d, stale)
+    findings = checks.run(d, stale, log_ops)
     return BuildResult(d, doc, index, findings, stale, log_ops)
 
 

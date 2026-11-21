@@ -63,18 +63,33 @@ def _annotation_problems():
     """conv_dim, duplicate, closed_loop, param_cover, gtol_syntax, datum_letter, rough_syntax,
     rough_default, rough_fit, general_tol, chain_limit, center_mark, missing."""
     d = Drawing()
-    P = d.params(D=Param(30), L=Param(120), unused=Param(5))
+    P = d.params(D=Param(30), D2=Param(40), l1=Param(40), L=Param(120), unused=Param(5))
     f = d.view("front")
-    f.turned("b", [(0, P.D / 2), (P.L, P.D / 2)])
+    f.turned("b", [(0, P.D / 2), (P.l1, P.D / 2), (P.l1, P.D2 / 2, "collar"), (P.L, P.D2 / 2)])
     f.thread("m20", "M20", 0, 30)  # thread without its designation dimension
     f.circle((0, 90), 10, name="o")  # full circle, no centre line
     f.dim.dia("D", (20, P.D / 2), (20, -P.D / 2), value=P.D, side="inside")
-    f.dim.linear("L", (0, -15), (P.L, -15), value=P.L, side="bottom")
-    f.dim.linear("L2", (0, -15), (P.L, -15), value=P.L, side="bottom", row=2)  # duplicate
-    f.gtol("run", "circular_runout", 0.02, datums=["A"], ref="E.front.b")  # datum A undefined
+    f.dim.linear("l1", (0, -15), (P.l1, -20), dir="h", value=P.l1, tol=(0.1, -0.1), side="bottom")
+    f.dim.linear(
+        "L",
+        (0, -15),
+        (P.L, -20),
+        dir="h",
+        value=P.L,
+        tol=(0.1, -0.1),
+        role="overall",
+        side="bottom",
+        row=2,
+    )
+    f.dim.linear("l2", (P.l1, -20), (P.L, -20), value=P.L - P.l1, side="bottom")  # closes l1/L
+    f.dim.linear("l1b", (0, -15), (P.l1, -20), dir="h", value=P.l1, side="bottom", row=3)
+    f.gtol("run", "circular_runout", 0.02, datums=["A"], ref="E.front.b.1")  # datum A undefined
+    f.gtol(
+        "co", "concentricity", 0.02, datums=["B"], ref="D.D"
+    )  # undefined datum + axis without a zone
     f.datum("I", ref="D.D")  # discouraged letter (GB/T 17851-2010 6.2 note 2)
-    f.rough("r", 3.0, ref="E.front.b")  # not a GB/T 1031 preferred value; no rough_default
-    d.chain("rest", closing="L2", increase=["D.L"], decrease=["D.L2"], require=(-0.1, 0.1))
+    f.rough("r", 3.0, ref="E.front.b.1")  # not a GB/T 1031 preferred value; no rough_default
+    d.chain("rest", closing="l2", increase=["D.L"], decrease=["D.l1"], require=(-0.1, 0.1))
     top = d.view("top")
     top.turned("t", [(0, 20), (40, 20), (40, 40)])  # steps without links -> missing
     left = d.view("left")
@@ -154,6 +169,7 @@ def test_findings_carry_clause_measured_expected_candidates():
         for key in ("clause", "measured", "expected", "candidates"):
             assert key in f, (f["rule"], f["id"], key)
         assert isinstance(f["clause"], str) and f["clause"].strip(), f
+        assert f["clause"].startswith(f["std"]) and len(f["clause"]) > len(f["std"]), f
         assert isinstance(f["measured"], dict) and f["measured"], f
         assert isinstance(f["expected"], dict) and f["expected"], f
         assert isinstance(f["candidates"], list), f
@@ -191,26 +207,33 @@ def test_opportunities_count_the_checked_objects():
     f.turned("b", [(0, P.D / 2), (50, P.D / 2)])
     f.dim.dia("D", (20, P.D / 2), (20, -P.D / 2), value=P.D, side="inside")
     f.dim.linear("L", (0, -15), (50, -15), value=50, side="bottom")
-    f.rough("r", 0.8, ref="E.front.b")
+    f.dim.linear("W", (20, -15), (20, 15), dir="v", value=30, side="right")
+    f.rough("r", 0.8, ref="E.front.b.1")
     opps = run(d).opportunities
     assert opps["param_cover"] == 2  # the two parameters
     assert opps["rough_syntax"] == 1  # one roughness symbol
     assert opps["rough_default"] == 1  # one drawing-level question
-    assert opps["duplicate"] == 2  # two keyable dimensions
+    assert opps["duplicate"] == 2  # L and W are both keyable dimensions
     assert opps["sheet"] == 1  # one sheet
+    assert opps["general_tol"] == 1  # one drawing-level check, not one per dimension
     assert opps["scale"] == 1  # the title-block scale (no view carries its own here)
 
 
 def test_fired_rules_never_check_fewer_objects_than_findings():
-    _, found = all_findings()
-    by_rule = {}
-    for f in found:
-        by_rule[f["rule"]] = by_rule.get(f["rule"], 0) + 1
-    d = _annotation_problems()
-    layout(d)
-    opps = checks.run(d).opportunities
-    for rule, n in by_rule.items():
-        assert opps[rule] >= n, (rule, opps[rule], n)
+    for make, after in FIXTURES.values():
+        d = make()
+        layout(d)
+        if after is not None:
+            after(d)
+        found = checks.run(d)
+        counts = {}
+        for f in found:
+            counts[f["rule"]] = counts.get(f["rule"], 0) + 1
+        for rule, n in counts.items():
+            assert found.opportunities[rule] >= n, (rule, found.opportunities[rule], n)
+    d = Drawing()
+    found = checks.run(d, STALE)
+    assert found.opportunities["stale_op"] >= 1
 
 
 def test_lcad_check_outputs_opportunities(tmp_path):
@@ -229,8 +252,14 @@ def test_lcad_check_outputs_opportunities(tmp_path):
 # ---- family score vector -------------------------------------------------------------------------
 
 
-def _case(rules=None, errors=0, passed=True):
-    return {"errors": errors, "warnings": 0, "passed": passed, "rules": rules or {}}
+def _case(rules=None, errors=0, passed=True, case_id=None, geo=True):
+    out = {"errors": errors, "warnings": 0, "passed": passed, "rules": rules or {}}
+    if case_id:
+        out["id"] = case_id
+    if geo:
+        out["geo"] = {"front": {"pass": True}}
+        out["completeness"] = {"pass": True}
+    return out
 
 
 def test_family_scores_are_weighted_by_opportunities():
@@ -268,7 +297,8 @@ def test_every_rule_has_a_family():
 
 
 def _report(*results):
-    return {"summary": evals.summary(list(results)), "cases": list(results)}
+    cases = [dict(r, id=r.get("id") or f"L1/c{k}") for k, r in enumerate(results)]
+    return {"summary": evals.summary(cases), "cases": cases}
 
 
 def test_baseline_roundtrip_is_clean(tmp_path):
@@ -278,6 +308,8 @@ def test_baseline_roundtrip_is_clean(tmp_path):
     )
     base = evals.baseline_vector(rep)
     assert base["version"] == 1 and base["cases"] == 2 and base["errors"] == 0
+    assert base["case_ids"] == ["L1/c0", "L1/c1"]
+    assert base["geometry_cases"] == 2 and base["completeness_cases"] == 2
     assert base["families"]["D"]["score"] == pytest.approx(1.0)
     assert base["families"]["A"]["score"] is None
     path = tmp_path / "baseline.json"
@@ -293,6 +325,86 @@ def test_baseline_flags_a_family_drop():
     assert problems and "D" in problems[0]
 
 
+def test_baseline_flags_shrinking_coverage():
+    good = _report(_case({"duplicate": {"opportunities": 4, "violations": 0}}))
+    base = evals.baseline_vector(good)
+    thin = _report(_case({"duplicate": {"opportunities": 2, "violations": 0}}))
+    problems = evals.compare_baseline(thin, base)
+    assert any("opportunities 2 < baseline 4" in p for p in problems), problems
+
+
+def test_baseline_rejects_an_unusable_file():
+    good = _report(_case({"duplicate": {"opportunities": 4, "violations": 0}}))
+    nan_score = evals.baseline_vector(good)
+    nan_score["families"]["D"]["score"] = float("nan")
+    null_score = evals.baseline_vector(good)
+    null_score["families"]["D"]["score"] = None
+    no_family = evals.baseline_vector(good)
+    del no_family["families"]["G"]
+    no_geo_key = evals.baseline_vector(good)
+    del no_geo_key["geometry_pass_rate"]
+    null_geo = evals.baseline_vector(good)
+    null_geo["geometry_pass_rate"] = None
+    no_ids = evals.baseline_vector(good)
+    no_ids["case_ids"] = []
+    dup_ids = evals.baseline_vector(good)
+    dup_ids["case_ids"] = ["L1/x", "L1/x"]
+    zero_geo = evals.baseline_vector(good)
+    zero_geo["geometry_cases"] = 0
+    out_of_range = evals.baseline_vector(good)
+    out_of_range["families"]["D"]["score"] = 1.5
+    score_without_opps = evals.baseline_vector(good)
+    score_without_opps["families"]["D"]["opportunities"] = 0
+    bad_violations = evals.baseline_vector(good)
+    bad_violations["families"]["D"]["violations"] = 9
+    bool_score = evals.baseline_vector(good)
+    bool_score["families"]["D"]["score"] = True
+    bad_rate = evals.baseline_vector(good)
+    bad_rate["zero_error_rate"] = None
+    no_p = evals.baseline_vector(good)
+    del no_p["P"]
+    bad_consistency = evals.baseline_vector(good)
+    bad_consistency["families"]["D"]["score"] = 0.0
+    bool_counts = evals.baseline_vector(good)
+    bool_counts["geometry_cases"] = True
+    bad_bool_errors = evals.baseline_vector(good)
+    bad_bool_errors["errors"] = False
+    inf_p = evals.baseline_vector(good)
+    inf_p["P"]["rules"]["stale_op"] = {"opportunities": float("inf"), "violations": 0}
+    for bad in (
+        None,
+        {},
+        {"version": 99, "families": {}},
+        nan_score,
+        null_score,
+        no_family,
+        no_geo_key,
+        null_geo,
+        no_ids,
+        dup_ids,
+        zero_geo,
+        out_of_range,
+        score_without_opps,
+        bad_violations,
+        bool_score,
+        bad_rate,
+        no_p,
+        bad_consistency,
+        bool_counts,
+        bad_bool_errors,
+        inf_p,
+    ):
+        assert evals.compare_baseline(good, bad), bad
+
+
+def test_baseline_flags_lost_geometry_comparisons():
+    good = _report(_case({"duplicate": {"opportunities": 4, "violations": 0}}))
+    base = evals.baseline_vector(good)
+    thin = _report(_case({"duplicate": {"opportunities": 4, "violations": 0}}, geo=False))
+    problems = evals.compare_baseline(thin, base)
+    assert any("geometry" in p for p in problems), problems
+
+
 def test_baseline_flags_more_errors_and_a_lost_family():
     good = _report(_case({"duplicate": {"opportunities": 4, "violations": 0}}))
     base = evals.baseline_vector(good)
@@ -301,37 +413,81 @@ def test_baseline_flags_more_errors_and_a_lost_family():
     assert any("D" in p for p in evals.compare_baseline(_report(_case()), base))
 
 
+CASE_STUB = {"id": "L1/x", "level": "L1", "family": "x", "drawing_src": "", "views": []}
+
+
+def _stub_results(monkeypatch, **overrides):
+    monkeypatch.setattr(evals, "discover", lambda level=None, case=None: [CASE_STUB])
+    case = {
+        "id": "L1/x",
+        "level": "L1",
+        "family": "x",
+        "errors": 0,
+        "warnings": 0,
+        "findings": [],
+        "rules": {"duplicate": {"opportunities": 2, "violations": 0}},
+        "geo": {"front": {"pass": True}},
+        "completeness": {"pass": True},
+        "passed": True,
+    }
+    case.update(overrides)
+    monkeypatch.setattr(evals, "run_case", lambda c, drawings=None, geo=True: dict(case))
+    return case
+
+
 def test_baseline_cli_exits_nonzero_on_regression(monkeypatch, tmp_path):
-    monkeypatch.setattr(
-        evals,
-        "discover",
-        lambda level=None, case=None: [
-            {"id": "L1/x", "level": "L1", "family": "x", "drawing_src": "", "views": []}
-        ],
-    )
-
-    def case(ok):
-        rules = {"duplicate": {"opportunities": 2, "violations": 0 if ok else 1}}
-        return {
-            "id": "L1/x",
-            "level": "L1",
-            "family": "x",
-            "errors": 0,
-            "warnings": 0,
-            "findings": [],
-            "rules": rules,
-            "passed": True,
-        }
-
-    monkeypatch.setattr(evals, "run_case", lambda c, drawings=None, geo=True: case(True))
+    _stub_results(monkeypatch)
     baseline = tmp_path / "baseline.json"
     out = tmp_path / "report.json"
     assert evals.main(["--save-baseline", str(baseline), "--out", str(out)]) == 0
     assert baseline.is_file()
     assert evals.main(["--baseline", str(baseline), "--out", str(out)]) == 0
-    monkeypatch.setattr(evals, "run_case", lambda c, drawings=None, geo=True: case(False))
+    _stub_results(monkeypatch, rules={"duplicate": {"opportunities": 2, "violations": 1}})
     assert evals.main(["--baseline", str(baseline), "--out", str(out)]) == 1
     assert json.loads(out.read_text(encoding="utf-8"))["summary"]["passed"] == 1
+    # a regressing run cannot overwrite the committed vector
+    before = baseline.read_text(encoding="utf-8")
+    assert (
+        evals.main(
+            ["--baseline", str(baseline), "--save-baseline", str(baseline), "--out", str(out)]
+        )
+        == 1
+    )
+    assert baseline.read_text(encoding="utf-8") == before
+
+
+def test_save_baseline_refuses_an_unclean_run(monkeypatch, tmp_path):
+    _stub_results(monkeypatch, errors=1, passed=False)
+    baseline = tmp_path / "baseline.json"
+    out = tmp_path / "report.json"
+    assert evals.main(["--save-baseline", str(baseline), "--out", str(out)]) == 1
+    assert not baseline.exists()
+
+
+def test_cli_rejects_a_null_baseline(monkeypatch, tmp_path):
+    _stub_results(monkeypatch)
+    bad = tmp_path / "baseline.json"
+    bad.write_text("null", encoding="utf-8")
+    assert evals.main(["--baseline", str(bad), "--out", str(tmp_path / "r.json")]) == 1
+
+
+def test_save_baseline_refuses_partial_runs(monkeypatch, tmp_path):
+    _stub_results(monkeypatch)
+    baseline = tmp_path / "baseline.json"
+    out = tmp_path / "report.json"
+    for argv in (
+        ["--level", "L1"],
+        ["--case", "L1/x"],
+        ["--no-geo"],
+        ["--drawings", str(tmp_path)],
+    ):
+        assert evals.main(["--save-baseline", str(baseline), "--out", str(out), *argv]) == 1, argv
+        assert not baseline.exists(), argv
+
+
+def test_cli_rejects_a_run_with_no_cases(monkeypatch, tmp_path):
+    monkeypatch.setattr(evals, "discover", lambda level=None, case=None: [])
+    assert evals.main(["--case", "typo", "--out", str(tmp_path / "r.json")]) == 1
 
 
 def test_repo_baseline_is_present_and_complete():
@@ -341,8 +497,8 @@ def test_repo_baseline_is_present_and_complete():
     assert base["version"] == 1
     assert base["cases"] == 40 and base["errors"] == 0
     assert base["zero_error_rate"] == 1.0
-    assert base["geometry_pass_rate"] == 1.0
-    assert base["completeness_pass_rate"] == 1.0
+    assert base["geometry_pass_rate"] == 1.0 and base["geometry_cases"] == 35
+    assert base["completeness_pass_rate"] == 1.0 and base["completeness_cases"] == 5
     fam = base["families"]
     assert set(fam) == set(evals.FAMILIES)
     for key in ("G", "D", "T"):
