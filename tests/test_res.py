@@ -296,7 +296,7 @@ def test_datum_excluded_letters_and_roughness_series():
     assert iso["letters"] == ["I", "O", "Q", "X"] and "5459" in iso["std"] and iso["source"]
     gb = res.datum_excluded("GB")
     assert gb["std"] == "GB/T 17851-2010" and gb["letters"] == ["I", "O", "Q", "X"]
-    assert gb["verified"] is True and not iso["verified"]
+    assert not gb["verified"] and not iso["verified"]  # both lists are single-lineage (A4)
     with pytest.raises(InvalidArgument):
         res.datum_excluded("DIN")
     ra = res.rough_series()
@@ -721,6 +721,40 @@ def test_gtol_modifiers_are_per_characteristic():
     assert runout == {"CZ", "SZ", "UF"} and "UZ" not in runout
     concentric = set(res.gtol("concentricity")["modifiers"])
     assert "ACS" in concentric and "UZ" not in concentric
+
+
+def test_gtol_target_natures_distinguish_integral_and_derived():
+    assert res.gtol("total_runout")["target_natures"] == ["integral"]
+    assert res.gtol("circularity")["target_natures"] == ["integral"]
+    assert res.gtol("concentricity")["target_natures"] == ["derived"]
+    position = res.gtol("position")
+    assert position["target_natures"] == ["integral", "derived"]
+    assert all("target_natures" in row for row in res.gtol_rows())
+
+
+def test_gtol_modifiers_unverified_are_marked():
+    # the symbols of the cross-referenced standards are not "not allowed" but "not extracted"
+    for row in res.gtol_rows():
+        assert row["modifiers_unverified"] == ["M", "L", "R", "F"]
+    runout = res.gtol("total_runout")
+    assert runout["modifiers_unverified"] == ["M", "L", "R", "F"]
+    assert runout["rows"][0]["modifiers_unverified"] == ["M", "L", "R", "F"]
+    assert "M" not in runout["modifiers"] and "F" not in runout["modifiers"]
+
+
+def test_datum_meta_records_the_gbt_1182_check():
+    import tomllib
+    from importlib import resources
+
+    data = tomllib.loads(
+        (resources.files("linercad.res") / "datum.toml").read_text(encoding="utf-8")
+    )
+    meta = data["meta"]
+    assert meta["checked"] == "2026-11-21"
+    assert "1182" in meta["conclusion"] and "8.2.4" in meta["conclusion"]
+    assert "6.3.3" in meta["conclusion"] and "verified" in meta["conclusion"]
+    assert "6.2" in meta["unread"]
+    assert data["GB"]["verified"] is False and data["ISO"]["verified"] is False
 
 
 def test_gtol_unknown_characteristic_gives_candidates():

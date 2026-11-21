@@ -303,10 +303,12 @@ def spline(spec: str) -> dict:
 
 def datum_excluded(std: str = "GB") -> dict:
     """Letters that must not be datum letters under ``std`` ("GB" or "ISO"): ``{"std", "letters",
-    "verified", "source"}``; ``verified`` False = the list could not be checked against the standard."""
+    "verified", "source"}``; ``verified`` False = the list could not be checked against the standard
+    (both lists are single-lineage: see the file's [meta])."""
     data = _table("datum")
-    if std not in data:
-        raise InvalidArgument(f"未知标准档 {std!r}", candidates=list(data))
+    types = [k for k in data if k != "meta"]
+    if std not in types:
+        raise InvalidArgument(f"未知标准档 {std!r}", candidates=types)
     return {**data[std], "letters": list(data[std]["letters"])}
 
 
@@ -564,16 +566,26 @@ def gtol_rows() -> list[dict]:
     orientation, 6 location and 2 run-out specifications (position is one entry; profile of a line
     / of a surface appears once per category). Each entry has id, char (the key used by
     pmi.CHARS), zh, category, datum ("no" / "yes" / "optional"), clause (table-1 subclause),
-    targets (allowed measured elements), zone_shapes, modifiers and note. The codes are described
-    in the TOML file; a copy is returned, so callers may edit it."""
-    return [_row_copy(row) for row in _table("gtol")["row"]]
+    target_natures (integral / derived), targets (allowed measured elements), zone_shapes,
+    modifiers and note; modifiers_unverified lists the symbols that belong to cross-referenced
+    standards that were not extracted. The codes are described in the TOML file; a copy is
+    returned, so callers may edit it."""
+    data = _table("gtol")
+    unverified = list(data["meta"]["modifiers_unverified"])
+    rows = []
+    for row in data["row"]:
+        copy = _row_copy(row)
+        copy["modifiers_unverified"] = unverified
+        rows.append(copy)
+    return rows
 
 
 def gtol(char: str) -> dict:
     """Specification data of geometric characteristic char (e.g. "straightness", "position",
     "profile_surface", "circular_runout"; the 14 keys of linercad.pmi.CHARS) from
-    GB/T 1182-2018: {"char", "zh", "categories", "datum", "targets", "zone_shapes", "modifiers",
-    "clauses", "rows", "std", "iso", "verified"}.
+    GB/T 1182-2018: {"char", "zh", "categories", "datum", "target_natures", "targets",
+    "zone_shapes", "modifiers", "modifiers_unverified", "clauses", "rows", "std", "iso",
+    "verified"}.
 
     datum is the datum rule for T.syntax: "none" = a shape tolerance, no datum allowed;
     "required" = a datum is needed; "optional" = both forms occur in the standard (position, and
@@ -603,11 +615,16 @@ def gtol(char: str) -> dict:
         "zh": rows[0]["zh"],
         "categories": list(dict.fromkeys(r["category"] for r in rows)),
         "datum": rule,
+        "target_natures": union("target_natures"),
         "targets": union("targets"),
         "zone_shapes": union("zone_shapes"),
         "modifiers": union("modifiers"),
+        "modifiers_unverified": list(data["meta"]["modifiers_unverified"]),
         "clauses": list(dict.fromkeys(r["clause"] for r in rows)),
-        "rows": [_row_copy(r) for r in rows],
+        "rows": [
+            dict(_row_copy(r), modifiers_unverified=list(data["meta"]["modifiers_unverified"]))
+            for r in rows
+        ],
         "std": data["meta"]["std"],
         "iso": data["meta"]["iso"],
         "verified": data["meta"]["verified"],
