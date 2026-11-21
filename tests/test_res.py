@@ -457,6 +457,31 @@ def test_grinding_groove():
     assert big["d_range"] == [100, None]
 
 
+# GB/T 6403.5-2008, Table 1 as printed: one row per b1 column, b2 / h / r repeated over the b1 columns
+# their merged cell spans, and the d band drawn under them: (b1, (over, upto), b2, h, r).
+GBT_6403_5_TABLE_1 = [
+    (0.6, (0, 10), 2.0, 0.1, 0.2),
+    (1.0, (0, 10), 3.0, 0.2, 0.5),
+    (1.6, (0, 10), 3.0, 0.2, 0.5),
+    (2.0, (10, 50), 4.0, 0.3, 0.8),
+    (3.0, (10, 50), 4.0, 0.4, 1.0),
+    (4.0, (50, 100), 5.0, 0.4, 1.0),
+    (5.0, (50, 100), 5.0, 0.6, 1.6),
+    (8.0, (100, None), 8.0, 0.8, 2.0),
+    (10.0, (100, None), 10.0, 1.2, 3.0),
+]
+
+
+@pytest.mark.parametrize(
+    "d, band", [(5, (0, 10)), (30, (10, 50)), (80, (50, 100)), (250, (100, None))]
+)
+def test_grinding_groove_matches_gbt_6403_5_table_1(d, band):
+    got = res.grinding_groove(d)
+    rows = [(o["b1"], tuple(got["d_range"]), o["b2"], o["h"], o["r"]) for o in got["options"]]
+    assert rows == [row for row in GBT_6403_5_TABLE_1 if row[1] == band]
+    assert got["verified"] is True
+
+
 def test_grinding_groove_band_edges_and_errors():
     assert res.grinding_groove(10)["d_range"] == [0, 10]
     assert res.grinding_groove(10.001)["d_range"] == [10, 50]
@@ -472,5 +497,5 @@ def test_grinding_groove_band_edges_and_errors():
 def test_grinding_groove_standard_rules():
     for d in (5, 30, 80, 200):
         for o in res.grinding_groove(d)["options"]:
-            assert o["r"] < 3 * o["h"]  # the note under the table: r < 3h
+            assert o["r"] <= 3 * o["h"]  # note 2 under Table 1: r <= 3h
             assert o["b1"] <= o["b2"]

@@ -330,7 +330,9 @@ def center_hole(type: str = "A", d: float = 2.5) -> dict:
     """Centre hole of ``type`` ("A" or "B"; R and C are not recorded) with pilot diameter ``d`` mm:
     ``{"type", "d", "D", "t", "avoid", "designation", "std"}``; ``D`` is the diameter in the designation
     as in GB/T 4459.5 ("A2.5/5.3"; "B2.5/8"). Type A: ``D`` is the cone diameter. Type B adds ``D1``
-    (cone), ``D2`` (protecting chamfer, = ``D``), ``l2`` and ``l_min`` (minimum depth)."""
+    (cone), ``D2`` (protecting chamfer, = ``D``), ``l2`` and ``l_min`` (minimum depth). Type B's ``D1``
+    and ``l2`` are cross-checked against ISO 2540:2016 Table 1 and the cone geometry; ``D2`` and ``l_min``
+    are single-lineage, so the file's [meta] keeps ``verified = false``."""
     data = _table("center_holes")
     types = [k for k in data if k != "meta"]
     if type not in types:
@@ -435,7 +437,8 @@ def grinding_groove(d: float, b1: float | None = None) -> dict:
     """Grinding wheel relief groove (GB/T 6403.5) for a turned surface of diameter ``d`` mm: the sizes the
     table offers for that diameter as ``options`` (``b1``, ``b2``, ``h``, ``r``), ``d_range`` = [over, upto]
     (upto None = unlimited), and the chosen one at top level: the smallest, or the one with ``b1``.
-    ``verified`` False: the table is of the 1986 edition, one lineage."""
+    ``verified``: True - Table 1 was read cell by cell from GB/T 6403.5-2008; only the turned surface and
+    end face table is recorded."""
     data = _table("grinding_grooves")
     if not isinstance(d, (int, float)) or isinstance(d, bool) or d <= 0:
         raise InvalidArgument(f"磨削直径 d 应为正数，得到 {d!r}", values={"d": d})

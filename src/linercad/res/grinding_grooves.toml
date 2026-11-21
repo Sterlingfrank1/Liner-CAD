@@ -16,8 +16,9 @@ groove = [
 [meta]
 std = "GB/T 6403.5-2008"
 unit = "mm"
-verified = false
-source = """NOT VERIFIED against the standard. The table for turned surfaces and end faces of GB/T 6403.5-1986, as printed in the Jialichuang FA mechanical design handbook (www.jlc-jdgf.com/mcbook/1-5-15.htm, read 2026-11-09, \
-parsed from the HTML table: each of b1 / b2 / h / r is a row of column spans, mapped onto the d bands ~10, >10~50, >50~100, >100) and reprinted at www.ml21.com/1302.html (same values: one lineage, not two independent sources). \
-The 2008 revision replaces the 1986 edition and its text could not be read (bzxz.net only lists it behind a download), so the 2008 values are assumed unchanged. \
-Only the rule printed under the table is checked here: r < 3h. The other tables of the standard (guide rails, flat and V-shaped wheels) are not recorded."""
+verified = true
+source = """Table 1 (回转面及端面砂轮越程槽的尺寸) of GB/T 6403.5-2008, read 2026-11-21 from the copy at Liner-CAD-refs/2026-11-09-res-gaps/standards-preview/GBT-6403_5-2008.pdf (5 pages, not committed). \
+The text layer gives the cell values; the rendered page shows the merged cells the text layer loses (b2, h and r each span two b1 columns; d spans three columns in the ~10 band and two in the others). \
+Every cell of b1, b2, h, r and every d band matches this file. The last d cell prints "100" in this copy - the "＞" is missing from both its text layer and its rendering - and is read as >100, which is what the 1986 edition printed and what the band sequence implies, so d = 100 stays in the 50~100 band. \
+The 1986 table as reprinted by the Jialichuang handbook (www.jlc-jdgf.com/mcbook/1-5-15.htm, read 2026-11-09) and at www.ml21.com/1302.html agrees with the 2008 table in every cell. \
+The note under the table reads r <= 3h. The other tables of the standard (2 平面, 3 V形, 4 燕尾导轨, 5 矩形导轨) are not recorded."""

@@ -3,12 +3,15 @@
 std = "GB/T 145-2001"
 iso = "ISO 866:1975 Annex, Table 2"
 iso_B = "ISO 2540:1973 Annex (type B centre holes), same Annex A in ISO 2540:2016"
+verified = false
 source = "ISO 866:1975 preview (standards.iteh.ai sample), Annex Table 2, method 1: d nominal, D nominal, t reference value; GB/T 145-2001 type A uses the same d / D pairs"
 source_B = """GB/T 145-2001 Table 2 (type B) as printed on the YJT database page www.164580.com/info_369427.html and in the handbook page www.jlc-jdgf.com/mcbook/new01368.htm (mirrored at dev.inkcad.com), read 2026-11-09 and parsed from the HTML tables; the standard itself was not read. \
 The two pages agree in every cell of d, D1, D2, l2, t and l_min (the handbook is a second lineage of the same table). \
 Checked independently: D1 equals the type A diameter D and the d2 column of ISO 2540:2016 Table 1 (iTeh preview cdn.standards.iteh.ai/samples/64194/2a14d980bea94904bca92bcfb2a6daf7/ISO-2540-2016.pdf, whose Annex A table is cut off in the preview), \
 and l2 equals the depth of the 60 deg cone plus the 120 deg chamfer, (D1 - d) / 2 / tan 30 + (D2 - D1) / 2 / tan 60, to 0.01 mm for all 11 sizes. \
-The designation (B2.5/8: d / D2) follows the ISO 6411 convention and was not confirmed against the text of GB/T 4459.5."""
+The designation (B2.5/8: d / D2) follows the ISO 6411 convention and was not confirmed against the text of GB/T 4459.5. \
+Read again 2026-11-21 from the same ISO 2540:2016 preview: its Table 1 d2 column gives these same 11 D1 values and the l2 geometry holds, so D1 and l2 are cross-checked. \
+Annex A, which gives the type B centre-hole dimensions directly, is cut off in that preview, so D2 and l_min rest on the single GB/T 145-2001 lineage and the table stays unverified. If the exact GB/T 145-2001 Table 2 text is needed, ask the user for the standard."""
 unit = "mm"
 note = "Bracketed sizes of the standard (A: 0.5, 0.63, 0.8, 1.25, 5.0, 8.0; B: 1.25, 5.0, 8.0) are kept with avoid = true. Type B: D1 = cone diameter, D2 = protecting chamfer diameter (the manufacturer may give D2 or l2), l_min = minimum depth l1. Types R and C are not recorded."
 
