@@ -713,14 +713,27 @@ def test_gtol_zone_shapes_and_targets():
     assert "two_envelope_surfaces" in res.gtol("profile_surface")["zone_shapes"]
 
 
-def test_gtol_modifiers_are_per_characteristic():
-    assert {"CZ", "SZ", "UF", "UZ", "ACS"} <= set(res.gtol("position")["modifiers"])
-    profile = set(res.gtol("profile_line")["modifiers"])
-    assert {"OZ", "VA", "><"} <= profile
-    runout = set(res.gtol("circular_runout")["modifiers"])
-    assert runout == {"CZ", "SZ", "UF"} and "UZ" not in runout
-    concentric = set(res.gtol("concentricity")["modifiers"])
-    assert "ACS" in concentric and "UZ" not in concentric
+def test_gtol_modifiers_separate_unconditional_from_conditional():
+    # CZ / SZ / UF apply to any characteristic; UZ / OZ / VA / >< / ACS are gated by conditions
+    for char in ("straightness", "profile_line", "position", "total_runout"):
+        assert set(res.gtol(char)["modifiers"]) == {"CZ", "SZ", "UF"}
+    conditions = {(c["symbol"], c["when"]) for c in res.gtol("straightness")["modifier_conditions"]}
+    assert ("UZ", "integral") in conditions and ("ACS", "derived_line") in conditions
+    profile = {(c["symbol"], c["when"]) for c in res.gtol("profile_line")["modifier_conditions"]}
+    assert {("OZ", "profile"), ("VA", "profile_angle"), ("><", "direction_only")} <= profile
+    position = {(c["symbol"], c["when"]) for c in res.gtol("position")["modifier_conditions"]}
+    assert {("UZ", "integral_plane"), ("ACS", "derived_line"), ("><", "direction_only")} <= position
+    assert res.gtol("total_runout")["modifier_conditions"] == []
+    for char in ("straightness", "profile_line", "position", "concentricity"):
+        assert all(c["clause"] for c in res.gtol(char)["modifier_conditions"])
+
+
+def test_gtol_parameters_are_not_modifiers():
+    # P / V / T / Q are parameters (8.2.3.3.2), not frame modifiers
+    params = res.gtol("profile_line")["parameters"]
+    assert set(params) == {"P", "V", "T", "Q"}
+    assert "P" not in res.gtol("profile_line")["modifiers"]
+    assert "T" not in {c["symbol"] for c in res.gtol("profile_line")["modifier_conditions"]}
 
 
 def test_gtol_target_natures_distinguish_integral_and_derived():
@@ -751,6 +764,7 @@ def test_datum_meta_records_the_gbt_1182_check():
     )
     meta = data["meta"]
     assert meta["checked"] == "2026-11-21"
+    assert "GB/T 1182-2018" in meta["stds"] and "GB/T 17851-2010" in meta["stds"]
     assert "1182" in meta["conclusion"] and "8.2.4" in meta["conclusion"]
     assert "6.3.3" in meta["conclusion"] and "verified" in meta["conclusion"]
     assert "6.2" in meta["unread"]
@@ -771,8 +785,13 @@ def test_gtol_rows_are_copies():
     rows = res.gtol_rows()
     rows[0]["targets"].append("bogus")
     rows[0]["category"] = "bogus"
+    rows[0]["modifiers_unverified"].append("bogus")
+    rows[0]["modifier_conditions"].append({"symbol": "XX", "when": "integral", "clause": "x"})
+    rows[0]["modifier_conditions"][0]["when"] = "bogus"
     again = res.gtol_rows()
     assert "bogus" not in again[0]["targets"] and again[0]["category"] != "bogus"
+    assert "bogus" not in again[0]["modifiers_unverified"]
+    assert all(c["when"] != "bogus" for c in again[0]["modifier_conditions"])
 
 
 def test_datum_letters_are_checked_against_gbt_1182_and_17851():

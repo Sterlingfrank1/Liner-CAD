@@ -302,9 +302,10 @@ def spline(spec: str) -> dict:
 
 
 def datum_excluded(std: str = "GB") -> dict:
-    """Letters that must not be datum letters under ``std`` ("GB" or "ISO"): ``{"std", "letters",
-    "verified", "source"}``; ``verified`` False = the list could not be checked against the standard
-    (both lists are single-lineage: see the file's [meta])."""
+    """Letters the standard recommends not to use as datum letters under ``std`` ("GB" or
+    "ISO"): ``{"std", "letters", "verified", "source"}``. It is a recommendation in a note, not a
+    prohibition (the datum_letter check reports a warning). ``verified`` False = the list could not
+    be checked against the standard (both lists are single-lineage: see the file's [meta])."""
     data = _table("datum")
     types = [k for k in data if k != "meta"]
     if std not in types:
@@ -557,8 +558,16 @@ def grinding_groove(d: float, b1: float | None = None) -> dict:
 _DATUM_RULE = {"no": "none", "yes": "required", "optional": "optional"}
 
 
+def _deep_copy(value):
+    if isinstance(value, dict):
+        return {k: _deep_copy(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_deep_copy(v) for v in value]
+    return value
+
+
 def _row_copy(row: dict) -> dict:
-    return {k: (list(v) if isinstance(v, list) else v) for k, v in row.items()}
+    return {k: _deep_copy(v) for k, v in row.items()}
 
 
 def gtol_rows() -> list[dict]:
@@ -567,15 +576,15 @@ def gtol_rows() -> list[dict]:
     / of a surface appears once per category). Each entry has id, char (the key used by
     pmi.CHARS), zh, category, datum ("no" / "yes" / "optional"), clause (table-1 subclause),
     target_natures (integral / derived), targets (allowed measured elements), zone_shapes,
-    modifiers and note; modifiers_unverified lists the symbols that belong to cross-referenced
-    standards that were not extracted. The codes are described in the TOML file; a copy is
-    returned, so callers may edit it."""
+    modifiers (unconditional), modifier_conditions (symbol + when + clause for conditional ones),
+    note and modifiers_unverified (symbols that belong to cross-referenced standards that were not
+    extracted). The codes are described in the TOML file; a copy is returned, so callers may edit
+    it."""
     data = _table("gtol")
-    unverified = list(data["meta"]["modifiers_unverified"])
     rows = []
     for row in data["row"]:
         copy = _row_copy(row)
-        copy["modifiers_unverified"] = unverified
+        copy["modifiers_unverified"] = list(data["meta"]["modifiers_unverified"])
         rows.append(copy)
     return rows
 
@@ -584,8 +593,8 @@ def gtol(char: str) -> dict:
     """Specification data of geometric characteristic char (e.g. "straightness", "position",
     "profile_surface", "circular_runout"; the 14 keys of linercad.pmi.CHARS) from
     GB/T 1182-2018: {"char", "zh", "categories", "datum", "target_natures", "targets",
-    "zone_shapes", "modifiers", "modifiers_unverified", "clauses", "rows", "std", "iso",
-    "verified"}.
+    "zone_shapes", "modifiers", "modifier_conditions", "modifiers_unverified", "parameters",
+    "clauses", "rows", "std", "iso", "verified"}.
 
     datum is the datum rule for T.syntax: "none" = a shape tolerance, no datum allowed;
     "required" = a datum is needed; "optional" = both forms occur in the standard (position, and
@@ -619,7 +628,15 @@ def gtol(char: str) -> dict:
         "targets": union("targets"),
         "zone_shapes": union("zone_shapes"),
         "modifiers": union("modifiers"),
+        "modifier_conditions": list(
+            {
+                (c["symbol"], c["when"], c["clause"]): c
+                for r in rows
+                for c in r.get("modifier_conditions", ())
+            }.values()
+        ),
         "modifiers_unverified": list(data["meta"]["modifiers_unverified"]),
+        "parameters": {k: v for k, v in data["parameters"].items() if k != "note"},
         "clauses": list(dict.fromkeys(r["clause"] for r in rows)),
         "rows": [
             dict(_row_copy(r), modifiers_unverified=list(data["meta"]["modifiers_unverified"]))
