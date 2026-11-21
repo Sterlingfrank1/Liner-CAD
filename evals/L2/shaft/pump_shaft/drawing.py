@@ -14,12 +14,12 @@ P = d.params(
     d2=Param(20, min=16, max=30, step=1, label="轴承位直径", tol="k6"),
     d3=Param(26, min=20, max=40, step=1, label="轴肩直径", rule="d3 > d2"),
     d5=Param(18, min=17, max=22, step=1, label="轴端直径", tol="k6", rule="d5 < d2"),
-    tg=Param(3, min=2, max=5, step=0.5, label="退刀槽宽"),
+    tg=Param(3.5, min=3.4, max=6, step=0.1, label="退刀槽宽"),
     ks=Param(4, min=2, max=10, step=1, label="键槽距轴端台阶"),
     kl=Param(22, min=14, max=30, step=1, label="键槽长"),
 )
 C = 1.0  # 倒角
-DG = 13  # 退刀槽底径（设计取值，小于 M16 小径 13.835）
+DG = 13  # 退刀槽底径 = d − 3（res.thread_undercut("M16")：P = 2，槽宽 3.4–6，GB/T 3-1997）
 x1 = P.l1
 x2 = x1 + P.l2
 x3 = x2 + P.l3

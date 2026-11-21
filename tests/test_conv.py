@@ -113,6 +113,14 @@ def test_center_hole_designation(shaft):
     assert c.intent["mask"]
 
 
+def test_center_hole_type_b_designation(shaft):
+    d, f = shaft
+    c = f.center_hole("chb", on="F.front.body", end="right", type="B", d=2.5)
+    assert c.intent["designation"] == "B2.5/8" and c.intent["D"] == 8.0
+    layout(d)
+    assert any("4459.5" in t and "B2.5/8" in t for t in texts(c))
+
+
 def test_groove_dimension(shaft):
     d = Drawing()
     f = d.view("front")

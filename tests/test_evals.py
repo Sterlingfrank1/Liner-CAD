@@ -10,6 +10,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evals"))
 
 import run as evals  # noqa: E402
 
+from linercad import res, txn  # noqa: E402
+from linercad.runtime import build  # noqa: E402
+
 CASES = evals.discover()
 
 
@@ -24,6 +27,38 @@ def test_case(case):
         assert g["pass"], (view, g)
     if case.get("source") == "3d":  # S6: dimensions inferred from the model are all on the drawing
         assert r["completeness"]["pass"], r["missing"]
+
+
+def undercut_problems(d):
+    """What is off GB/T 3-1997 in the undercuts that sit against an external thread of drawing ``d``."""
+    feats = [e for e in d.elements if e.kind == "feature"]
+    threads = [e for e in feats if e.intent["type"] == "thread" and e.intent["kind"] == "ext"]
+    out = []
+    for g in (e for e in feats if e.intent["type"] == "groove" and e.intent["kind"] == "undercut"):
+        gi = g.intent
+        for t in threads:
+            ti = t.intent
+            if abs(ti["x1"] - gi["x0"]) > 1e-6 and abs(ti["x0"] - gi["x1"]) > 1e-6:
+                continue  # not against this thread
+            u = res.thread_undercut(f"M{ti['d']:g}x{ti['P']:g}")
+            if not u["g1_min"] - 1e-9 <= gi["w"] <= u["g2_max"] + 1e-9:
+                out.append(f"{g.id}: width {gi['w']:g} not in {u['g1_min']:g}..{u['g2_max']:g}")
+            if abs(gi["d"] - u["dg"]) > 1e-6:
+                out.append(f"{g.id}: diameter {gi['d']:g}, GB/T 3 says {u['dg']:g}")
+    return out
+
+
+@pytest.mark.parametrize(
+    "case", [c for c in CASES if "grooves=" in c["drawing_src"]], ids=lambda c: c["id"]
+)
+def test_undercuts_follow_gb_t_3(case, tmp_path):
+    (tmp_path / "drawing.py").write_text(case["drawing_src"], encoding="utf-8")
+    assert undercut_problems(build(tmp_path).d) == []
+
+
+def test_example_shaft_undercut_follows_gb_t_3(tmp_path):
+    txn.init(tmp_path / "s", from_="shaft")
+    assert undercut_problems(build(tmp_path / "s").d) == []
 
 
 def test_summary_counts():
