@@ -9,7 +9,6 @@ Liner-CAD v0.1：通用 2D 工程图 **Harness 层**（包 `linercad`，命令�
 | `DESIGN.md` | 设计真相源（v1.0）。实现与它冲突时以它为准；确需偏离，写进当前里程碑 SPEC 的“偏离记录”并说明理由 |
 | `DRAFTING-COVERAGE.md` | 制图专业度、覆盖矩阵、评测集、公开资源 |
 | `docs/ROADMAP.md` | 里程碑看板、开发流程、质量门禁、交接记录 |
-| `docs/VISUAL-VERIFICATION.md` | 看图验证契约：页幅像素、可读性下限、字体缺字、已知盲区（图只管观感，数值走 ID） |
 | `docs/milestones/Mx/` | 当前里程碑的 BRIEF → SPEC → HANDOVER |
 | `AGENT.md` | 开发素养（参考） |
 
