@@ -638,6 +638,7 @@ def test_grinding_groove_standard_rules():
             assert o["r"] <= 3 * o["h"]  # note 2 under Table 1: r <= 3h
             assert o["b1"] <= o["b2"]
 
+
 # --------------------------------- GB/T 1182-2018 / 17851-2010 / 17852-2018 (card A4)
 
 ROW_IDS = [
@@ -726,7 +727,10 @@ def test_gtol_unknown_characteristic_gives_candidates():
     with pytest.raises(InvalidArgument) as err:
         res.gtol("runout")
     assert "circular_runout" in err.value.candidates
-    assert res.gtol("concentricity")["rows"][0]["targets"] != res.gtol("position")["rows"][0]["targets"]
+    assert (
+        res.gtol("concentricity")["rows"][0]["targets"]
+        != res.gtol("position")["rows"][0]["targets"]
+    )
 
 
 def test_gtol_rows_are_copies():
@@ -759,4 +763,3 @@ def test_gtol_clause_draft_is_in_the_evidence_folder():
     text = path.read_text(encoding="utf-8")
     for std in ("GB/T 1182-2018", "GB/T 17851-2010", "GB/T 17852-2018"):
         assert std in text
-
