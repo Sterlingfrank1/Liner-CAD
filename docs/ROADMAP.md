@@ -109,5 +109,7 @@ BRIEF（监督会话写）
 
 **v0.1.1 的补充（2026-11-13，用户本机试用后）：** 再加三件事——首次出图自动打开 Viewer；Viewer 选择同步到对话（复制引用对所有 Agent，Claude Code 另装提示钩子）；后续迭代提速（`lcad template save` 把画好的图沉淀成参数化模板、`lcad edit --dry-run`、迭代速度并入评测指标 P 过程）。已定：参数化模板由用户自己 `template save` 沉淀；钩子只装 Claude Code，dsh、opencode 等其余 Agent 先走复制引用。方案与验收见 `docs/releases/v0.1.0-review.md` “Viewer 自动打开、选择同步到对话、迭代速度”；拆分与先后见 `docs/milestones/v0.1.1/PLAN.md`（卡片 H1 / H2 / H3 / H4、E7，2026-11-20 并入）。
 
+**2026-11-21 更新（选择同步范围决策）：** “Viewer 选择同步到对话”按用户当日决定收敛——B2（Claude Code 提示钩子）转 v0.2（回到 Claude Code 宿主时再启用）；B1 保留并细化为两条路径：① 点选 / Ctrl 多选后“复制引用”一行粘贴进任何 Agent；② 自然语言指代——用户在 Agent 对话里直接说“修改什么…”，Agent 经 `lcad context @sel` / `selection.json` 知道针对与相关的修改对象，选择过期时如实报告。卡片 H4（#107）范围同步更新。
+
 **v0.2 余项（v0.1.1 不做）：** 标题栏 GB/T 10609.1 图 2 与 GB/T 14692 投影符号原文对照；GB/T 1095-2003 遗留（松联结 H9/D10、36×20 以上行、(d−t1)/(d+t2) 符号约定）；ISO 5459 原文；Viewer 令牌加固；大样本评测验证跨 Agent 定位；STEP AP242 语义 PMI。3D 来源的阶梯剖 / 旋转剖 / 移出断面已确认转 v0.2（用户 2026-11-14）；`lcad edit --dry-run` 已确认放入 v0.1.1（卡片 H1，#104）。
 
