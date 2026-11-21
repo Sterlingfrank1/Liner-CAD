@@ -160,8 +160,21 @@ def test_center_hole_type_c_length_accepts_a_parameter_expression():
     f.turned("body", [(0, 10), (40, 10)])
     c = f.center_hole("chc", on="F.front.body", end="left", type="C", d=6, length=P.L)
     assert c.intent["length"] == 30.0 and c.intent["designation"] == "CM6L30/10.5"
+    # the mask covers the unthreaded depth plus the whole thread length L (M6: l = 5.0)
+    assert c.intent["mask"][1][0] >= 5.0 + 30.0
     with pytest.raises(errors.InvalidArgument):
         f.center_hole("bad", on="F.front.body", end="left", type="C", d=6, length=float("nan"))
+
+
+def test_center_hole_d_accepts_a_parameter_expression():
+    d = Drawing(sheet="A3")
+    P = d.params(ds=Param(3.15, min=1, max=10, step=0.01, label="中心孔导向孔直径"))
+    f = d.view("front")
+    f.turned("body", [(0, 10), (40, 10)])
+    a = f.center_hole("cha", on="F.front.body", end="left", type="A", d=P.ds)
+    assert a.intent["d"] == 3.15 and a.intent["designation"] == "A3.15/6.7"
+    r = f.center_hole("chr", on="F.front.body", end="right", type="R", d=P.ds)
+    assert r.intent["designation"] == "R3.15/6.7"
 
 
 def test_groove_dimension(shaft):

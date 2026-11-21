@@ -197,6 +197,8 @@ def center_hole(view, name, on, end="left", type="A", d=2.5, keep=True, length=N
         )
     if length is not None:
         length = num(length, "length")  # a parameter expression is resolved; NaN / inf rejected
+    if not (type == "C" and isinstance(d, str)):
+        d = num(d, "d")  # a parameter expression is resolved (type C also takes "M6")
     ch = res.center_hole(type, d, length=length)
     prof, ax = body._intent["profile"], body._intent["axis"]
     x = prof[0][0] if end == "left" else prof[-1][0]
@@ -205,6 +207,8 @@ def center_hole(view, name, on, end="left", type="A", d=2.5, keep=True, length=N
     depth = (
         D / 2 / math.tan(math.radians(30)) + ch["d"] * 1.5
     )  # cone plus pilot, generous for the mask
+    if length is not None:  # type C: the mask also covers the whole threaded length L
+        depth = max(depth, ch["l"] + length + GAP)
     mask = _rect(x, ax - D / 2 - 0.5, x + sg * depth, ax + D / 2 + 0.5)
     intent = {
         "designation": ch["designation"],

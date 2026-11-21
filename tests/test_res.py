@@ -463,6 +463,9 @@ def test_center_hole_type_c_designation():
     with pytest.raises(InvalidArgument) as err:
         res.center_hole("C", 6, length=-1)
     assert err.value.values["length"] == -1
+    for bad in (float("nan"), float("inf")):
+        with pytest.raises(InvalidArgument):
+            res.center_hole("C", 6, length=bad)
     with pytest.raises(InvalidArgument):
         res.center_hole("A", 2.5, length=10)  # L belongs to type C only
 

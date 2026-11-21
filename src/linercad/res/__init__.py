@@ -9,6 +9,7 @@ raises ``InvalidArgument`` with ``candidates``. Only what the standard itself de
 
 from __future__ import annotations
 
+import math
 import re
 import tomllib
 from bisect import bisect_left
@@ -371,10 +372,13 @@ def center_hole(type: str = "A", d=2.5, length: float | None = None) -> dict:
     row = data[type]
     if type == "C":
         if length is not None and (
-            not isinstance(length, (int, float)) or isinstance(length, bool) or length <= 0
+            not isinstance(length, (int, float))
+            or isinstance(length, bool)
+            or not math.isfinite(length)
+            or length <= 0
         ):
             raise InvalidArgument(
-                f"C 型中心孔的螺纹长度 length 应为正数（mm），得到 {length!r}",
+                f"C 型中心孔的螺纹长度 length 应为正的有限数（mm），得到 {length!r}",
                 values={"length": length},
             )
         spec = _thread_marking(d)
