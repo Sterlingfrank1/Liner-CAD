@@ -4,6 +4,8 @@
 
 > **2026-11-20 更新**（续跑 2026-11-14 被中断的 supervisor 计划更新回合）：H1（#104，`lcad edit --dry-run`）入卡片表并入 W3 顺序；2026-11-13 用户试用后的“三项”（commit 49d8759：首次出图自动打开 Viewer、选择同步到对话、迭代提速）拆为 H2（#105）、H3（#106）、H4（#107）、E7（#108）并入；U1 / U2 / U3 / U5 按用户 2026-11-14 六条决定收口。
 
+> **2026-11-21 更新**（用户指示）：v0.1.1 的跨 Agent 验证改用 DeepSeek Harness（dsh）与 Codex，豆包工作不再使用；E7、F1、V1 的口径按二者更新（见偏离记录 7）。PR #69（GB/T 3 / GB/T 6403.5 / B 型中心孔）已按 A1 + A3 核对并 squash 合并，A1、A3 随之关闭（见偏离记录 8）。
+
 ## 1. 目标
 
 把 `docs/releases/v0.1.0.md` 的已知缺口与 `docs/releases/v0.1.0-review.md` 的全部“v0.1.1 候选”做完（用户 2026-11-14 决策），守住 `CLAUDE.md` 的四个核心竞争力与 harness 定位，不堵 v0.2（STEP AP242 语义 PMI）。头号优先是出图质量与尺寸排布（D），配套先把评测变成可比较、可信的数字（E1、E5、E2）。
@@ -25,7 +27,7 @@
 | 已知缺口·DXF 导入 | TEXT 成带引线注释、HATCH 被跳过 | C2、C3 | v0.1.1 |
 | 已知缺口·DXF 导入 | 验收只用 ezdxf 样例 → 用户第三方样例 | C1 | v0.1.1 |
 | review·DXF | 原图框保留在新图幅里 | C4 | v0.1.1 |
-| 已知缺口·跨 Agent | Codex 未运行 | 已关闭（#70 dsh） | — |
+| 已知缺口·跨 Agent | Codex 未运行 | 已关闭（#70 dsh）；v0.1.1 复测改为 dsh + Codex | — |
 | review·跨 Agent | 措辞收紧为“首图速度取决于 Agent” | F1 | v0.1.1 |
 | 已知缺口·资源库 | 缺 GB/T 3、6403.5、B 型中心孔 | PR #69 + A1、A3 | v0.1.1 |
 | 用户 2026-11-14 | GB/T 145 R 型、C 型中心孔 | A2 | v0.1.1 |
@@ -84,7 +86,7 @@ W4 验收       : V1（全部卡片合并后）
 | E6 | #80 | W1 | P2 | 仅 DXF 模式的指标：只靠渲染图元判的规则，用于任意来源图纸 | E5、C4 | 指标模块、evals |  | 对任意 DXF 输出仅 DXF 模式的分数向量（可判规则列表写明）；对 4 个样例 DXF 和 M3 基线图各出一份数字进证据；自造夹具的正反例测试；pytest、ruff、CI 绿；PR 已合并。 |
 | E3 | #81 | W1 | P2 | expect.py 约束语义与几何签名匹配；L2 的 20 例写 expect | E2 | linercad 的 expect 模块、evals/L2/*/expect.py |  | L2 的 20 例各有十来行的 expect.py，对参考图全部通过；变异（删一个必需尺寸、改配合）能被抓到；分数进向量、baseline 更新并说明；pytest、ruff、CI 绿；PR 已合并。 |
 | E4 | #82 | W1 | P2 | T.syntax / T.target / T.hier：按 GB/T 1182 数据判形位公差 | A4、E2 | rules.py（形位公差部分）、规则目录 |  | 三条规则读 res/gtol.toml、带条款、有正反例与变异算子（检出 1.0、误报 0）；评测报告 GB/T 1182 条款覆盖率；baseline 不退化；pytest、ruff、CI 绿；PR 已合并。 |
-| E7 | #108 | W1 | P2 | 迭代速度指标（P 过程）：run_demo.py 并入 evals/cross_agent.py，区分两种口径 | E1 | evals/cross_agent.py |  | 评测输出每轮耗时 / 新处理 token / 模型步数 / lcad 子命令统计；区分“每轮新开调用”与“同一对话连续修改”两种口径；4 个试用场景各出一份数字进证据；自造夹具测试；pytest、ruff、CI 绿；PR 已合并。 |
+| E7 | #108 | W1 | P2 | 迭代速度指标（P 过程）：run_demo.py 并入 evals/cross_agent.py，区分两种口径 | E1 | evals/cross_agent.py |  | 评测输出每轮耗时 / 新处理 token / 模型步数 / lcad 子命令统计；区分“每轮新开调用”与“同一对话连续修改”两种口径；4 个试用场景（dsh + Codex）各出一份数字进证据；自造夹具测试；pytest、ruff、CI 绿；PR 已合并。 |
 | D1 | #83 | W2 | P0 | 放射状直径 / 半径引线的候选生成与代价函数 | E5 | layout.py、annotate.py | 是 | flange、end_cover、pulley、gear_cover、bearing_support 的圆视图直径 / 半径引线：E5 中与之相关的可避免交叉为 0，D 族排布分数提升并附前后渲染图；确定性测试（同输入同输出、固定元素不动）；每个修好的情形留回归用例；评测 40/40、几何 1.0、baseline 不退化；一轮独立评审已处理；CI 绿；PR 已合并。 |
 | D2 | #84 | W2 | P0 | 多层尺寸避让：排序外推、小内大外、文字内外与箭头外翻、PMI 引线 | D1 | layout.py、pmi_layout.py | 是 | 评测集与范例的 D.place 交叉、间距、嵌套子项较 D1 后的基线明显改善（PR 给出数字）且无回退；pulley 右侧拥挤处无交叉；前后渲染图进证据；确定性与固定元素测试；每个修复留回归用例；40/40、几何 1.0、baseline 不退化；一轮独立评审已处理；CI 绿；PR 已合并。 |
 | D3 | #85 | W2 | P1 | 装配序号：对齐、最小间距、顺序、引线不交叉 | D2 | assembly.py、layout.py |  | jack、vise、bearing 三个装配：A.place 序号引线交叉 0、间距 ≥ δ、对齐与顺序子项通过；前后渲染图进证据；回归用例；L3 评测通过、baseline 不退化；CI 绿；PR 已合并。 |
@@ -107,8 +109,8 @@ W4 验收       : V1（全部卡片合并后）
 | H4 | #107 | W3 | P1 | Viewer 选择同步到对话：复制引用（所有 Agent）+ Claude Code 提示钩子 | B2（复制引用合并做） | viewer/、skill/（install 幂等合并 .claude/settings.json） | 是 | 多选 3 元素复制引用粘进 dsh 一轮改对；Claude Code 不复制、直接打字也能改对（钩子带当前 selection，过期 / 无选择不带）；settings.json 合并幂等、不覆盖用户已有设置；钩子走只读轻量入口；现场截图进证据；一轮独立评审已处理；pytest、ruff、CI 绿；PR 已合并。 |
 | H2 | #105 | W3 | P2 | `lcad template save/list`：用户沉淀参数化模板，`init --from` 一步出图 | — | commands.py、模板清单与存放、skill/pages/api.md |  | `save`（前提 check 0 error）后 `lcad init <目录> --from <名> --set …` 一步出图；清单含名称 / 描述 / 参数范围；`template list` 与 skill 列出用户模板并写“匹配即从模板起步”规则；修订层存在时提示；牛鼻刀基线（首次 vs 换规格）出数进证据；pytest、ruff、CI 绿；PR 已合并。 |
 | H1 | #104 | W3 | P2 | `lcad edit --dry-run`：试改不提交 | D2（默认） | txn.py；cli.py、commands.py 只加开关 | 是 | 临时目录图纸仓库里 `lcad edit --dry-run` 后 HEAD、git status、动作日志、源文件均不变（测试断言）；输出含变化元素、finding、预览路径；随后同一脚本真实 edit 的结果与 dry-run 报告一致；失败路径与 edit 同结构；一轮独立评审已处理；pytest、ruff、CI 绿；PR 已合并。 |
-| F1 | #101 | W3 | P3 | 文档：跨 Agent 措辞收紧；Skill 与 README 同步 v0.1.1 变更 | E1、C4、D3、H1 | README、skill/、docs/ |  | README 与 Skill 中跨 Agent 表述与 #70 证据一致；Skill 覆盖本版新接口（逐项列在 PR 里）；`lcad skill install` 后的文件与源一致的测试通过；CI 绿；PR 已合并。 |
-| V1 | #102 | W4 | P0 | v0.1.1 版本验收（G5）：干净 clone、独立 Agent 多轮修改与出图评审、版本号与发布说明 | 全部卡片 | pyproject、版本号、docs/releases/v0.1.1.md、docs/milestones/v0.1.1/HANDOVER.md |  | 干净 clone 全量测试、ruff、评测 40/40 零 error、几何 / 完整性 1.0、baseline 不退化；独立 Agent 多轮修改与出图评审记录进证据；版本号 0.1.1、docs/releases/v0.1.1.md 与 HANDOVER 合并；CI 四项绿；PR 已合并。 |
+| F1 | #101 | W3 | P3 | 文档：跨 Agent 措辞收紧；Skill 与 README 同步 v0.1.1 变更 | E1、C4、D3、H1 | README、skill/、docs/ |  | README 与 Skill 中跨 Agent 表述与 #70 证据及 v0.1.1 复测（dsh + Codex）一致；Skill 覆盖本版新接口（逐项列在 PR 里）；`lcad skill install` 后的文件与源一致的测试通过；CI 绿；PR 已合并。 |
+| V1 | #102 | W4 | P0 | v0.1.1 版本验收（G5）：干净 clone、独立 Agent 多轮修改与出图评审、版本号与发布说明 | 全部卡片 | pyproject、版本号、docs/releases/v0.1.1.md、docs/milestones/v0.1.1/HANDOVER.md |  | 干净 clone 全量测试、ruff、评测 40/40 零 error、几何 / 完整性 1.0、baseline 不退化；独立 Agent（dsh 与 Codex）多轮修改与出图评审记录进证据；版本号 0.1.1、docs/releases/v0.1.1.md 与 HANDOVER 合并；CI 四项绿；PR 已合并。 |
 
 ## 5. 质量标准
 
@@ -159,3 +161,5 @@ W4 验收       : V1（全部卡片合并后）
 4. **`lcad edit --dry-run` 转入 v0.1.1**（原 U2 建议 v0.2）：用户 2026-11-14 决定；卡片 H1（#104），默认排 D2 之后，D 流评测显示 Agent 调布局轮次多可提前。
 5. **“三项”并入 v0.1.1**（首次出图自动打开 Viewer、选择同步到对话、迭代提速）：用户 2026-11-13 试用后定方向（commit 49d8759），2026-11-20 指示吸收进 PLAN 与 ROADMAP；拆为 H2（#105）、H3（#106）、H4（#107）、E7（#108）。
 6. **supervisor effort high → xhigh**：用户 2026-11-14 直接调整（BRIEF.md 步骤 0 已同步接受两档；开发会话仍一律 Sonnet 5.5 xhigh）。
+7. **跨 Agent 验证改用 dsh + Codex**（2026-11-21 用户指示）：v0.1.1 涉及跨 Agent 效果的地方（E7 的场景、F1 的措辞依据、V1 的独立 Agent 验收）以 DeepSeek Harness 与 Codex 为准；豆包工作不再使用。
+8. **A1、A3 随 PR #69 核对关闭**（2026-11-21）：GB/T 6403.5-2008 表 1 与原文逐格对上，`res/grinding_grooves.toml` 改 `verified = true`，逐格表作测试 fixture；B 型中心孔的 D1 / l2 对 ISO 2540:2016 表 1 与几何复核，D2 / l_min 仍单一谱系，保持 `verified = false` 并把待用户项写进 [meta]。
