@@ -214,6 +214,68 @@ def _crosses(p, q, r, s):
     return o(r, s, p) * o(r, s, q) < -1e-9 and o(p, q, r) * o(p, q, s) < -1e-9
 
 
+def _cross_point(p, q, r, s):
+    """Intersection point of two properly crossing segments, else None."""
+    if not _crosses(p, q, r, s):
+        return None
+    den = (q[0] - p[0]) * (s[1] - r[1]) - (q[1] - p[1]) * (s[0] - r[0])
+    if abs(den) < 1e-12:
+        return None
+    t = ((r[0] - p[0]) * (s[1] - r[1]) - (r[1] - p[1]) * (s[0] - r[0])) / den
+    return (p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1]))
+
+
+def _near_any(pt, spots):
+    """Is pt within the radius of one of the (point, radius) spots?"""
+    return any(math.dist(pt, c) <= r + 1e-9 for c, r in spots)
+
+
+def _crosses_circle(p, q, c, r):
+    """Proper crossing of segment pq with a circle (tangency / touching an end excluded)."""
+    dx, dy = q[0] - p[0], q[1] - p[1]
+    fx, fy = p[0] - c[0], p[1] - c[1]
+    a = dx * dx + dy * dy
+    if a < 1e-18:
+        return False
+    disc = (fx * dx + fy * dy) ** 2 - a * (fx * fx + fy * fy - r * r)
+    if disc <= 1e-9:  # miss or tangency: a tangent line touches, it does not cut
+        return False
+    root = math.sqrt(disc)
+    for t in ((-(fx * dx + fy * dy) - root) / a, (-(fx * dx + fy * dy) + root) / a):
+        if 1e-9 < t < 1 - 1e-9:
+            return True
+    return False
+
+
+def _on_arc(pt, arc):
+    """Is the point strictly inside the arc sweep (touching an end does not count)?"""
+    sweep = (arc.a1 - arc.a0) % 360 or 360
+    if sweep >= 360 - 1e-9:  # a full circle has no end points
+        return True
+    ang = math.degrees(math.atan2(pt[1] - arc.c[1], pt[0] - arc.c[0])) % 360
+    rel = (ang - arc.a0) % 360
+    return 1e-9 < rel < sweep - 1e-9
+
+
+def _crosses_arc(p, q, arc):
+    """Proper crossing of segment pq with an arc (same rule as a circle, plus the sweep)."""
+    dx, dy = q[0] - p[0], q[1] - p[1]
+    fx, fy = p[0] - arc.c[0], p[1] - arc.c[1]
+    a = dx * dx + dy * dy
+    if a < 1e-18:
+        return False
+    disc = (fx * dx + fy * dy) ** 2 - a * (fx * fx + fy * fy - arc.r * arc.r)
+    if disc <= 1e-9:
+        return False
+    root = math.sqrt(disc)
+    for t in ((-(fx * dx + fy * dy) - root) / a, (-(fx * dx + fy * dy) + root) / a):
+        if 1e-9 < t < 1 - 1e-9:
+            pt = (p[0] + t * dx, p[1] + t * dy)
+            if _on_arc(pt, arc):
+                return True
+    return False
+
+
 def collinear_overlap(a, b):
     """Open-interval overlap length of two collinear segments (0 if not collinear)."""
     (p, q), (r, s) = a, b
@@ -271,7 +333,11 @@ def center_piece(a, b, std):
 # ---- the engine --------------------------------------------------------------------------------
 
 SIDE_ORDER = ("top", "bottom", "left", "right", "inside")
+# Candidate directions for a diameter / radius leader, preferred drafting directions first.  The
+# extra directions are only picked when they avoid a crossing the preferred ones cannot (§4.6:
+# try candidate angles in order, keep the first clean one).
 DIA_ANGLES = (45, 135, 315, 225, 30, 150, 60, 120)
+DIA_ANGLES_MORE = (0, 90, 180, 270, 15, 75, 105, 165, 195, 210, 240, 255, 285, 300, 330, 345)
 NOTE_ANGLES = (45, 135, 315, 225, 60, 120, 300, 240)
 LEADS = (3.0, 8.0, 13.0, 18.0, 25.0, 35.0)  # extra leader lengths tried, shortest first
 ORDER = ("front", "top", "bottom", "left", "right", "rear")
@@ -283,6 +349,10 @@ class _Obstacles:
         self.boxes = []  # (owner, box)
         self.dimlines = []  # (owner, p, q)
         self.ann = set()  # owners that are annotations (their lines must not be crossed by leaders)
+        self.prims = {}  # owner id -> prims (concentric circles, contour tests)
+        self.kinds = {}  # owner id -> element kind
+        self.centres = {}  # circular dimension id -> centre of its circle
+        self.radial = set()  # ids of circular diameter / radius dimensions
 
     def add(self, owner, segs=(), boxes=(), dimlines=()):
         self.segs += [(owner, p, q) for p, q in segs]
@@ -290,6 +360,7 @@ class _Obstacles:
         self.dimlines += [(owner, p, q) for p, q in dimlines]
 
     def add_prims(self, owner, prims):
+        self.prims.setdefault(owner, []).extend(prims)
         for pr in prims:
             if isinstance(pr, Text):
                 self.boxes.append((owner, pr.box))
@@ -327,14 +398,90 @@ class _Obstacles:
         return sorted(out.items())
 
     def crossings(self, owner, cand):
-        """Annotations a candidate's leader cuts through (a soft cost after overlaps)."""
+        """Annotation owners a candidate's leader cuts through (a soft cost after overlaps).
+
+        A crossing at a spot listed in ``cross_ignore`` is inherent only when the other
+        annotation is itself a dimension about the same centre (concentric diameters all run
+        through it); any other line crossing there is still avoidable.
+        """
+        allow = set(cand.get("allow_cross", ()))
+        ignore = cand.get("cross_ignore", ())
+        hit = set()
+        for p, q in cand.get("cross", ()):
+            for o, a, b in self.segs:
+                if o == owner or o not in self.ann or o in allow:
+                    continue
+                pt = _cross_point(p, q, a, b)
+                if pt is None:
+                    continue
+                if _near_any(pt, ignore) and self._same_centre(o, ignore):
+                    continue
+                hit.add(o)
+        return sorted(hit)
+
+    def overlaps(self, owner, cand):
+        """Owners a candidate's line runs along / on top of (GB/T 4458.4: 尺寸线不与其他图线重合)."""
         allow = set(cand.get("allow_cross", ()))
         hit = set()
         for p, q in cand.get("cross", ()):
             for o, a, b in self.segs:
-                if o != owner and o in self.ann and o not in allow and _crosses(p, q, a, b):
+                if o == owner or o in allow:
+                    continue
+                if collinear_overlap((p, q), (a, b)) > 0.5:
                     hit.add(o)
-        return len(hit)
+        return sorted(hit)
+
+    def contour_crossings(self, owner, cand):
+        """Outline a candidate's leader cuts.
+
+        A circle concentric with the dimensioned one is crossed by the diametral line itself
+        whatever its direction, so cutting it is inherent and never counts as avoidable.
+        """
+        allow = set(cand.get("allow_cross", ()))
+        centre = cand.get("cross_centre")
+        hit = set()
+        for o, prims in self.prims.items():
+            if o == owner or o in allow or self.kinds.get(o) != "edge":
+                continue
+            if centre is not None and self._concentric_with(o, centre):
+                continue
+            for p, q in cand.get("cross", ()):
+                if self._cuts(o, prims, p, q):
+                    hit.add(o)
+                    break
+        return sorted(hit)
+
+    @staticmethod
+    def _cuts(owner, prims, p, q):
+        """Does segment pq properly cut any of the owner's lines / circles / arcs?"""
+        for pr in prims:
+            if isinstance(pr, Line):
+                if _cross_point(p, q, pr.p, pr.q) is not None:
+                    return True
+            elif isinstance(pr, Circle):
+                if _crosses_circle(p, q, pr.c, pr.r):
+                    return True
+            elif isinstance(pr, Arc):
+                if _crosses_arc(p, q, pr):
+                    return True
+            else:
+                for a, b in prim_segments(pr):
+                    if _cross_point(p, q, a, b) is not None:
+                        return True
+        return False
+
+    def _same_centre(self, owner, ignore):
+        """Is ``owner`` a circular dimension about the same centre (concentric diameters)?"""
+        if owner not in self.radial:
+            return False
+        c = self.centres.get(owner)
+        return c is not None and any(math.dist(c, p) <= r + 1e-9 for p, r in ignore)
+
+    def _concentric_with(self, owner, centre):
+        prims = self.prims.get(owner, ())
+        return bool(prims) and all(
+            isinstance(pr, (Circle, Arc)) and math.dist(pr.c, centre) < 1e-6 for pr in prims
+        )
 
 
 class _ViewLayout:
@@ -357,6 +504,7 @@ class _ViewLayout:
     def put(self, el, prims, obstacle=True):
         self.parts.setdefault(el._id, []).extend(prims)
         if obstacle:
+            self.obst.kinds[el._id] = el.kind
             self.obst.add_prims(el._id, prims)
 
     # -- geometry ------------------------------------------------------------------------------
@@ -840,15 +988,24 @@ class _ViewLayout:
         c, r = self.P(src["c"]), src["r"] * self.s
         w, hh = label_size(i, std)
         al = dm["arrow_length"]
-        angles = [lay["at"]] if lay.get("at") is not None else list(DIA_ANGLES)
+        if lay.get("at") is not None:  # written angle: only the leader length may adapt
+            primary, extra = [lay["at"]], []
+        else:
+            primary = list(DIA_ANGLES)
+            extra = [a for a in DIA_ANGLES_MORE if a not in DIA_ANGLES]
         circ = self.d._els.get(i["circle"])
         if lay.get("at") is None and circ is not None and circ._intent.get("shape") == "arc":
             a0, a1 = circ._intent["start"], circ._intent["end"]
             sweep = (a1 - a0) % 360 or 360
-            inside = [a for a in angles if (a - a0) % 360 <= sweep]
-            angles = inside or [a0 + sweep / 2]
+            inside = [a for a in primary if (a - a0) % 360 <= sweep]
+            primary = inside or [a0 + sweep / 2]
+            extra = [a for a in extra if (a - a0) % 360 <= sweep]
+        # customary directions first: the extra angles are only reached when none of them can be
+        # placed cleanly (they exist to dodge a crossing, not to restyle an already clean drawing)
+        combos = [(lead, a) for lead in LEADS for a in primary]
+        combos += [(lead, a) for lead in LEADS for a in extra]
         out = []
-        for lead, ang in [(lead, a) for lead in LEADS for a in angles]:
+        for lead, ang in combos:
             lead = al + lead
             u = (math.cos(math.radians(ang)), math.sin(math.radians(ang)))
             p1 = (c[0] + u[0] * r, c[1] + u[1] * r)
@@ -881,6 +1038,14 @@ class _ViewLayout:
                     "prims": prims,
                     "boxes": [tbox],
                     "segs": segs,
+                    # a circumference dimension may cut prints of its own circle and, where
+                    # concentric diameters meet, the shared centre; nothing else is inherent
+                    "cross": segs,
+                    "allow_cross": (i["circle"],),
+                    "cross_ignore": ((c, 0.5),),
+                    "cross_centre": c,
+                    "contour": True,
+                    "overlap_cost": True,
                     "fields": {"at": ang},
                     "ends": [p2, p1],
                     "why": why,
@@ -929,18 +1094,51 @@ class _ViewLayout:
             )
         return out
 
+    def _corridors(self, box):
+        """Free distance from a text box to the nearest obstacle in each direction."""
+        x0, y0, x1, y1 = box
+        boxes = [b for _o, b in self.obst.boxes]
+        boxes += [
+            (min(p[0], q[0]), min(p[1], q[1]), max(p[0], q[0]), max(p[1], q[1]))
+            for _o, p, q in self.obst.segs
+        ]
+        tests = {
+            "right": lambda b: b[1] < y1 and b[3] > y0 and b[0] >= x1 - 1e-9 and b[0] - x1,
+            "left": lambda b: b[1] < y1 and b[3] > y0 and b[2] <= x0 + 1e-9 and x0 - b[2],
+            "up": lambda b: b[0] < x1 and b[2] > x0 and b[1] >= y1 - 1e-9 and b[1] - y1,
+            "down": lambda b: b[0] < x1 and b[2] > x0 and b[3] <= y0 + 1e-9 and y0 - b[3],
+        }
+        out = {}
+        for name, test in tests.items():
+            ds = []
+            for b in boxes:
+                v = test(b)
+                if v is not None and v is not False:
+                    ds.append(max(0.0, float(v)))
+            out[name] = round(min(ds + [50.0]), 3)
+        return out
+
     def choose(self, el, cands, auto_fields):
         clearance = self.std["dim"]["clearance"]
         best = None
         for k, cand in enumerate(cands):
             conf = self.obst.conflicts(el._id, cand, clearance)
-            key = (len(conf), self.obst.crossings(el._id, cand) if cand.get("cross") else 0)
-            if key == (0, 0):
-                best = (key, k, cand, conf)
+            if best is not None and len(conf) > best[0][0]:
+                continue  # cannot win on the first key; skip the more expensive scans
+            cut = self.obst.crossings(el._id, cand) if cand.get("cross") else []
+            if best is not None and (len(conf), len(cut)) > best[0][:2]:
+                continue
+            overlap = self.obst.overlaps(el._id, cand) if cand.get("overlap_cost") else []
+            outline = self.obst.contour_crossings(el._id, cand) if cand.get("contour") else []
+            # text overlap first, then cutting other annotations, then running along other
+            # lines, and only then crossing the part outline
+            key = (len(conf), len(cut), len(overlap), len(outline))
+            if key == (0, 0, 0, 0):
+                best = (key, k, cand, conf, cut, overlap, outline)
                 break
             if best is None or key < best[0]:
-                best = (key, k, cand, conf)
-        _, k, cand, conf = best
+                best = (key, k, cand, conf, cut, overlap, outline)
+        _, k, cand, conf, cut, overlap, outline = best
         el._resolved.update(cand["fields"])
         if cand.get("ends"):
             el._resolved["ends"] = [list(p) for p in cand["ends"]]
@@ -961,9 +1159,37 @@ class _ViewLayout:
             reasons.append(
                 "所有候选都有冲突，取冲突最少的：与 " + "、".join(o for o, _ in conf) + " 冲突"
             )
+        elif cut or overlap or outline:
+            hits = sorted(set(cut) | set(overlap) | set(outline))
+            reasons.append(
+                "所有候选都与其他图元相交，取交叉最少的：与 " + "、".join(hits) + " 相交"
+            )
+        elif k and "at" in el._auto and cand["fields"].get("at") != cands[0]["fields"].get("at"):
+            reasons.append("换角度避开交叉")
+        if cand.get("overlap_cost") and (conf or cut or overlap or outline):
+            # radial leader: an avoidable conflict always wins above, so what is left is
+            # unavoidable — draw it and report it for the agent (DESIGN §4.6.3).  Text/space
+            # conflicts are reported too, not just crossings.
+            violations = [{"with": o, "kind": "overlap", "amount": round(v, 3)} for o, v in conf]
+            violations += [{"with": o, "kind": "cross"} for o in cut]
+            violations += [{"with": o, "kind": "coincide"} for o in overlap]
+            violations += [{"with": o, "kind": "outline"} for o in outline]
+            el._resolved["violations"] = violations
+            if cut or overlap or outline:
+                hit = sorted(set(cut) | set(overlap) | set(outline))
+                reasons.append("不可避免的交叉：与 " + "、".join(hit) + " 相交")
+                el._resolved["crossings"] = hit
+            boxes = cand.get("boxes") or []
+            if boxes:
+                el._resolved["corridors"] = self._corridors(boxes[0])
         el._reason = "；".join(reasons)
+        if cand.get("contour") and cand.get("ends"):  # circular dimension: remember its centre
+            a, b = cand["ends"]
+            self.obst.centres[el._id] = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+            self.obst.radial.add(el._id)
         self.put(el, cand["prims"], obstacle=False)
         self.obst.ann.add(el._id)
+        self.obst.kinds[el._id] = el.kind
         self.obst.add(
             el._id,
             segs=cand["segs"],
@@ -1020,22 +1246,68 @@ class _ViewLayout:
                 auto = [f for f in ("side", "row") if e._layout.get(f) is None]
                 self.choose(e, self.linear_cands(e), auto)
 
+        # PMI leaders hang on geometry or on already placed dimensions: place them before the
+        # automatic circular leaders, so those dodge them instead of crowding them afterwards.
+        pmi = (("datum", datum_cands), ("gtol", gtol_cands), ("rough", rough_cands))
+
+        def ref_pending(e):
+            r = self.d._els.get(e._intent.get("ref"))
+            return r is not None and r.kind == "dim" and "ends" not in r._resolved
+
+        def place_pmi(item):
+            _kind, fn, e = item
+            cands = fn(self, e)
+            if cands:
+                auto = [f for f in ("at", "length") if e._layout.get(f) is None]
+                self.choose(e, cands, auto)
+
         for e in [x for x in dims + notes if fixed(x)]:  # all fixed elements first (SPEC 5.1)
             place(e)
+        # a PMI leader with both layout fields written is fixed too: put it in before the
+        # automatic dimensions (DESIGN §4.6.2: fixed elements are placed first, as obstacles)
+        fixed_pmi = [
+            (kind, fn, e)
+            for kind, fn in pmi
+            for e in self.els(kind)
+            if all(e._layout.get(f) is not None for f in e.LAYOUT) and not ref_pending(e)
+        ]
+        placed_pmi = set()
+        deferred = set()
+        clearance = self.std["dim"]["clearance"]
+        for item in fixed_pmi:
+            cands = item[1](self, item[2])
+            if any(not self.obst.conflicts(item[2]._id, c, clearance) for c in cands):
+                place_pmi(item)
+                placed_pmi.add(item[2]._id)
+            else:  # cannot be placed cleanly now: defer rather than block the automatic ones
+                deferred.add(item[2]._id)
         for e in sorted([x for x in linear if not fixed(x)], key=key):
             place(e)
+        # split the rest only after the dimensions are placed: a leader on a placed dimension
+        # can go first, one on an automatic circular dimension has to wait for it
+        # an unclean fixed PMI is placed with the early leaders (after the automatic dimensions,
+        # where it can still see them) instead of claiming a spot it cannot hold cleanly
+        early = [
+            (kind, fn, e)
+            for kind, fn in pmi
+            for e in self.els(kind)
+            if e._id not in placed_pmi and not ref_pending(e)
+        ]
+        late = [
+            (kind, fn, e)
+            for kind, fn in pmi
+            for e in self.els(kind)
+            if e._id not in placed_pmi and ref_pending(e)
+        ]
+        for item in early:
+            place_pmi(item)
         for e in [x for x in circular + others + notes if not fixed(x)]:
             place(e)
-        # PMI leaders after the dimensions they may attach to (datum → gtol → roughness)
         for e in self.els("feature"):
             if e._intent.get("type") == "center_hole":
                 self.choose(e, center_hole_cands(self, e), [])
-        for kind, fn in (("datum", datum_cands), ("gtol", gtol_cands), ("rough", rough_cands)):
-            for e in self.els(kind):
-                cands = fn(self, e)
-                if cands:
-                    auto = [f for f in ("at", "length") if e._layout.get(f) is None]
-                    self.choose(e, cands, auto)
+        for item in late:  # leaders whose target dimension was placed above
+            place_pmi(item)
 
     def section_labels(self):
         sec = self.std["section"]
