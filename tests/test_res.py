@@ -637,3 +637,126 @@ def test_grinding_groove_standard_rules():
         for o in res.grinding_groove(d)["options"]:
             assert o["r"] <= 3 * o["h"]  # note 2 under Table 1: r <= 3h
             assert o["b1"] <= o["b2"]
+
+# --------------------------------- GB/T 1182-2018 / 17851-2010 / 17852-2018 (card A4)
+
+ROW_IDS = [
+    "form.straightness",
+    "form.flatness",
+    "form.circularity",
+    "form.cylindricity",
+    "form.profile_line",
+    "form.profile_surface",
+    "orientation.parallelism",
+    "orientation.perpendicularity",
+    "orientation.angularity",
+    "orientation.profile_line",
+    "orientation.profile_surface",
+    "location.position",
+    "location.concentricity",
+    "location.coaxiality",
+    "location.symmetry",
+    "location.profile_line",
+    "location.profile_surface",
+    "run-out.circular_runout",
+    "run-out.total_runout",
+]
+
+
+def test_gtol_rows_are_the_19_rows_of_gbt_1182_table_1():
+    from linercad.pmi import CHARS
+
+    rows = res.gtol_rows()
+    assert [r["id"] for r in rows] == ROW_IDS
+    assert len(rows) == 19
+    cats = [r["category"] for r in rows]
+    assert (cats.count("form"), cats.count("orientation"), cats.count("location")) == (6, 5, 6)
+    assert cats.count("run-out") == 2
+    for row in rows:
+        assert row["char"] in CHARS, row["id"]
+        assert row["zh"] and isinstance(row["zh"], str)
+        assert row["clause"] and "17." in row["clause"], row["id"]
+        assert row["targets"] and row["zone_shapes"] and row["modifiers"], row["id"]
+        assert row["datum"] in ("no", "yes", "optional"), row["id"]
+
+
+def test_gtol_query_aggregates_the_rows_of_a_characteristic():
+    prof = res.gtol("profile_line")
+    assert prof["char"] == "profile_line" and prof["zh"] == "线轮廓度"
+    assert prof["categories"] == ["form", "orientation", "location"]
+    assert prof["datum"] == "optional" and len(prof["rows"]) == 3
+    assert "17.6" in prof["clauses"] and "17.7" in prof["clauses"]
+    assert prof["std"] == "GB/T 1182-2018" and prof["verified"] is False
+    assert len(prof["rows"][0]["zone_shapes"]) >= 1
+
+
+def test_gtol_datum_rules_match_the_existing_pmi_characters():
+    from linercad.pmi import CHARS
+
+    for char, rule in CHARS.items():
+        assert res.gtol(char)["datum"] == rule, char
+
+
+def test_gtol_zone_shapes_and_targets():
+    straightness = res.gtol("straightness")
+    assert straightness["targets"] == ["line"]
+    assert {"two_parallel_lines", "cylinder"} <= set(straightness["zone_shapes"])
+    total = res.gtol("total_runout")
+    assert total["targets"] == ["surface"]
+    assert {"two_coaxial_cylinders", "two_parallel_planes"} <= set(total["zone_shapes"])
+    concentric = res.gtol("concentricity")
+    assert set(concentric["targets"]) == {"derived_point", "derived_line"}
+    position = res.gtol("position")
+    assert set(position["targets"]) == {"point", "line", "surface"}
+    assert position["datum"] == "optional"
+    assert "two_envelope_surfaces" in res.gtol("profile_surface")["zone_shapes"]
+
+
+def test_gtol_modifiers_are_per_characteristic():
+    assert {"CZ", "SZ", "UF", "UZ", "ACS"} <= set(res.gtol("position")["modifiers"])
+    profile = set(res.gtol("profile_line")["modifiers"])
+    assert {"OZ", "VA", "><"} <= profile
+    runout = set(res.gtol("circular_runout")["modifiers"])
+    assert runout == {"CZ", "SZ", "UF"} and "UZ" not in runout
+    concentric = set(res.gtol("concentricity")["modifiers"])
+    assert "ACS" in concentric and "UZ" not in concentric
+
+
+def test_gtol_unknown_characteristic_gives_candidates():
+    with pytest.raises(InvalidArgument) as err:
+        res.gtol("runout")
+    assert "circular_runout" in err.value.candidates
+    assert res.gtol("concentricity")["rows"][0]["targets"] != res.gtol("position")["rows"][0]["targets"]
+
+
+def test_gtol_rows_are_copies():
+    rows = res.gtol_rows()
+    rows[0]["targets"].append("bogus")
+    rows[0]["category"] = "bogus"
+    again = res.gtol_rows()
+    assert "bogus" not in again[0]["targets"] and again[0]["category"] != "bogus"
+
+
+def test_datum_letters_are_checked_against_gbt_1182_and_17851():
+    gb = res.datum_excluded("GB")
+    assert gb["clause"] == "6.2"
+    assert "1182" in gb["source"] and "8.2.4" in gb["source"]
+    iso = res.datum_excluded("ISO")
+    assert iso["letters"] == gb["letters"] == ["I", "O", "Q", "X"]
+
+
+def test_gtol_clause_draft_is_in_the_evidence_folder():
+    from pathlib import Path
+
+    path = (
+        Path(__file__).resolve().parents[1]
+        / "docs"
+        / "milestones"
+        / "v0.1.1"
+        / "evidence"
+        / "gtol-clauses.md"
+    )
+    text = path.read_text(encoding="utf-8")
+    for std in ("GB/T 1182-2018", "GB/T 17851-2010", "GB/T 17852-2018"):
+        assert std in text
+
