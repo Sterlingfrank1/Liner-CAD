@@ -25,7 +25,7 @@
 | 8 | orientation.perpendicularity | 垂直度 | orientation | yes | 17.11 | line / surface | 两平行平面 / 圆柱面(φ) | CZ SZ UF UZ >< |
 | 9 | orientation.angularity | 倾斜度 | orientation | yes | 17.12 | line / surface | 两平行平面 / 圆柱面(φ) | CZ SZ UF UZ >< |
 | 10 | orientation.profile_line | 线轮廓度 | orientation | yes | 17.6/17.7 | line | 两等距包络线 | CZ SZ UF UZ OZ VA >< |
-| 11 | orientation.profile_surface | 面轮廓度 | orientation | yes | 17.6/17.8 | surface | 两等距包络面 | CZ SZ UF UZ OZ VA >< |
+| 11 | orientation.profile_surface | 面轮廓度 | orientation | yes | 17.8 | surface | 两等距包络面 | CZ SZ UF UZ OZ VA >< |
 | 12 | location.position | 位置度 | location | optional | 17.13 | point / line / surface | 两平行平面 / 圆柱面(φ) / 球面(Sφ) | CZ SZ UF UZ ACS |
 | 13 | location.concentricity | 同心度（中心点） | location | yes | 17.14.2 | derived_point | 圆(φ) | CZ SZ UF ACS |
 | 14 | location.coaxiality | 同轴度（中心线） | location | yes | 17.14.3 | derived_line | 圆柱面(φ) | CZ SZ UF ACS |
