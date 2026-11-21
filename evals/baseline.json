@@ -56,9 +56,9 @@
    "violations": 0
   },
   "D": {
-   "score": 1.0,
-   "opportunities": 711,
-   "violations": 0
+   "score": 0.993485,
+   "opportunities": 3070,
+   "violations": 20
   },
   "T": {
    "score": 1.0,

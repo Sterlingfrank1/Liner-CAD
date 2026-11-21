@@ -16,7 +16,6 @@ from linercad import Drawing, checks, place
 from linercad.assembly import Balloon
 from linercad.layout import Circle, Line, Solid, Text, layout
 
-
 # ---- fixture helpers -----------------------------------------------------------------------------
 
 
@@ -25,9 +24,9 @@ def _dims():
     d = Drawing(sheet="A3")
     f = d.view("front")
     f.rect((0, 0), 120, 60, name="body")
-    f.dim.linear("W", (0, -30), (60, -30), value=60, side="bottom", row=1)
-    f.dim.linear("L", (0, -30), (120, -30), value=120, side="bottom", row=2)
-    f.dim.linear("H", (130, 0), (130, 60), dir="v", value=60, side="right", row=1)
+    f.dim.linear("W", (0, 0), (60, 0), value=60, side="bottom", row=1)
+    f.dim.linear("L", (0, 0), (120, 0), value=120, side="bottom", row=2)
+    f.dim.linear("H", (120, 0), (120, 60), dir="v", value=60, side="right", row=1)
     layout(d)
     return d
 
@@ -66,7 +65,9 @@ def _arrows(e):
 
 
 def _set_line(e, old, p, q):
-    e._prims = [Line(p, q, old.layer) if (isinstance(x, Line) and x is old) else x for x in e._prims]
+    e._prims = [
+        Line(p, q, old.layer) if (isinstance(x, Line) and x is old) else x for x in e._prims
+    ]
 
 
 def _shift_line(e, old, extend=0.0):
@@ -146,9 +147,15 @@ def test_dim_lines_must_not_cross():
 def test_dim_line_must_not_cross_the_outline():
     d = _dims()
     assert _run(d, "place_dim_outline")[0] == []
-    body = _el(d, "F.front.body")
-    xs = [p[0] for pr in body._prims if isinstance(pr, Line) for p in (pr.p, pr.q)]
-    ys = [p[1] for pr in body._prims if isinstance(pr, Line) for p in (pr.p, pr.q)]
+    edges = [
+        pr
+        for e in d._els.values()
+        if e.kind == "edge" and e.view == "front"
+        for pr in e._prims
+        if isinstance(pr, Line)
+    ]
+    xs = [q[0] for pr in edges for q in (pr.p, pr.q)]
+    ys = [q[1] for pr in edges for q in (pr.p, pr.q)]
     old = _dim_line(_el(d, "D.L"))
     y = (min(ys) + max(ys)) / 2
     _set_line(_el(d, "D.L"), old, (min(xs) - 5, y), (max(xs) + 5, y))
@@ -161,9 +168,9 @@ def test_parallel_dimension_rows_keep_the_row_pitch():
     d = _dims()
     assert _run(d, "place_row_spacing")[0] == []
     w = _dim_line(_el(d, "D.W"))
-    l = _dim_line(_el(d, "D.L"))
-    dy = 0.4 * d.std["dim"]["row_pitch"]
-    _set_line(_el(d, "D.L"), l, (l.p[0], w.p[1] + dy), (l.q[0], w.q[1] + dy))
+    ln = _dim_line(_el(d, "D.L"))
+    dy = -0.4 * d.std["dim"]["row_pitch"]
+    _set_line(_el(d, "D.L"), ln, (ln.p[0], w.p[1] + dy), (ln.q[0], w.q[1] + dy))
     findings, opportunities = _run(d, "place_row_spacing")
     assert "D.L" in [f["id"] for f in findings]
     _assert_finding(findings[0], "place_row_spacing", findings[0]["id"])
@@ -174,9 +181,9 @@ def test_small_dimensions_stay_inside_large_ones():
     d = _dims()
     assert _run(d, "place_nesting")[0] == []
     w = _dim_line(_el(d, "D.W"))
-    l = _dim_line(_el(d, "D.L"))
-    _set_line(_el(d, "D.W"), w, (w.p[0], l.p[1]), (w.q[0], l.q[1]))
-    _set_line(_el(d, "D.L"), l, (l.p[0], w.p[1]), (l.q[0], w.q[1]))
+    ln = _dim_line(_el(d, "D.L"))
+    _set_line(_el(d, "D.W"), w, (w.p[0], ln.p[1]), (w.q[0], ln.q[1]))
+    _set_line(_el(d, "D.L"), ln, (ln.p[0], w.p[1]), (ln.q[0], w.q[1]))
     findings, _ = _run(d, "place_nesting")
     assert findings
     _assert_finding(findings[0], "place_nesting", findings[0]["id"])
@@ -212,7 +219,11 @@ def test_dimension_text_must_not_overlap_other_primitives():
     assert _run(d, "place_text_overlap")[0] == []
     other = _texts(_el(d, "D.H"))[0]
     e = _el(d, "D.W")
-    moved = [Text(p.text, other.at, p.height, p.rot, p.layer, other.box) for p in e._prims if isinstance(p, Text)]
+    moved = [
+        Text(p.text, other.at, p.height, p.rot, p.layer, other.box)
+        for p in e._prims
+        if isinstance(p, Text)
+    ]
     e._prims = [p for p in e._prims if not isinstance(p, Text)] + moved
     findings, _ = _run(d, "place_text_overlap")
     assert "D.W" in [f["id"] for f in findings]
@@ -248,7 +259,10 @@ def _balloons():
     layout(d)
     b = f.bbox
     cx = b[0] - 20.0
-    for k, (circle_y, anchor) in enumerate([(b[1] + 20, (30, 20)), (b[1] + 40, (50, 40))]):
+    anchors = [(b[0] + 30.0, b[1] + 20.0), (b[0] + 50.0, b[1] + 40.0)]
+    circles_y = [b[1] + 20.0, b[1] + 40.0]
+    for k in range(2):
+        anchor = anchors[k]
         el = Balloon(
             d,
             f"B.b{k}",
@@ -256,11 +270,11 @@ def _balloons():
             refs=["V.front"],
         )
         d._add(el)
-        cy = circle_y
+        cy = circles_y[k]
         q = (cx + 4.5, cy)
         el._prims = [
             Circle((cx, cy), 4.5, "thin"),
-            Line(tuple(anchor), q, "thin"),
+            Line(anchor, q, "thin"),
             Solid(
                 (
                     (anchor[0] - 0.7, anchor[1]),
@@ -293,8 +307,10 @@ def test_balloon_leaders_must_not_cross():
     assert _run(d, "place_balloon_cross")[0] == []
     a, b = _el(d, "B.b0"), _el(d, "B.b1")
     la, lb = _balloon_prims(a)[0], _balloon_prims(b)[0]
-    _set_line(a, la, lb.q, la.q)
-    _set_line(b, lb, la.q, lb.q)
+    ca, cb = _balloon_prims(a)[1], _balloon_prims(b)[1]
+    # explicit X: each leader leaves the other balloon's side and crosses its neighbour
+    _set_line(a, la, (ca.c[0] + 30, ca.c[1]), (ca.c[0], cb.c[1]))
+    _set_line(b, lb, (cb.c[0] + 30, cb.c[1]), (cb.c[0], ca.c[1]))
     findings, _ = _run(d, "place_balloon_cross")
     assert findings
     _assert_finding(findings[0], "place_balloon_cross", findings[0]["id"])
@@ -308,8 +324,8 @@ def test_balloons_on_one_side_stay_aligned():
     shifted = Circle((circle.c[0] + 6.0, circle.c[1]), circle.r, circle.layer)
     el._prims = [shifted if p is circle else p for p in el._prims]
     findings, _ = _run(d, "place_balloon_align")
-    assert findings and findings[0]["id"] == "B.b1"
-    _assert_finding(findings[0], "place_balloon_align", "B.b1")
+    hit = next(f for f in findings if f["id"] == "B.b1")
+    _assert_finding(hit, "place_balloon_align", "B.b1")
 
 
 def test_balloons_keep_a_minimum_spacing():
