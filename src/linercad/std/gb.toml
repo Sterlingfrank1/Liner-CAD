@@ -100,7 +100,7 @@ preferred = ["1:1", "1:2", "1:5", "1:10", "2:1", "5:1", "10:1"]
 allowed = ["1:1.5", "1:2.5", "1:3", "1:4", "1:6", "2.5:1", "4:1"]
 
 [title_block]
-basis = "GB/T 10609.1-2008（外形 180 × 56，位于图框右下角）；内部分格为 M0 简化版"
+basis = "GB/T 10609.1-2008（外形 180 × 56，位于图框右下角）；分区位置、更改区列宽、各区内的行分配和投影识别符号（GB/T 14692-2008）的比例按通行画法，未对照标准原文（未核实，见 docs/releases/v0.1.0-review.md）"
 size = [180.0, 56.0]
 
 [tech_notes]
@@ -154,7 +154,7 @@ missing = "GB/T 4458.4-2003"
 param_cover = "DESIGN §4.4"
 dev_order = "GB/T 1800.1-2020"
 gtol_syntax = "GB/T 1182-2018"
-datum_letter = "GB/T 1182-2018"
+datum_letter = "GB/T 17851-2010"
 general_tol = "GB/T 1804-2000"
 chain_limit = "GB/T 5847-2004"
 rough_syntax = "GB/T 131-2006 / GB/T 1031-2009"

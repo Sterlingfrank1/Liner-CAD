@@ -17,8 +17,10 @@ Liner-CAD 本身不是 Agent。推理、理解需求、写代码交给宿主 Cod
 git clone https://github.com/Sterlingfrank1/Liner-CAD && cd Liner-CAD
 uv sync                     # 需要 3D 来源 / 装配图：uv sync --extra 3d
 uv run lcad init /tmp/shaft --from shaft && uv run lcad -C /tmp/shaft render
-uv run lcad view /tmp/shaft # 本地 Viewer
+uv run lcad -C /tmp/shaft view   # 本地 Viewer
 uv run lcad skill install --target claude --dir <Agent 工作目录>   # 也可 codex / opencode / generic
 ```
+
+**Viewer 适用范围：** `lcad view` 面向本机单用户。它只监听 127.0.0.1，写回等接口靠每次启动随机的令牌和 Host / Origin 校验，防的是浏览器里的其他网页；令牌随首页下发，所以不防同一台机器上的其他用户或进程。共享主机上不要开，也不要把端口暴露给他人。
 
 之后由你的 Coding Agent 按装好的 Skill 用 `lcad context` / `lcad edit` 改图；每轮修改是一个以用户原话为标题的 commit。

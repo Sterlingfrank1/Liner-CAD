@@ -53,7 +53,7 @@ def apply(d):
 | 画装配图（组件、标准件、序号、明细栏） | `lcad skill assembly` |
 | 读懂 `error.code`、检查规则包（drafting / dimensioning / tolerancing / surface / layout） | `lcad skill checks` |
 | 别人的 DXF：`lcad inspect x.dxf` 看内容；`lcad init <目录> --from-dxf x.dxf` 导入后照常编辑 | — |
-| 发布：`lcad export --to <目录> --formats dxf,pdf`（打 tag `rev-A`…） | — |
+| 用户要求发布 / 出版时才用：`lcad export --to <目录> --formats dxf,pdf`（打 tag `rev-A`…） | — |
 
 ## 4. 零件族
 

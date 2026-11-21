@@ -356,8 +356,14 @@ def datum_letter(d):
         bad = set(fn(d.std_name if d.std_name in ("GB", "ISO") else "GB")["letters"])
     except Exception:  # noqa: BLE001 - the profile may not list one
         return []
+    # the standard only recommends against these letters (GB/T 17851-2010 6.2 note 2), so warn
     return [
-        _f("datum_letter", e.id, f"基准字母 {e._intent['letter']} 不宜使用", "error")
+        _f(
+            "datum_letter",
+            e.id,
+            f"基准字母 {e._intent['letter']}：标准建议不用 {'、'.join(sorted(bad))}",
+            "warn",
+        )
         for e in _els(d, "datum")
         if e._intent["letter"] in bad
     ]
