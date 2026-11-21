@@ -37,7 +37,7 @@ front = d.view("front")      # 基本视图：front top bottom left right rear�
 | `v.thread(name, "M20x1.5", x0, x1, axis=0, kind="ext"/"int", cls=None)` | 轴向视图螺纹：外螺纹大径粗、小径细、终止线粗；内螺纹（`bore` 先画到小径）补大径细线和终止线 |
 | `v.thread_end(name, c, "M20", kind=)` | 端视图：粗圆 + 约 3/4 细圆弧 |
 | `v.tapped_hole(name, at, "+x", "M8", depth, drill_depth=None)` | 非回转体上的螺孔（120° 钻尖） |
-| `v.center_hole(name, on="F.front.body", end="left", type="A", d=2.5, keep=True, length=None)` | 中心孔代号 `GB/T 4459.5-A2.5/5.3`。`type` 可为 A / B / R / C：A / B / R 给导向孔直径 `d`（R 型再按 GB/T 145 补 `d2`、`l_min`、`r_max`、`r_min`），C 型 `d` 写螺纹（`6` 或 `"M6"`）并必须给 `length=` 螺纹长度，代号如 `CM6L10/10.5` |
+| `v.center_hole(name, on="F.front.body", end="left", type="A", d=2.5, keep=True, length=None)` | 中心孔代号 `GB/T 4459.5-A2.5/5.3`。`type` 可为 A / B / R / C：A / B / R 给导向孔直径 `d`（R 型的结果另给 `d2`、`l_min`、`r_max`、`r_min`），C 型 `d` 写螺纹（`6` 或 `"M6"`）并必须给 `length=` 螺纹长度，代号如 `CM6L10/10.5` |
 | `v.keyway(name, x0, length, d)` | 轴上键槽（朝观察者，长圆形）；宽深查 GB/T 1095 |
 | `sec.shaft_cut(name, d, keyway="F.front.kw")` | 在移出断面里画轴截面 + 键槽 + 剖面线 |
 | `v.keyway_end(name, c, d, kind="hub")` | 端视图里的轮毂键槽 |

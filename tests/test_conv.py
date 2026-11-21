@@ -5,7 +5,7 @@ import math
 
 import pytest
 
-from linercad import Drawing, errors
+from linercad import Drawing, Param, errors
 from linercad.layout import Text, layout
 
 
@@ -125,6 +125,13 @@ def test_center_hole_type_r_designation(shaft):
     d, f = shaft
     c = f.center_hole("chr", on="F.front.body", end="left", type="R", d=3.15)
     assert c.intent["designation"] == "R3.15/6.7" and c.intent["D"] == 6.7
+    # the resource library sizes are part of the feature's semantics
+    assert (c.intent["d2"], c.intent["l_min"], c.intent["r_max"], c.intent["r_min"]) == (
+        6.7,
+        7.0,
+        10.0,
+        8.0,
+    )
     layout(d)
     assert any("4459.5" in t and "R3.15/6.7" in t for t in texts(c))
     assert c.intent["mask"]  # the drawn profile is simplified away: no real cone / arc edges
@@ -134,6 +141,7 @@ def test_center_hole_type_c_designation(shaft):
     d, f = shaft
     c = f.center_hole("chc", on="F.front.body", end="right", type="C", d=6, length=10)
     assert c.intent["designation"] == "CM6L10/10.5" and c.intent["D"] == 10.5
+    assert (c.intent["thread"], c.intent["D3"], c.intent["length"]) == ("M6", 10.5, 10.0)
     layout(d)
     assert any("4459.5" in t and "CM6L10/10.5" in t for t in texts(c))
 
@@ -143,6 +151,17 @@ def test_center_hole_type_c_requires_thread_length(shaft):
     with pytest.raises(errors.InvalidArgument) as err:
         f.center_hole("chc", on="F.front.body", end="right", type="C", d=6)
     assert "length" in (err.value.hint or "") and "C" in err.value.message
+
+
+def test_center_hole_type_c_length_accepts_a_parameter_expression():
+    d = Drawing(sheet="A3")
+    P = d.params(L=Param(30, min=10, max=80, step=1, label="螺纹长"))
+    f = d.view("front")
+    f.turned("body", [(0, 10), (40, 10)])
+    c = f.center_hole("chc", on="F.front.body", end="left", type="C", d=6, length=P.L)
+    assert c.intent["length"] == 30.0 and c.intent["designation"] == "CM6L30/10.5"
+    with pytest.raises(errors.InvalidArgument):
+        f.center_hole("bad", on="F.front.body", end="left", type="C", d=6, length=float("nan"))
 
 
 def test_groove_dimension(shaft):

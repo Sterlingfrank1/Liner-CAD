@@ -410,6 +410,7 @@ def test_center_hole_type_r_matches_sources(i):
     assert c["d2"] == res.center_hole("A", d)["D"] == res.center_hole("B", d)["D1"]
     assert c["l_min"] == res.center_hole("B", d)["l_min"]
     assert c["std"] == "GB/T 145-2001"
+    assert c["verified"] is False  # single GB/T 145 lineage, ISO 2541 not read
 
 
 def test_center_hole_type_r_designation():
@@ -436,6 +437,7 @@ def test_center_hole_type_c_matches_sources(i):
         assert c[key] == src[key][i], key
     assert c["D"] == c["D3"] and not c["avoid"]
     assert c["std"] == "GB/T 145-2001"
+    assert c["verified"] is False  # single GB/T 145 lineage, DIN 332-2 not read
 
 
 def test_center_hole_type_c_designation():

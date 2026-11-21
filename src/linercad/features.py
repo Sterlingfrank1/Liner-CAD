@@ -195,6 +195,8 @@ def center_hole(view, name, on, end="left", type="A", d=2.5, keep=True, length=N
             values={"type": type, "d": d},
             hint="给 length=10（mm）",
         )
+    if length is not None:
+        length = num(length, "length")  # a parameter expression is resolved; NaN / inf rejected
     ch = res.center_hole(type, d, length=length)
     prof, ax = body._intent["profile"], body._intent["axis"]
     x = prof[0][0] if end == "left" else prof[-1][0]
@@ -218,8 +220,14 @@ def center_hole(view, name, on, end="left", type="A", d=2.5, keep=True, length=N
         "mark_std": "GB/T 4459.5",
         "mask": [list(p) for p in mask],
     }
+    # the sizes the resource library returned are part of the feature's semantics, not just the text
+    for key in ("D1", "D2", "D3", "l2", "l_min", "d2", "r_max", "r_min", "l", "t"):
+        if key in ch:
+            intent[key] = ch[key]
+    if "thread" in ch:
+        intent["thread"] = ch["thread"]
     if length is not None:
-        intent["length"] = float(length)
+        intent["length"] = length
     f = view._feature(check_name(name), {"type": "center_hole", **intent})
     f._refs.append(body.id)
     return f

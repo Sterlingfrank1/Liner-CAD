@@ -345,8 +345,8 @@ def _thread_marking(d) -> str:
 def center_hole(type: str = "A", d=2.5, length: float | None = None) -> dict:
     """Centre hole of ``type`` ("A", "B", "R" or "C", GB/T 145-2001) with pilot diameter ``d`` mm.
 
-    Every type returns ``{"type", "d", "D", "t", "avoid", "designation", "std"}``; ``D`` is the
-    diameter in the designation as in GB/T 4459.5:
+    Every type returns ``{"type", "d", "D", "avoid", "designation", "std", "verified"}`` (types
+    A, B and C also ``t``); ``D`` is the diameter in the designation as in GB/T 4459.5:
 
     - A: ``D`` = cone diameter, designation "A2.5/5.3";
     - B: adds ``D1`` (cone), ``D2`` (protecting chamfer, = ``D``), ``l2`` and ``l_min`` (minimum
@@ -400,6 +400,7 @@ def center_hole(type: str = "A", d=2.5, length: float | None = None) -> dict:
             f"L{length:g}/{out['D']:g}" if length is not None else ""
         )
         out["std"] = data["meta"]["std"]
+        out["verified"] = data["meta"]["verified"]
         return out
     if length is not None:
         raise InvalidArgument("length（螺纹长度）只用于 C 型中心孔", values={"length": length})
@@ -424,6 +425,7 @@ def center_hole(type: str = "A", d=2.5, length: float | None = None) -> dict:
                 out["D"] = out["d2"]
             out["designation"] = f"{type}{dv:g}/{out['D']:g}"
             out["std"] = data["meta"]["std"]
+            out["verified"] = data["meta"]["verified"]
             return out
     raise InvalidArgument(
         f"{type} 型中心孔没有 d = {d}", candidates=[f"{v:g}" for v in row["d"]], values={"d": d}
