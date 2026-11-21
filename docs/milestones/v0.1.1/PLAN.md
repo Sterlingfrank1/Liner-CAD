@@ -45,7 +45,7 @@
 | 待评审·第三方 DXF | 用户样例已到位（4 DXF + 3 PDF） | C1–C4；磨头 PDF 用于 V1 | v0.1.1 |
 | 用户 2026-11-10 | 评测指标方案 §8 六步 | E1、E2、E3、E4、E5、E6 | v0.1.1 |
 | 用户 2026-11-13 试用 | 首次出图自动打开 Viewer（后台常驻、空闲自退） | H3（#106） | v0.1.1 |
-| 用户 2026-11-13 试用 | Viewer 选择同步到对话（复制引用 + Claude Code 钩子） | H4（#107） | v0.1.1 |
+| 用户 2026-11-13 试用 | Viewer 选择同步到对话（点选复制引用 + 自然语言指代；B2 钩子 2026-11-21 转 v0.2） | H4（#107） | v0.1.1 |
 | 用户 2026-11-13 试用 | 迭代提速：`lcad template save` 沉淀参数化模板 | H2（#105） | v0.1.1 |
 | 用户 2026-11-13 试用 | 迭代提速：`lcad edit --dry-run` 试改不提交 | H1（#104） | v0.1.1 |
 | 用户 2026-11-13 试用 | 迭代速度并入评测指标（P 过程，两种口径） | E7（#108） | v0.1.1 |
@@ -106,7 +106,7 @@ W4 验收       : V1（全部卡片合并后）
 | B6 | #99 | W3 | P2 | Viewer：版本列表在轮询刷新时保持展开 | — | viewer/ |  | 复现与修复截图进证据；回归用例；pytest、ruff、CI 绿；PR 已合并。 |
 | B7 | #100 | W3 | P2 | 版本对比：整视图移动时 layout_changed 归并为一条 | — | versions.py、viewer/ |  | 整视图平移的用例里 `lcad diff` 与 Viewer 对比只报一条视图平移、layout_changed 只含真正额外移动的元素（测试断言）；截图进证据；pytest、ruff、CI 绿；PR 已合并。 |
 | H3 | #106 | W3 | P1 | 首次出图自动打开 Viewer（后台常驻、空闲自退、--no-view / CI 默认关） | — | viewer/、commands.py、.linercad/ 状态（git 不跟踪） |  | 图纸目录第一次 build / edit 成功后自动起后台 Viewer 并开一次浏览器（JSON 带 viewer: {url, opened}，打不开时输出可用地址）；已在运行只刷新不开新标签；空闲超时自退、无遗留进程；CI 与 --no-view 默认关；Claude Code 与 dsh 各出一张图现场验收；pytest、ruff、CI 绿；PR 已合并。 |
-| H4 | #107 | W3 | P1 | Viewer 选择同步到对话：复制引用（所有 Agent）+ Claude Code 提示钩子 | B2（复制引用合并做） | viewer/、skill/（install 幂等合并 .claude/settings.json） | 是 | 多选 3 元素复制引用粘进 dsh 一轮改对；Claude Code 不复制、直接打字也能改对（钩子带当前 selection，过期 / 无选择不带）；settings.json 合并幂等、不覆盖用户已有设置；钩子走只读轻量入口；现场截图进证据；一轮独立评审已处理；pytest、ruff、CI 绿；PR 已合并。 |
+| H4 | #107 | W3 | P1 | Viewer 选择同步到对话：点选复制引用 + 自然语言指代（所有 Agent；B2 钩子转 v0.2） | B2（复制引用合并做） | viewer/、skill/（指代读取走 `lcad context @sel` / selection.json） | 是 | 两条路径都要过：① 多选 3 元素 → 复制引用粘进 dsh 一轮改对；② 不复制、直接打字“把选中的直径改成 k6” → Agent 先读当前选择再改对；无选择 / 选择过期时 Agent 如实报告、不猜测；skill 写明指代规则；现场截图进证据；一轮独立评审已处理；pytest、ruff、CI 绿；PR 已合并。 |
 | H2 | #105 | W3 | P2 | `lcad template save/list`：用户沉淀参数化模板，`init --from` 一步出图 | — | commands.py、模板清单与存放、skill/pages/api.md |  | `save`（前提 check 0 error）后 `lcad init <目录> --from <名> --set …` 一步出图；清单含名称 / 描述 / 参数范围；`template list` 与 skill 列出用户模板并写“匹配即从模板起步”规则；修订层存在时提示；牛鼻刀基线（首次 vs 换规格）出数进证据；pytest、ruff、CI 绿；PR 已合并。 |
 | H1 | #104 | W3 | P2 | `lcad edit --dry-run`：试改不提交 | D2（默认） | txn.py；cli.py、commands.py 只加开关 | 是 | 临时目录图纸仓库里 `lcad edit --dry-run` 后 HEAD、git status、动作日志、源文件均不变（测试断言）；输出含变化元素、finding、预览路径；随后同一脚本真实 edit 的结果与 dry-run 报告一致；失败路径与 edit 同结构；一轮独立评审已处理；pytest、ruff、CI 绿；PR 已合并。 |
 | F1 | #101 | W3 | P3 | 文档：跨 Agent 措辞收紧；Skill 与 README 同步 v0.1.1 变更 | E1、C4、D3、H1 | README、skill/、docs/ |  | README 与 Skill 中跨 Agent 表述与 #70 证据及 v0.1.1 复测（dsh + Codex）一致；Skill 覆盖本版新接口（逐项列在 PR 里）；`lcad skill install` 后的文件与源一致的测试通过；CI 绿；PR 已合并。 |
@@ -163,3 +163,4 @@ W4 验收       : V1（全部卡片合并后）
 6. **supervisor effort high → xhigh**：用户 2026-11-14 直接调整（BRIEF.md 步骤 0 已同步接受两档；开发会话仍一律 Sonnet 5.5 xhigh）。
 7. **跨 Agent 验证改用 dsh + Codex**（2026-11-21 用户指示）：v0.1.1 涉及跨 Agent 效果的地方（E7 的场景、F1 的措辞依据、V1 的独立 Agent 验收）以 DeepSeek Harness 与 Codex 为准；豆包工作不再使用。
 8. **A1、A3 随 PR #69 核对关闭**（2026-11-21）：GB/T 6403.5-2008 表 1 与原文逐格对上，`res/grinding_grooves.toml` 改 `verified = true`，逐格表作测试 fixture；B 型中心孔的 D1 / l2 对 ISO 2540:2016 表 1 与几何复核，D2 / l_min 仍单一谱系，保持 `verified = false` 并把待用户项写进 [meta]。
+9. **B2（Claude Code 提示钩子）转 v0.2，B1 细化**（2026-11-21 用户决定）：开发主平台已切至 DeepSeek Harness，钩子只对 Claude Code 宿主有意义，回到该宿主时再启用；H4（#107）收敛为两条路径——点选 / 多选后复制引用一行粘贴进任何 Agent；自然语言指代（用户直接说“修改什么…”，Agent 经 `lcad context @sel` / `selection.json` 知道针对与相关的修改对象，选择过期时如实报告、不猜测）。详见 `v0.1.0-review.md` 同名一节。
