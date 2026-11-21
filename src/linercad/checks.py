@@ -1,4 +1,12 @@
-"""M0 minimal checks (SPEC §10): overlap, out_of_frame, view_align, stale_op."""
+"""Checks v1 layout pack and the check runner (SPEC M1 §7): overlap, out_of_frame, view_align,
+stale_op; the other rule packs live in ``rules.py``.
+
+``run`` returns the findings of one build as a :class:`Findings` list. The list also carries
+``opportunities`` — for every rule, how many objects it examined — so a rule's pass rate is
+``1 - violations / opportunities`` (docs/proposals/benchmark-metrics.md §2). Every finding carries
+``clause / measured / expected / candidates`` next to the old
+``{rule, pack, severity, id, message, violations, corridors, std}`` fields.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +15,7 @@ from .layout import Hatch, Text, box_overlap, prim_segments, seg_in_box, union
 STD_OVERLAP = "GB/T 4458.4-2003"
 STD_FRAME = "GB/T 14689-2008"
 STD_ALIGN = "GB/T 4458.1-2002"
+STD_STALE = "DESIGN §3.2"
 
 # local axes of each basic view in model axes (SPEC §3.1): (sign, axis) for u and v
 VIEW_AXES = {
@@ -38,6 +47,42 @@ _v1_rules()
 AXIS_NAME = {"X": "长对正", "Z": "高平齐", "Y": "宽相等"}
 MAX_CORRIDOR = 50.0
 OWN_ZONE = ("frame", "table.cell")
+
+# score family of every rule: G / D / T / A feed the vector, P is listed apart (process metrics)
+PACK_FAMILY = {
+    "drafting": "G",
+    "dimensioning": "D",
+    "tolerancing": "T",
+    "surface": "T",
+    "layout": "G",
+}
+FAMILY_OVERRIDES = {"stale_op": "P"}
+
+#: Clause statements of the layout rules (the rule packs carry theirs in rules.CLAUSES).
+LAYOUT_CLAUSES = {
+    "overlap": "尺寸线、尺寸数字不得与其他图线或文字相交",
+    "out_of_frame": "图样应布置在图纸幅面内，并避开标题栏和技术要求区域",
+    "view_align": "基本视图之间应保持长对正、高平齐、宽相等",
+    "stale_op": "动作日志里的操作应能在当前图纸上重放",
+}
+
+#: the families of the score vector, in report order
+FAMILIES = ("G", "D", "T", "A")
+
+
+def family(rule):
+    """Score family of a rule: G / D / T / A (the vector) or P (process, listed separately)."""
+    if rule in FAMILY_OVERRIDES:
+        return FAMILY_OVERRIDES[rule]
+    return PACK_FAMILY.get(RULES.get(rule, "layout"), "G")
+
+
+class Findings(list):
+    """The findings of one build plus ``opportunities``: {rule: number of objects checked}."""
+
+    def __init__(self, items=(), opportunities=None):
+        super().__init__(items)
+        self.opportunities = dict(opportunities or {})
 
 
 def _shapes(e):
@@ -73,10 +118,12 @@ def _overlaps(d):
     els = [e for e in d._els.values() if e._prims]
     shapes = {e._id: _shapes(e) for e in els}
     findings = []
+    n = 0
     for e in els:
         segs, boxes = shapes[e._id]
         if not boxes:
             continue
+        n += 1
         viol = {}
         for o in els:
             if o is e:
@@ -111,9 +158,15 @@ def _overlaps(d):
                     ],
                     "corridors": _corridors(boxes[0], obstacles),
                     "std": STD_OVERLAP,
+                    "measured": {
+                        "overlap": round(max(viol.values()), 3),
+                        "with": sorted(viol),
+                    },
+                    "expected": {"overlap": 0.0},
+                    "candidates": [],
                 }
             )
-    return findings
+    return findings, n
 
 
 def _out_of_frame(d):
@@ -124,10 +177,12 @@ def _out_of_frame(d):
     tech = [e for e in d._els.values() if e.kind == "note" and e._intent.get("tech")]
     TN = union([e._resolved.get("bbox") for e in tech])
     findings = []
+    n = 0
     for e in d._els.values():
         b = e._resolved.get("bbox")
         if not b or e.kind in OWN_ZONE or e.kind in ("view", "feature", "raw") or e in tech:
             continue
+        n += 1
         viol = []
         outside = max(F[0] - b[0], F[1] - b[1], b[2] - F[2], b[3] - F[3])
         if outside > 0.01:
@@ -145,9 +200,15 @@ def _out_of_frame(d):
                     "violations": viol,
                     "corridors": {},
                     "std": STD_FRAME,
+                    "measured": {
+                        "outside": round(outside, 3),
+                        "zones": {v["with"]: v["overlap"] for v in viol},
+                    },
+                    "expected": {"outside": 0.0, "zones": 0.0},
+                    "candidates": [],
                 }
             )
-    return findings
+    return findings, n
 
 
 def _view_align(d):
@@ -176,6 +237,7 @@ def _view_align(d):
         vs = [p[1] * sv for p in pts]
         ranges[v.name] = {au: (min(us), max(us)), av: (min(vs), max(vs))}
     findings = []
+    n = 0
     order = [n for n in ("front", "top", "left", "bottom", "right", "rear") if n in ranges]
     for axis in ("X", "Z", "Y"):
         holders = [n for n in order if axis in ranges[n]]
@@ -183,22 +245,32 @@ def _view_align(d):
             continue
         ref = holders[0]
         r0 = ranges[ref][axis]
-        for n in holders[1:]:
-            r = ranges[n][axis]
+        for name in holders[1:]:
+            n += 1
+            r = ranges[name][axis]
             diff = max(abs(r[0] - r0[0]), abs(r[1] - r0[1]))
             if diff > 0.01:
                 findings.append(
                     {
                         "rule": "view_align",
                         "severity": "warn",
-                        "id": f"V.{n}",
-                        "message": f"V.{n} 的 {axis} 范围 [{r[0]:g}, {r[1]:g}] 与 V.{ref} 的 [{r0[0]:g}, {r0[1]:g}] 不一致（{AXIS_NAME[axis]}）",
+                        "id": f"V.{name}",
+                        "message": f"V.{name} 的 {axis} 范围 [{r[0]:g}, {r[1]:g}] 与 V.{ref} 的 [{r0[0]:g}, {r0[1]:g}] 不一致（{AXIS_NAME[axis]}）",
                         "violations": [{"with": f"V.{ref}", "overlap": round(diff, 3)}],
                         "corridors": {},
                         "std": STD_ALIGN,
+                        "measured": {
+                            "axis": axis,
+                            "range": [r[0], r[1]],
+                            "reference": f"V.{ref}",
+                            "reference_range": [r0[0], r0[1]],
+                            "difference": round(diff, 3),
+                        },
+                        "expected": {"difference": "<= 0.01 mm"},
+                        "candidates": [],
                     }
                 )
-    return findings
+    return findings, n
 
 
 def _stale(stale_ops):
@@ -212,29 +284,59 @@ def _stale(stale_ops):
                 "message": f"日志 {s['edit']} 第 {s['line']} 行的 {s['op']} 失效：{s['reason']}",
                 "violations": [],
                 "corridors": {},
-                "std": "DESIGN §3.2",
+                "std": STD_STALE,
                 "edit": s["edit"],
                 "line": s["line"],
                 "op": s["op"],
+                "measured": {
+                    "edit": s["edit"],
+                    "line": s["line"],
+                    "op": s["op"],
+                    "id": s.get("id"),
+                },
+                "expected": {"op": "仍能应用"},
                 "candidates": s.get("candidates", []),
             }
         )
     return out
 
 
-def run(d, stale_ops=()):
-    """All M0 checks; sets element status; returns findings not accepted."""
-    from .rules import PACKS
+def run(d, stale_ops=(), log_ops=()):
+    """All findings of one build; sets element status. The list carries ``opportunities``.
 
-    raw = _overlaps(d) + _out_of_frame(d) + _view_align(d) + _stale(stale_ops)
+    ``log_ops`` is the action log that was replayed; stale_op counts the log's operations, so a
+    drawing with no revision layer has no stale_op opportunities either.
+    """
+    from .rules import CLAUSES, PACKS
+
+    raw = []
+    opps = {}
+    clauses = {**LAYOUT_CLAUSES, **CLAUSES}
+    for name, fn in (
+        ("overlap", _overlaps),
+        ("out_of_frame", _out_of_frame),
+        ("view_align", _view_align),
+    ):
+        got, n = fn(d)
+        raw += got
+        opps[name] = n
+    raw += _stale(stale_ops)
+    opps["stale_op"] = max(len(log_ops), len(stale_ops))
     for fns in PACKS.values():
         for fn in fns:
-            raw += fn(d)
+            got, n = fn(d)
+            raw += got
+            opps[fn.__name__] = n
     stds = d.std.get("checks", {})
     for f in raw:
         f["pack"] = RULES.get(f["rule"], "layout")
         f.setdefault("severity", "warn")
         f["std"] = stds.get(f["rule"]) or f.get("std") or "DESIGN §4.5"
+        statement = clauses.get(f["rule"])
+        f["clause"] = f.get("clause") or (f"{f['std']}：{statement}" if statement else f["std"])
+        f.setdefault("measured", {})
+        f.setdefault("expected", {})
+        f.setdefault("candidates", [])
     accepted = getattr(d, "_accepted", {})
     findings = []
     for e in d._els.values():
@@ -249,4 +351,4 @@ def run(d, stale_ops=()):
         findings.append(f)
         if el is not None and not el._status.startswith("accepted") and el._status != "error":
             el._status = f["severity"]
-    return findings
+    return Findings(findings, opps)
