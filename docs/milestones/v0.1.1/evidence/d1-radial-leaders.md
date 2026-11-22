@@ -11,26 +11,25 @@
 3. **避不开的冲突**：照画，并把 `crossings` / `violations`（with + kind：overlap / cross / coincide / outline）/ `corridors`（文字框四向余量）写进 `placement.resolved`，reason 追加「不可避免的交叉：…」（DESIGN §4.6.3 的过渡形态；warn finding 由 E2 的规则卡承接，见 PR）。
 4. **放置顺序**：写死 `at` + `length` 的 PMI（基准/形位公差/粗糙度）按 §4.6.2 进固定首批；若其候选在当前障碍下没有一个能无冲突落位，则退回「自动线性尺寸之后、圆形引线之前」的早批（不硬占位），挂在尚未放置的自动圆形尺寸上的 PMI 仍后置。确定性、固定元素不动都有回归用例。
 
-## 数字（本地；40 个评测用例 + 5 个范例，共 45 个用例、60 个圆形尺寸、其中 23 个自动）
+## E5 数字（合并 E5 #119 后在本分支运行）
 
-| 项 | 前 | 后 |
+命令：`uv run python evals/place_scores.py --eval40`（五范例）与 `uv run python evals/run.py --baseline evals/baseline.json`（40 例门禁）。
+
+| 项 | E5 合并时（before） | D1 后（本分支 after） |
 |---|---|---|
-| 自动圆形引线与其它尺寸线的交叉 | 1 | **0** |
-| 自动圆形引线与非同心的轮廓线交叉 | 8 | **3**（穷举 24 方向 × 6 长度后仍不可避免，见下表，已写 resolved） |
-| 自动圆形引线与其它图线共线重合 | 0 | **0** |
-| 有交叉的自动圆形引线（个） | 9 | **3**（= 上表不可避免的 3 个） |
-| 40 个评测用例：error / warning | 0 / 0 | **0 / 0** |
-| 40 个评测用例：几何对照 / 完整性对照 | 1.0 / 1.0 | **1.0 / 1.0**（`evals/run.py` 40/40 passed） |
-| 写死 `at` 的放射状尺寸被改动 | — | **0** |
+| flange D.place | 1.0（0/43） | **1.0（0/43）** |
+| pulley D.place | 0.9512（4/82） | **0.9512（4/82）** |
+| gear_cover D.place | 0.9753（2/81） | **0.9753（2/81）** |
+| jack D.place / A.place | 1.0（0/30）/ 1.0（0/23） | **1.0 / 1.0** |
+| vise D.place / A.place | 0.9167（2/24）/ 1.0（0/57） | **0.9167 / 1.0** |
+| 40 例 D 族分数 | 0.972252（77/2775） | **0.972252（77/2775）** |
+| 40 例 A 族 / G / T | null / 1.0 / 1.0 | **null / 1.0 / 1.0** |
+| 40 例 geometry / completeness | 1.0（35 例）/ 1.0（5 例） | **1.0 / 1.0** |
+| `run.py --baseline` 回归项 | — | **`regressions: []`**（exit 0） |
 
-自动角度变化（其余逐元素不变；范例 flange / end_cover / pulley / gear_cover / bearing_support 的圆形引线角度全部未变）：
+**为什么 E5 数字不变（不是退化）**：E5 的 `place_dim_cross` / `place_dim_outline` / `place_nesting` / `place_row_spacing` 按设计只判 **frame 型（线性 / 对齐）尺寸**；`_leader_dim()` 明确把圆形直径 / 半径这类引线型尺寸排除，引线型尺寸的尺寸界线由 `place_ext_line` 治理（不判与其他尺寸线的交叉）。D1 改的正是引线型圆尺寸，所以五范例与 40 例 D 族数字与 E5 合并时一致；本卡收益体现在本机计数与渲染上（见下），D2 修线性 / 多层尺寸时会直接反映到 E5 的交叉、间距、嵌套子项。
 
-- `L1/drill_blind_4x10`：`D.dh` 60°→255°（`D.pcd` 315°→225°）
-- `L1/drill_blind_6x8`：`D.dh` 45°→255°（`D.pcd` 315°→225°）
-- `L1/section_aligned_3x12`：`D.dh` 60°→255°
-- `L2/box/bearing_seat`：`D.dh` 315°→300°
-- `L2/box/gearbox_base`：`D.dh` 45°→315°
-- `L2/disc/gear_blank`：`D.pcd` 45°→195°（不再穿过键槽深度尺寸 `D.kd`，也不再与水平中心线共线）
+补充（本机计数，同一 45 用例；口径见各节）：自动圆形引线与其它尺寸线交叉 1→0、与非同心轮廓线交叉 8→3（3 个穷举 24 方向 × 6 长度后不可避免，见下表）、共线重合 0→0；有交叉的自动圆形引线 9→3；写死 `at` 0 改动。自动角度变化 8 处（L1/drill_blind_4x10 D.dh/D.pcd、drill_blind_6x8 D.dh/D.pcd、section_aligned_3x12 D.dh、L2/box/bearing_seat D.dh、gearbox_base D.dh、L2/disc/gear_blank D.pcd），明细见 PR 正文。
 
 ## 前后渲染图（L2/disc/gear_blank 左视图）
 
@@ -81,6 +80,9 @@
 - `test_fixed_pmi_is_placed_before_automatic_dimensions`：写死 at/length 的基准先于自动线性尺寸就位。
 - `test_radial_layout_is_deterministic`：同输入两次布局图元与 resolved 完全一致。
 
-## E5 接入（待办）
+## E5 接入结果
 
-E5（#74，D.place / A.place 指标）尚未合并，本文件数字由本地计数脚本给出（口径：其它尺寸线交叉、非同心轮廓交叉、共线重合；公共圆心汇聚与同心圆固有交叉不计）。E5 合并后 rebase 并直接运行 E5，把本表换成 E5 的 D.place 数字；合并门禁以 E5 为准。
+已在 `git merge origin/main`（E5 #119，main 242d480）后运行：五范例 `place_scores.py --eval40`、40 例 `evals/run.py --baseline evals/baseline.json`（regressions: []）、以及 `tests/test_examples.py` 与 `tests/acceptance/test_rounds.py` 的冻结 PLACEMENT_DEBT 表。
+
+- 冻结表**未改动**：D1 的改动全在引线型圆尺寸（E5 的 frame 规则不判），五范例与 edit-round 范例的 placement debt 集合与 E5 冻结值逐项相同，两套测试原样通过；没有新增债务项，也没有可收缩项。D2 修线性 / 多层尺寸时将按机制在同一 PR 有意更新这两张表。
+- 本文件不再保留"待 E5"占位；合并门禁以 lead 终验（亲跑 `--baseline` + `place_scores`）为准。
