@@ -121,6 +121,8 @@ basis = "GB/T 4458.5-2003（公差注法：偏差数字比基本尺寸数字小�
 general_note = "未注尺寸公差按 GB/T 1804-{cls}。"
 gtol_std = "GB/T 1182-2018"
 tol_height = 2.5
+# D2: 引线长度补充档（convention）：GB/T 4458.4-2003 未给引线长度数值，standard 档取教材通行值，extra 为拥挤视图在档之间补充
+leader_lengths_extra = [12.0, 18.0, 24.0, 34.0, 40.0]
 frame_height = 7.0
 leader_lengths = [6.0, 10.0, 15.0, 20.0, 28.0]
 

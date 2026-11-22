@@ -19,9 +19,11 @@ from linercad.viewer import Viewer, make_handler, rewrite_param
 EXAMPLES = ["shaft", "flange", "pulley", "end_cover"]
 
 # B3 acceptance scenario: drag D until the preview build has a violation. Main's layout work (D1 moved
-# the flange radial leaders / section label) can move this value: keep it in one place, and assert the
-# semantics (a finding with the E1 fields on a drawn element) rather than one layout coordinate.
-PREVIEW_VIOLATION = {"D": 150}
+# the flange radial leaders / section label; D2 now clamps the automatic view group into the frame)
+# can move this value: keep it in one place, and assert the semantics (a finding with the E1 fields on
+# a drawn element) rather than one layout coordinate. D2: D=200 makes S.A's section label hit the
+# technical-notes / frame zone (overlap warning) even after the frame clamp.
+PREVIEW_VIOLATION = {"D": 200}
 PREVIEW_VIOLATION_ID = "S.A"
 
 

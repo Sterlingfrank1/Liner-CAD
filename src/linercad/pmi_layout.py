@@ -6,7 +6,19 @@ from __future__ import annotations
 
 import math
 
-from .layout import Arc, Circle, Line, Solid, arrow, make_text, prims_bbox, union
+from .layout import (
+    Arc,
+    Circle,
+    Line,
+    Solid,
+    arrow,
+    box_overlap,
+    make_text,
+    prim_segments,
+    prims_bbox,
+    seg_in_box,
+    union,
+)
 from .text import text_size
 
 
@@ -65,15 +77,22 @@ def label_parts(i, std):
     we = h * 1.3 if env else 0.0
     gap = 0.6
     W = w0 + (gap + wd if dev else 0) + (wt if tail else 0) + (gap + we if env else 0)
-    H = max(h0, 2 * th * 1.15 if dev else 0)
+    dev_dy = 0.0
+    if dev:
+        # the upper / lower deviation boxes must not overlap each other (E5 counts text
+        # overlapping any primitive, including the dimension's own deviation texts)
+        hu = text_size(dev[0], th, std)[1]
+        hl = text_size(dev[1], th, std)[1]
+        dev_dy = max(hu, hl) / 2 + 0.1
+    H = max(h0, 2 * dev_dy + (max(th * 1.25, th) if dev else 0))
     x = -W / 2
     prims = [make_text(main, (x + w0 / 2, 0.0), h, std)]
     x += w0
     if dev:
         x += gap
         up, lo = dev
-        prims.append(make_text(up, (x + text_size(up, th, std)[0] / 2, th * 0.6), th, std))
-        prims.append(make_text(lo, (x + text_size(lo, th, std)[0] / 2, -th * 0.6), th, std))
+        prims.append(make_text(up, (x + text_size(up, th, std)[0] / 2, dev_dy), th, std))
+        prims.append(make_text(lo, (x + text_size(lo, th, std)[0] / 2, -dev_dy), th, std))
         x += wd
     if tail:
         prims.append(make_text(tail, (x + wt / 2, 0.0), h, std))
@@ -124,6 +143,11 @@ def aligned_cands(vl, el):
     off = lay.get("offset") or 0.0
     rows = [lay["row"]] if lay.get("row") else range(1, int(dm["max_rows"]) + 1)
     ang = math.degrees(math.atan2(u[1], u[0]))
+    if ang < 0:
+        ang += 180.0
+    row_n = n  # E5 frame_rows normal n = (-u_y, u_x)
+    sv = SIDE_VEC[side]
+    row_sg = 1 if row_n[0] * sv[0] + row_n[1] * sv[1] >= 0 else -1
     w, hh = label_size(i, std)
     out = []
     for row in rows:
@@ -137,21 +161,55 @@ def aligned_cands(vl, el):
             segs.append((p, e))
         prims += [Line(A, B, "dim"), arrow(A, (-u[0], -u[1]), std), arrow(B, u, std)]
         segs.append((A, B))
-        tg = dm["text_gap"] + hh / 2
-        ctr = ((A[0] + B[0]) / 2 + N[0] * tg, (A[1] + B[1]) / 2 + N[1] * tg)
-        tp, box = dim_label(i, ctr, std, ang if N[0] * -u[1] + N[1] * u[0] >= 0 else ang)
-        prims += tp
-        out.append(
-            {
-                "prims": prims,
-                "boxes": [box],
-                "segs": segs,
-                "dimline": (A, B),
-                "fields": {"side": side, "row": row, "offset": off},
-                "ends": [A, B],
-                "why": "",
-            }
-        )
+        # offset the rotated text box off the line by its own half extent along N (so the
+        # diagonal dimension line does not clip the axis-aligned box of the rotated text)
+        rad = math.radians(ang)
+        tg = dm["text_gap"] + (abs(math.sin(rad)) * w + abs(math.cos(rad)) * hh) / 2 + 0.8
+        for text_side in (1, -1):  # the text may sit on either side of the aligned line
+            ctr = (
+                (A[0] + B[0]) / 2 + N[0] * tg * text_side,
+                (A[1] + B[1]) / 2 + N[1] * tg * text_side,
+            )
+            tp, box = dim_label(i, ctr, std, ang)
+            tboxes = [pr.box for pr in tp if hasattr(pr, "box")] or [box]
+            prims_t = prims + tp
+            own_segs = [
+                sg_ for pr in prims_t if not hasattr(pr, "box") for sg_ in prim_segments(pr)
+            ]
+            self_hit = sum(
+                1 for tb in tboxes for p_, q_ in own_segs if seg_in_box(p_, q_, tb) > 0.05
+            )
+            self_hit += sum(
+                1
+                for i_ in range(len(tboxes))
+                for j_ in range(i_ + 1, len(tboxes))
+                if box_overlap(tboxes[i_], tboxes[j_]) > 0.05
+            )
+            proj = [a[0] * u[0] + a[1] * u[1], b[0] * u[0] + b[1] * u[1]]
+            proj += [A[0] * u[0] + A[1] * u[1], B[0] * u[0] + B[1] * u[1]]
+            out.append(
+                {
+                    "prims": prims_t,
+                    "boxes": tboxes,
+                    "segs": segs,
+                    "dimline": (A, B),
+                    "fields": {"side": side, "row": row, "offset": off},
+                    "ends": [A, B],
+                    "row_info": {
+                        "axis": round(ang % 180.0, 1),
+                        "outward": row_sg,
+                        "level": A[0] * row_n[0] + A[1] * row_n[1],
+                        "lo": min(proj),
+                        "hi": max(proj),
+                        "span": max(proj) - min(proj),
+                    },
+                    "cross": [(A, B)],
+                    "overlap_cost": True,
+                    "contour": True,
+                    "self_hit": self_hit,
+                    "why": "文字换到尺寸线另一侧" if text_side < 0 else "",
+                }
+            )
     return out
 
 
@@ -223,7 +281,11 @@ def _anchor(vl, el, frac):
 def _lens(lay, std):
     if lay.get("length"):
         return [lay["length"]]
-    return list(std["tolerancing"]["leader_lengths"])
+    base = list(std["tolerancing"]["leader_lengths"])
+    # the standard档 gives coarse preferred lengths; the extra stops help a leader clear a
+    # dimension line / a text without jumping a whole step (D2: crowded circular views)
+    extra = list(std["tolerancing"].get("leader_lengths_extra") or [])
+    return sorted(set(base + extra))
 
 
 def _fracs(el):
@@ -255,6 +317,9 @@ def _cand(prims, fields, why="", body=None, cross=(), allow=()):
         "fields": fields,
         "cross": leaders,
         "allow_cross": list(allow),
+        # E5-aligned crossing scope: a leader may cross extension lines, not dimension lines
+        "cross_dimlines": True,
+        "pmi_cost": True,
         "why": why,
     }
 
@@ -418,21 +483,37 @@ def gtol_cands(vl, el):
         if an is None:
             return []
         A, n = an
+        written = _shift(el)
+        shifts = (
+            [written]
+            if written != (0.0, 0.0)
+            else [
+                (0.0, 0.0),
+                (0.0, 3.0),
+                (0.0, -3.0),
+                (3.0, 0.0),
+                (-3.0, 0.0),
+                (0.0, 6.0),
+                (0.0, -6.0),
+            ]
+        )
         for L in _lens(el._layout, std):
-            sx, sy = _shift(el)
-            E = (A[0] + n[0] * L + sx, A[1] + n[1] * L + sy)
-            prims = [Line(E, A, "thin"), arrow(A, (-n[0], -n[1]), std, "thin")]
-            if abs(n[1]) >= abs(n[0]):  # leader meets the frame's bottom / top at the first cell
-                ox = E[0] - H / 2
-                oy = E[1] if n[1] > 0 else E[1] - H
-            else:
-                ox = E[0] if n[0] > 0 else E[0] - W
-                oy = E[1] - H / 2
-            prims += transform(frame, 0, ox, oy)
-            fields = {"length": L, "at": frac}
-            out.append(
-                _cand(prims, fields, body=prims[2:], cross=[prims[0]], allow=[el._intent["ref"]])
-            )
+            for sx, sy in shifts:
+                E = (A[0] + n[0] * L + sx, A[1] + n[1] * L + sy)
+                prims = [Line(E, A, "thin"), arrow(A, (-n[0], -n[1]), std, "thin")]
+                if abs(n[1]) >= abs(n[0]):
+                    ox = E[0] - H / 2
+                    oy = E[1] if n[1] > 0 else E[1] - H
+                else:
+                    ox = E[0] if n[0] > 0 else E[0] - W
+                    oy = E[1] - H / 2
+                prims += transform(frame, 0, ox, oy)
+                fields = {"length": L, "at": frac}
+                out.append(
+                    _cand(
+                        prims, fields, body=prims[2:], cross=[prims[0]], allow=[el._intent["ref"]]
+                    )
+                )
     return out
 
 

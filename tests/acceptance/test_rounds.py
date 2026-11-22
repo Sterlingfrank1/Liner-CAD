@@ -82,7 +82,6 @@ PLACEMENT_DEBT = {
         ("place_ext_line", "D.gh"),
         ("place_ext_line", "D.gw"),
         ("place_nesting", "D.L"),
-        ("place_text_overlap", "D.kd"),
     },
     "flange": set(),
     "bracket": set(),
@@ -91,6 +90,8 @@ PLACEMENT_DEBT = {
 #: placement debt after the eight edit rounds (frozen the same way; the rounds intentionally move
 #: dimensions into crowded places, so this set is a separate yardstick from the init debt)
 PLACEMENT_DEBT_FINAL = {
+    "flange": set(),
+    "bracket": set(),
     "shaft": {
         ("place_dim_outline", "D.d1"),
         ("place_dim_outline", "D.d2"),
@@ -99,11 +100,8 @@ PLACEMENT_DEBT_FINAL = {
         ("place_ext_line", "D.gh"),
         ("place_ext_line", "D.gw"),
         ("place_nesting", "D.L"),
-        ("place_text_overlap", "D.kd"),
         ("place_text_overlap", "D.ug"),
     },
-    "flange": set(),
-    "bracket": set(),
 }
 
 

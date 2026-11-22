@@ -251,6 +251,21 @@ def _near_any(pt, spots):
     return any(math.dist(pt, c) <= r + 1e-9 for c, r in spots)
 
 
+def _point_in_poly(pt, poly):
+    """Even-odd point-in-polygon test (used to keep texts out of section lining)."""
+    x, y = pt
+    inside = False
+    n = len(poly)
+    for i in range(n):
+        x1, y1 = poly[i]
+        x2, y2 = poly[(i + 1) % n]
+        if (y1 > y) != (y2 > y):
+            xin = (x2 - x1) * (y - y1) / (y2 - y1) + x1
+            if x < xin:
+                inside = not inside
+    return inside
+
+
 def _crosses_circle(p, q, c, r):
     """Proper crossing of segment pq with a circle (tangency / touching an end excluded)."""
     dx, dy = q[0] - p[0], q[1] - p[1]
@@ -437,6 +452,7 @@ class _Obstacles:
                     v = seg_in_box(p, q, ob)
                     if v > 1e-6:
                         out[o] = max(out.get(o, 0), v)
+
         dl = cand.get("dimline")
         if dl:
             for o, p, q in self.dimlines:
@@ -456,8 +472,12 @@ class _Obstacles:
         allow = set(cand.get("allow_cross", ()))
         ignore = cand.get("cross_ignore", ())
         hit = set()
+        # E5 place_dim_cross judges dimension lines only; a frame dimension or a PMI leader
+        # crossing an extension line is normal drafting, so those candidates look at the
+        # registered dimension lines instead of every annotation segment
+        segs = self.dimlines if cand.get("cross_dimlines") else self.segs
         for p, q in cand.get("cross", ()):
-            for o, a, b in self.segs:
+            for o, a, b in segs:
                 if o == owner or o not in self.ann or o in allow:
                     continue
                 pt = _cross_point(p, q, a, b)
@@ -477,6 +497,27 @@ class _Obstacles:
                 if o == owner or o in allow:
                     continue
                 if collinear_overlap((p, q), (a, b)) > 0.5:
+                    hit.add(o)
+        return sorted(hit)
+
+    def centre_crossings(self, owner, cand):
+        """Concentric radial dimensions whose line crosses this candidate at the shared centre.
+
+        Such a crossing is inherent for a full diametral line but avoidable with a leader-style
+        dimension, so it is its own soft cost instead of being silently exempted (D2: E5's
+        place_dim_cross counts it as a crossing).
+        """
+        allow = set(cand.get("allow_cross", ()))
+        ignore = cand.get("cross_ignore", ())
+        hit = set()
+        for p, q in cand.get("cross", ()):
+            for o, a, b in self.segs:
+                if o == owner or o not in self.ann or o in allow:
+                    continue
+                if not self._same_centre(o, ignore):
+                    continue
+                pt = _cross_point(p, q, a, b)
+                if pt is not None and _near_any(pt, ignore):
                     hit.add(o)
         return sorted(hit)
 
@@ -527,10 +568,23 @@ class _Obstacles:
         return c is not None and any(math.dist(c, p) <= r + 1e-9 for p, r in ignore)
 
     def _concentric_with(self, owner, centre):
+        """Is every prim of the owner a *full* circle concentric with the dimensioned one?
+
+        Only full circles are inherent: a diametral line always crosses them, whatever its
+        direction.  A concentric arc is a partial contour a leader can still be routed around,
+        so it is not exempt (D2 review minor ①).
+        """
         prims = self.prims.get(owner, ())
-        return bool(prims) and all(
-            isinstance(pr, (Circle, Arc)) and math.dist(pr.c, centre) < 1e-6 for pr in prims
-        )
+        if not prims:
+            return False
+        for pr in prims:
+            if not isinstance(pr, (Circle, Arc)) or math.dist(pr.c, centre) >= 1e-6:
+                return False
+            if isinstance(pr, Arc):
+                sweep = (pr.a1 - pr.a0) % 360 or 360
+                if sweep < 360 - 1e-6:
+                    return False
+        return True
 
 
 class _ViewLayout:
@@ -540,6 +594,7 @@ class _ViewLayout:
         self.name = view.name
         self.parts: dict[str, list] = {}
         self.obst = _Obstacles()
+        self.linear_rows = []  # placed outside frame dimensions: row/nesting bookkeeping
         self.G = None
 
     def P(self, p):
@@ -982,14 +1037,35 @@ class _ViewLayout:
                         positions.append(("in", c))
             positions += [("out_hi", hi + al + 2 + w / 2), ("out_lo", lo - al - 2 - w / 2)]
             for pos, c in positions:
-                out.append(
-                    self._linear_geom(
-                        el, dir, side, row, off, level, lo, hi, ext_pts, pos, c, w, hh
-                    )
-                )
+                # preferred side of the line first, then the other side, and a little more
+                # clearance for a crowded text
+                sides = (1, -1) if pos == "in" else (1,)  # outside text stays above the line
+                for text_side in sides:
+                    for extra in (0.0, 1.5):
+                        out.append(
+                            self._linear_geom(
+                                el,
+                                dir,
+                                side,
+                                row,
+                                off,
+                                level,
+                                lo,
+                                hi,
+                                ext_pts,
+                                pos,
+                                c,
+                                w,
+                                hh,
+                                text_side,
+                                extra,
+                            )
+                        )
         return out
 
-    def _linear_geom(self, el, dir, side, row, off, level, lo, hi, ext_pts, pos, c, w, hh):
+    def _linear_geom(
+        self, el, dir, side, row, off, level, lo, hi, ext_pts, pos, c, w, hh, text_side=1, extra=0.0
+    ):
         dm = self.std["dim"]
         al = dm["arrow_length"]
 
@@ -1028,24 +1104,64 @@ class _ViewLayout:
                 arrow(pt(hi, level), d_lo, self.std),
             ]
         segs.append(line)
-        tg = dm["text_gap"]
+        tg = dm["text_gap"] + extra
         if dir == "h":
-            tp, tbox = dim_label(el._intent, (c, level + tg + hh / 2), self.std)
+            tp, tbox = dim_label(el._intent, (c, level + text_side * (tg + hh / 2)), self.std)
         else:
-            tp, tbox = dim_label(el._intent, (level - tg - hh / 2, c), self.std, 90)
+            tp, tbox = dim_label(el._intent, (level - text_side * (tg + hh / 2), c), self.std, 90)
         prims += tp
+        tboxes = [pr.box for pr in tp if isinstance(pr, Text)] or [tbox]
+        # the dimension's own lines and its other text pieces must stay clear of each text box
+        own_segs = [s for pr in prims if not isinstance(pr, Text) for s in prim_segments(pr)]
+        self_hit = sum(1 for b in tboxes for p, q in own_segs if seg_in_box(p, q, b) > 0.05)
+        self_hit += sum(
+            1
+            for a in range(len(tboxes))
+            for b in range(a + 1, len(tboxes))
+            if box_overlap(tboxes[a], tboxes[b]) > 0.05
+        )
         fields = {"side": side, "row": row, "offset": off}
         why = {"in": "", "out_hi": "文字放不下，移到界线外", "out_lo": "文字放不下，移到界线外"}[
             pos
         ]
         if pos == "in" and abs(c - (lo + hi) / 2) > 1e-6:
             why = "文字避让，沿尺寸线移位"
+        if text_side < 0:
+            why = (why + "；" if why else "") + "文字换到尺寸线另一侧"
+        row_info = None
+        if side != "inside":
+            # E5 _frame_rows: u along the dimension line, n = (-u_y, u_x), outward = the side
+            # the extension lines leave to, level = dot(dim line, n) → the same groups as place.py
+            u = (1.0, 0.0) if dir == "h" else (0.0, 1.0)
+            n = (-u[1], u[0])
+            sv = {
+                "top": (0.0, 1.0),
+                "bottom": (0.0, -1.0),
+                "left": (-1.0, 0.0),
+                "right": (1.0, 0.0),
+            }[side]
+            sg = 1 if n[0] * sv[0] + n[1] * sv[1] >= 0 else -1
+            row_info = {
+                "axis": round(math.degrees(math.atan2(u[1], u[0])) % 180.0, 1),
+                "outward": sg,
+                "level": level if dir == "h" else -level,
+                "lo": lo,
+                "hi": hi,
+                "span": hi - lo,
+            }
         return {
             "prims": prims,
-            "boxes": [tbox],
+            "boxes": tboxes,
             "segs": segs,
             "dimline": line,
             "ends": [pt(lo, level), pt(hi, level)],
+            # E5 place_dim_cross judges dimension lines only; extension-line crossings are normal
+            "cross": [line],
+            "cross_dimlines": True,
+            "overlap_cost": True,
+            "contour": True,
+            "self_hit": self_hit,
+            "row_info": row_info,
             "fields": fields,
             "why": why,
         }
@@ -1083,44 +1199,99 @@ class _ViewLayout:
             e = (p1[0] + u[0] * lead, p1[1] + u[1] * lead)
             sg = 1 if u[0] >= -1e-9 else -1
             sh = (e[0] + sg * (w + 2), e[1])
-            prims, segs = [], []
+            # standard style first (through the centre for a diameter, from the centre for a
+            # radius), then a leader fallback that does not run through the centre: GB/T 4458.4
+            # allows a leader when the dimension line cannot be placed cleanly, and concentric
+            # diameters otherwise always cross at the shared centre.
+            styles = []
             if i["type"] == "dia":
                 if 2 * r >= 2 * al + 1:
-                    prims += [Line(p2, e, "dim"), arrow(p1, u, std), arrow(p2, (-u[0], -u[1]), std)]
-                    segs.append((p2, e))
+                    styles.append(
+                        {
+                            "style": "dimline",
+                            "prims": [
+                                Line(p2, e, "dim"),
+                                arrow(p1, u, std),
+                                arrow(p2, (-u[0], -u[1]), std),
+                            ],
+                            "segs": [(p2, e)],
+                        }
+                    )
+                    styles.append(
+                        {
+                            "style": "leader",
+                            "prims": [Line(p1, e, "dim"), arrow(p1, (-u[0], -u[1]), std)],
+                            "segs": [(p1, e)],
+                        }
+                    )
                 else:
-                    prims += [Line(p1, e, "dim"), arrow(p1, (-u[0], -u[1]), std)]
-                    segs.append((p1, e))
+                    styles.append(
+                        {
+                            "style": "leader",
+                            "prims": [Line(p1, e, "dim"), arrow(p1, (-u[0], -u[1]), std)],
+                            "segs": [(p1, e)],
+                        }
+                    )
             else:
                 if r >= al + 1:
-                    prims += [Line(c, e, "dim"), arrow(p1, u, std)]
-                    segs.append((c, e))
+                    styles.append(
+                        {
+                            "style": "dimline",
+                            "prims": [Line(c, e, "dim"), arrow(p1, u, std)],
+                            "segs": [(c, e)],
+                        }
+                    )
+                    styles.append(
+                        {
+                            "style": "leader",
+                            "prims": [Line(p1, e, "dim"), arrow(p1, (-u[0], -u[1]), std)],
+                            "segs": [(p1, e)],
+                        }
+                    )
                 else:
-                    prims += [Line(p1, e, "dim"), arrow(p1, (-u[0], -u[1]), std)]
-                    segs.append((p1, e))
-            prims.append(Line(e, sh, "dim"))
-            segs.append((e, sh))
-            tp, tbox = dim_label(i, (e[0] + sg * (1 + w / 2), e[1] + dm["text_gap"] + hh / 2), std)
-            prims += tp
-            why = "引线加长以避开轮廓" if lead > al + LEADS[0] else ""
-            out.append(
-                {
-                    "prims": prims,
-                    "boxes": [tbox],
-                    "segs": segs,
-                    # a circumference dimension may cut prints of its own circle and, where
-                    # concentric diameters meet, the shared centre; nothing else is inherent
-                    "cross": segs,
-                    "allow_cross": (i["circle"],),
-                    "cross_ignore": ((c, 0.5),),
-                    "cross_centre": c,
-                    "contour": True,
-                    "overlap_cost": True,
-                    "fields": {"at": ang},
-                    "ends": [p2, p1],
-                    "why": why,
-                }
-            )
+                    styles.append(
+                        {
+                            "style": "leader",
+                            "prims": [Line(p1, e, "dim"), arrow(p1, (-u[0], -u[1]), std)],
+                            "segs": [(p1, e)],
+                        }
+                    )
+            for st in styles:
+                prims = list(st["prims"])
+                segs = list(st["segs"])
+                prims.append(Line(e, sh, "dim"))
+                segs.append((e, sh))
+                tp, tbox = dim_label(
+                    i, (e[0] + sg * (1 + w / 2), e[1] + dm["text_gap"] + hh / 2), std
+                )
+                prims += tp
+                why = "引线加长以避开轮廓" if lead > al + LEADS[0] else ""
+                style_why = (
+                    "改用引线标注以避开交叉"
+                    if st["style"] == "leader" and styles[0]["style"] == "dimline"
+                    else ""
+                )
+                out.append(
+                    {
+                        "prims": prims,
+                        "boxes": [tbox],
+                        "segs": segs,
+                        # a circumference dimension may cut prints of its own circle and, where
+                        # concentric diameters meet, the shared centre; nothing else is inherent
+                        "cross": segs,
+                        "allow_cross": (i["circle"],),
+                        "cross_ignore": ((c, 0.5),),
+                        "cross_centre": c,
+                        "contour": True,
+                        "overlap_cost": True,
+                        "style": st["style"],
+                        "style_why": style_why,
+                        "centre_cost": st["style"] == "dimline",
+                        "fields": {"at": ang},
+                        "ends": [p2, p1],
+                        "why": why,
+                    }
+                )
         return out
 
     def note_cands(self, el):
@@ -1188,6 +1359,28 @@ class _ViewLayout:
             out[name] = round(min(ds + [50.0]), 3)
         return out
 
+    def _row_conflicts(self, cand):
+        """Nesting (small inside / large outside) and minimum row spacing against placed rows."""
+        info = cand.get("row_info")
+        if not info:
+            return [], []
+        pitch = self.std["dim"]["row_pitch"]
+        pos = info["outward"] * info["level"]
+        nest, tight = set(), set()
+        for r in self.linear_rows:
+            if r["axis"] != info["axis"] or r["outward"] != info["outward"]:
+                continue
+            if min(info["hi"], r["hi"]) - max(info["lo"], r["lo"]) <= 0.01:
+                continue  # side by side: neither nesting nor a row pitch requirement
+            rpos = r["outward"] * r["level"]
+            if abs(pos - rpos) < pitch - self.std["dim"].get("row_tol", 0.05):
+                tight.add(r["id"])
+            if pos < rpos and info["span"] > r["span"] + 0.01:
+                nest.add(r["id"])  # this candidate would sit inside and be the longer one
+            elif pos > rpos and r["span"] > info["span"] + 0.01:
+                nest.add(r["id"])  # the placed smaller dimension would end up outside
+        return sorted(nest), sorted(tight)
+
     def choose(self, el, cands, auto_fields):
         clearance = self.std["dim"]["clearance"]
         best = None
@@ -1196,24 +1389,66 @@ class _ViewLayout:
             if best is not None and len(conf) > best[0][0]:
                 continue  # cannot win on the first key; skip the more expensive scans
             cut = self.obst.crossings(el._id, cand) if cand.get("cross") else []
-            if best is not None and (len(conf), len(cut)) > best[0][:2]:
-                continue
+            if best is not None:
+                # prune with the same head as the key: PMI compares rendered conflicts first,
+                # frame dimensions compare the violation total
+                bound = len(conf) if cand.get("pmi_cost") else len(conf) + len(cut)
+                if bound > best[0][0]:
+                    continue
             overlap = self.obst.overlaps(el._id, cand) if cand.get("overlap_cost") else []
             outline = self.obst.contour_crossings(el._id, cand) if cand.get("contour") else []
-            # text overlap first, then cutting other annotations, then running along other
-            # lines, and only then crossing the part outline
-            key = (len(conf), len(cut), len(overlap), len(outline))
-            if key == (0, 0, 0, 0):
-                best = (key, k, cand, conf, cut, overlap, outline)
+            centre = self.obst.centre_crossings(el._id, cand) if cand.get("centre_cost") else []
+            self_hit = int(cand.get("self_hit") or 0)
+            nest, tight = self._row_conflicts(cand)
+            # E5 counts every D.place violation alike, so minimise their sum first and use the
+            # individual terms only as a tie-break; text overlapping anything is weighted double.
+            depth = max(0, (cand["fields"].get("row") or 1) - 2)
+            total = (
+                len(cut)
+                + 2 * (len(conf) + self_hit)
+                + len(overlap)
+                + len(outline)
+                + len(centre)
+                + len(nest)
+                + len(tight)
+            )
+            row_pref = cand["fields"].get("row") or 0  # keep equal-cost dims as close as possible
+            if cand.get("pmi_cost"):
+                # a PMI leader must first avoid any rendered overlap (layout pack), then cut no
+                # dimension line (E5 scope), then cross as few annotation lines as possible
+                bare = {k: v for k, v in cand.items() if k != "cross_dimlines"}
+                all_cut = len(self.obst.crossings(el._id, bare))
+                key = (len(conf), len(cut), all_cut, total)
+            else:
+                key = (
+                    total,
+                    len(conf),
+                    len(cut),
+                    len(overlap),
+                    len(outline),
+                    len(centre),
+                    self_hit,
+                    len(tight),
+                    len(nest),
+                    depth,  # DESIGN §4.6.2: a clean extra row beats a violating shallow one
+                    row_pref,
+                )
+            zero = key[:3] == (0, 0, 0) if cand.get("pmi_cost") else total == 0
+            if zero:
+                best = (key, k, cand, conf, cut, overlap, outline, centre, nest, tight)
                 break
             if best is None or key < best[0]:
-                best = (key, k, cand, conf, cut, overlap, outline)
-        _, k, cand, conf, cut, overlap, outline = best
+                best = (key, k, cand, conf, cut, overlap, outline, centre, nest, tight)
+        _, k, cand, conf, cut, overlap, outline, centre, nest, tight = best
         el._resolved.update(cand["fields"])
         if cand.get("ends"):
             el._resolved["ends"] = [list(p) for p in cand["ends"]]
         if cand.get("mode"):
             el._resolved["mode"] = cand["mode"]
+        if cand.get("style"):
+            el._resolved["style"] = cand["style"]
+        if cand.get("dimline"):
+            el._resolved["dimline"] = [[list(cand["dimline"][0]), list(cand["dimline"][1])]]
         el._auto = [f for f in auto_fields if f in cand["fields"]]
         reasons = []
         if (
@@ -1225,6 +1460,14 @@ class _ViewLayout:
             reasons.append(f"前面的排有冲突，外推到第 {cand['fields']['row']} 排")
         if cand["why"]:
             reasons.append(cand["why"])
+        if cand.get("style_why"):
+            reasons.append(cand["style_why"])
+        if self_hit:
+            reasons.append("文字压到自身尺寸线")
+        if nest:
+            reasons.append("小内大外：与 " + "、".join(nest) + " 的排位冲突")
+        if tight:
+            reasons.append("排距不足：与 " + "、".join(tight) + " 太近")
         if conf:
             reasons.append(
                 "所有候选都有冲突，取冲突最少的：与 " + "、".join(o for o, _ in conf) + " 冲突"
@@ -1236,24 +1479,50 @@ class _ViewLayout:
             )
         elif k and "at" in el._auto and cand["fields"].get("at") != cands[0]["fields"].get("at"):
             reasons.append("换角度避开交叉")
-        if cand.get("overlap_cost") and (conf or cut or overlap or outline):
-            # radial leader: an avoidable conflict always wins above, so what is left is
-            # unavoidable — draw it and report it for the agent (DESIGN §4.6.3).  Text/space
-            # conflicts are reported too, not just crossings.
+        unavoidable = conf or cut or overlap or outline or centre or self_hit or nest or tight
+        if (
+            cand.get("overlap_cost") or cand.get("row_info") or cand.get("pmi_cost")
+        ) and unavoidable:
+            # an avoidable conflict always wins above, so what is left is unavoidable — draw it
+            # and report it for the agent (DESIGN §4.6.3)
             violations = [{"with": o, "kind": "overlap", "amount": round(v, 3)} for o, v in conf]
             violations += [{"with": o, "kind": "cross"} for o in cut]
             violations += [{"with": o, "kind": "coincide"} for o in overlap]
             violations += [{"with": o, "kind": "outline"} for o in outline]
+            violations += [{"with": o, "kind": "centre"} for o in centre]
+            violations += [{"with": "self", "kind": "own_text"} for _ in range(self_hit)]
+            violations += [{"with": o, "kind": "nest"} for o in nest]
+            violations += [{"with": o, "kind": "row"} for o in tight]
             el._resolved["violations"] = violations
-            if cut or overlap or outline:
-                hit = sorted(set(cut) | set(overlap) | set(outline))
+            if cut or overlap or outline or centre:
+                hit = sorted(set(cut) | set(overlap) | set(outline) | set(centre))
                 reasons.append("不可避免的交叉：与 " + "、".join(hit) + " 相交")
                 el._resolved["crossings"] = hit
             boxes = cand.get("boxes") or []
             if boxes:
                 el._resolved["corridors"] = self._corridors(boxes[0])
+        if el.kind in ("datum", "gtol", "rough"):
+            leaders = list(cand.get("cross", ()))
+            if leaders:  # the structural leader, not the frame / tolerance lines of the label
+                el._resolved["leader"] = [[list(p), list(q)] for p, q in leaders]
+            ref = self.parts.get(el._intent.get("ref") or "")
+            if ref:
+                best = 0.0
+                for a, b in leaders:
+                    for r in ref:
+                        if isinstance(r, Line):
+                            best = max(best, collinear_overlap((a, b), (r.p, r.q)))
+                if best > 2.0:
+                    el._resolved["coincident_with_ref"] = [
+                        {"with": el._intent["ref"], "length": round(best, 2)}
+                    ]
+                    reasons.append("引线与被测要素共线贴合（构造性，已记录）")
         el._reason = "；".join(reasons)
-        if cand.get("contour") and cand.get("ends"):  # circular dimension: remember its centre
+        if cand.get("row_info"):
+            self.linear_rows.append({"id": el._id, **cand["row_info"]})
+        if cand.get("cross_centre") is not None and cand.get("ends"):
+            # circular dimension: remember its centre (only radial dims take part in the
+            # shared-centre exemptions)
             a, b = cand["ends"]
             self.obst.centres[el._id] = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
             self.obst.radial.add(el._id)
@@ -1266,6 +1535,162 @@ class _ViewLayout:
             boxes=cand["boxes"],
             dimlines=[cand["dimline"]] if cand.get("dimline") else (),
         )
+
+    def _repair_dim_overlaps(self):
+        """Final pass: move an automatic linear dimension whose text/line still touches something."""
+        ann = ("dim", "note", "datum", "gtol", "rough")
+        for e in self.els("dim"):
+            if not e._prims or e._intent.get("circle"):
+                continue
+            boxes = self._text_boxes(e)
+            if not boxes:
+                continue
+            obst = _Obstacles()
+            for o in self.d._els.values():
+                prims = self.parts.get(o.id) or ()
+                if o._intent.get("view") != self.name or not prims or o.id == e.id:
+                    continue
+                obst.kinds[o.id] = o.kind
+                obst.add_prims(o.id, prims)
+                if o.kind in ann:
+                    obst.ann.add(o.id)
+            own_segs = [s for p in e._prims if not isinstance(p, Text) for s in prim_segments(p)]
+            own_lines = [(p.p, p.q) for p in e._prims if isinstance(p, Line)]
+            cur = {
+                "boxes": boxes,
+                "segs": own_segs,
+                "cross": own_lines,
+                "cross_dimlines": True,  # repair must use the dimension-line scope (E5)
+            }
+            cur_key = (len(obst.conflicts(e.id, cur, 0.0)), len(obst.crossings(e.id, cur)), 0, 0)
+            if cur_key == (0, 0, 0, 0):
+                continue
+            fixed = {
+                f: e._layout.get(f)
+                for f in ("side", "row", "offset")
+                if e._layout.get(f) is not None
+            }
+            cands = (
+                aligned_cands(self, e) if e._intent["type"] == "aligned" else self.linear_cands(e)
+            )
+            best, best_key = None, None
+            for cand in cands:
+                if any(cand["fields"].get(f) != v for f, v in fixed.items()):
+                    continue
+                cand2 = dict(cand)
+                cand2["cross_dimlines"] = True
+                nest, tight = self._row_conflicts(cand2)
+                key = (
+                    len(obst.conflicts(e.id, cand2, 0.0)),
+                    len(obst.crossings(e.id, cand2)),
+                    len(nest),
+                    len(tight),
+                )
+                if best_key is None or key < best_key:
+                    best, best_key = cand, key
+            if best is None or best_key >= cur_key:
+                continue
+            e._prims = list(best["prims"])
+            e._resolved.update(best["fields"])
+            e._reason = (e._reason + "；" if e._reason else "") + "文字避让重排"
+            self.parts[e._id] = list(best["prims"])
+            e._resolved["bbox"] = list(prims_bbox(e._prims))
+            for stale in ("violations", "crossings", "corridors", "coincident_with_ref"):
+                e._resolved.pop(stale, None)
+            conf = obst.conflicts(e.id, best, 0.0)
+            cut = obst.crossings(e.id, best)
+            if conf or cut:
+                e._resolved["violations"] = [
+                    {"with": o, "kind": "overlap", "amount": round(v, 3)} for o, v in conf
+                ] + [{"with": o, "kind": "cross"} for o in cut]
+                if cut:
+                    e._resolved["crossings"] = sorted(cut)
+
+    def _text_boxes(self, e):
+        return [p.box for p in e._prims if isinstance(p, Text)]
+
+    def _repair_pmi_leaders(self):
+        """Final pass: re-place a PMI leader that overlaps / cuts a placed element.
+
+        Only the structural leader (candidate cross segments) is judged; the frame and
+        tolerance lines of the label are not leaders.  A candidate is adopted only when it is
+        lexicographically better on (rendered overlaps, dimension-line crossings); the
+        structured report of the element is recomputed, never left stale.
+        """
+        ann_kinds = ("dim", "note", "datum", "gtol", "rough")
+        gens = {"datum": datum_cands, "gtol": gtol_cands, "rough": rough_cands}
+        clearance = self.std["dim"]["clearance"]
+        for kind, fn in gens.items():
+            for e in self.els(kind):
+                if not e._prims:
+                    continue
+                cur_leader = [tuple(map(tuple, seg)) for seg in e._resolved.get("leader") or ()]
+                if not cur_leader:
+                    continue
+                obst = _Obstacles()
+                for o in self.d._els.values():
+                    prims = self.parts.get(o.id) or ()
+                    if o._intent.get("view") != self.name or not prims or o.id == e.id:
+                        continue
+                    obst.kinds[o.id] = o.kind
+                    obst.add_prims(o.id, prims)
+                    for dl in o._resolved.get("dimline") or ():
+                        obst.dimlines.append((o.id, tuple(dl[0]), tuple(dl[1])))
+                    if o.kind in ann_kinds:
+                        obst.ann.add(o.id)
+                cur = {"cross": cur_leader, "boxes": self._text_boxes(e), "cross_dimlines": True}
+                bare = {k: v for k, v in cur.items() if k != "cross_dimlines"}
+                cur_key = (
+                    len(obst.conflicts(e.id, cur, clearance)),
+                    len(obst.crossings(e.id, cur)),
+                    len(obst.crossings(e.id, bare)),
+                )
+                best, best_key = None, cur_key
+                fixed = {
+                    f: e._layout.get(f) for f in ("at", "length") if e._layout.get(f) is not None
+                }
+                for cand in fn(self, e):
+                    if any(cand["fields"].get(f) != v for f, v in fixed.items()):
+                        continue
+                    bare = {k: v for k, v in cand.items() if k != "cross_dimlines"}
+                    key = (
+                        len(obst.conflicts(e.id, cand, clearance)),
+                        len(obst.crossings(e.id, cand)),
+                        len(obst.crossings(e.id, bare)),
+                    )
+                    if key < best_key:
+                        best, best_key = cand, key
+                if best is None:
+                    continue
+                e._prims = list(best["prims"])
+                e._resolved.update(best["fields"])
+                for stale in ("violations", "crossings", "corridors", "coincident_with_ref"):
+                    e._resolved.pop(stale, None)
+                leaders = list(best.get("cross", ()))
+                if leaders:
+                    e._resolved["leader"] = [[list(a), list(b)] for a, b in leaders]
+                conf = obst.conflicts(e.id, best, clearance)
+                cut = obst.crossings(e.id, best)
+                if conf or cut:
+                    e._resolved["violations"] = [
+                        {"with": o, "kind": "overlap", "amount": round(v, 3)} for o, v in conf
+                    ] + [{"with": o, "kind": "cross"} for o in cut]
+                    if cut:
+                        e._resolved["crossings"] = sorted(cut)
+                ref = self.parts.get(e._intent.get("ref") or "") or ()
+                best_overlap = 0.0
+                for a, b in leaders:
+                    for r_ in ref:
+                        if isinstance(r_, Line):
+                            best_overlap = max(
+                                best_overlap, collinear_overlap((a, b), (r_.p, r_.q))
+                            )
+                if best_overlap > 2.0:
+                    e._resolved["coincident_with_ref"] = [
+                        {"with": e._intent["ref"], "length": round(best_overlap, 2)}
+                    ]
+                e._reason = (e._reason + "；" if e._reason else "") + "为避免压图元 / 交叉调整引线"
+                self.parts[e._id] = list(best["prims"])
 
     def annotations(self):
         dims = self.els("dim")
@@ -1355,8 +1780,6 @@ class _ViewLayout:
             place(e)
         # split the rest only after the dimensions are placed: a leader on a placed dimension
         # can go first, one on an automatic circular dimension has to wait for it
-        # an unclean fixed PMI is placed with the early leaders (after the automatic dimensions,
-        # where it can still see them) instead of claiming a spot it cannot hold cleanly
         early = [
             (kind, fn, e)
             for kind, fn in pmi
@@ -1378,6 +1801,8 @@ class _ViewLayout:
                 self.choose(e, center_hole_cands(self, e), [])
         for item in late:  # leaders whose target dimension was placed above
             place_pmi(item)
+        self._repair_pmi_leaders()
+        self._repair_dim_overlaps()
 
     def plain_texts(self):
         """Imported plain text elements (DXF TEXT / MTEXT): no leader, fixed position / height /
@@ -1620,6 +2045,11 @@ class _Layout:
             ox, oy = origins[name]
             for eid, prims in vl.parts.items():
                 d._els[eid]._prims += [move_prim(p, ox, oy) for p in prims]
+                leader = d._els[eid]._resolved.get("leader")
+                if leader:
+                    d._els[eid]._resolved["leader"] = [
+                        [[p[0] + ox, p[1] + oy], [q[0] + ox, q[1] + oy]] for p, q in leader
+                    ]
             v = vl.view
             full = vl.full
             v._resolved.update(
@@ -1630,6 +2060,7 @@ class _Layout:
         for e in d._els.values():
             if e._prims and e.kind != "view":
                 e._resolved["bbox"] = list(prims_bbox(e._prims))
+        self._nudge_texts()
         from .pmi import chain_result
 
         for e in d._els.values():
@@ -1642,6 +2073,123 @@ class _Layout:
                 )
                 if b:
                     e._resolved["bbox"] = list(b)
+
+    def _nudge_texts(self):
+        """Last resort: nudge a single automatic text label a few mm until it clears everything.
+
+        Only elements whose position fields are automatic are touched: a written at / length /
+        dir / offset / row is never moved (DESIGN fixed elements).  Compound labels (several
+        text boxes) are left alone, so a label is never split.  This is the local push-out of
+        DESIGN §4.6.3, not a global solver.
+        """
+        d = self.d
+        F = d.template["frame"]
+        els = [e for e in d._els.values() if e._prims]
+        shapes = {}
+        for e in els:
+            segs, boxes = [], []
+            for p in e._prims:
+                if isinstance(p, Text):
+                    boxes.append(p.box)
+                else:
+                    segs += [(a_, b_) for a_, b_ in prim_segments(p)]
+            shapes[e._id] = (segs, boxes)
+        hatches = []
+        for e in els:
+            if e.kind != "hatch":
+                continue
+            loops = [lp for pr in e._prims if isinstance(pr, Hatch) for lp in pr.loops]
+            if loops:
+                hatches.append(loops)
+
+        def in_hatch(box):
+            """Even-odd over each hatch element's loops: section lining must stay legible."""
+            cx, cy = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
+            for loops in hatches:
+                inside = False
+                for lp in loops:
+                    if lp and lp[0] == "circle":
+                        inside = inside != (math.dist((cx, cy), lp[1]) <= lp[2])
+                    else:
+                        inside = inside != _point_in_poly((cx, cy), lp)
+                if inside:
+                    return True
+            return False
+
+        offs = [
+            (dx, dy)
+            for mag in (
+                2.0,
+                3.0,
+                4.0,
+                6.0,
+                8.0,
+                10.0,
+                12.0,
+                14.0,
+                16.0,
+                18.0,
+                20.0,
+                24.0,
+                28.0,
+                32.0,
+                36.0,
+                40.0,
+            )
+            for dx, dy in ((mag, 0.0), (-mag, 0.0), (0.0, mag), (0.0, -mag))
+        ]
+        for _round in range(2):
+            changed = False
+            for e in els:
+                if e.kind in ("view", "feature", "raw", "chain", "text") or not e._prims:
+                    continue  # imported text keeps its DXF anchors: never moved by a repair pass
+                texts = [(i, pr) for i, pr in enumerate(e._prims) if isinstance(pr, Text)]
+                if len(texts) != 1:
+                    continue
+                if any(e._layout.get(f) is not None for f in getattr(e, "LAYOUT", ())):
+                    # written fields are not changed. The only exception: a text that sits in
+                    # section lining is unreadable, so it may be shifted out (the fields, the
+                    # dimension line and the arrows stay where they were written)
+                    if not in_hatch(texts[0][1].box):
+                        continue
+                others_segs, others_boxes = [], []
+                for o in els:
+                    s_, b_ = shapes[o.id]
+                    others_segs += s_
+                    if o.id != e.id:
+                        others_boxes += b_
+                for i, pr in texts:
+                    box = pr.box
+                    if not (
+                        any(seg_in_box(a_, b_, box) > 0.05 for a_, b_ in others_segs)
+                        or any(box_overlap(box, ob) > 0.05 for ob in others_boxes)
+                        or in_hatch(box)
+                    ):
+                        continue
+                    for dx, dy in offs:
+                        nb = (box[0] + dx, box[1] + dy, box[2] + dx, box[3] + dy)
+                        if (
+                            nb[0] < F[0] + 1
+                            or nb[1] < F[1] + 1
+                            or nb[2] > F[2] - 1
+                            or nb[3] > F[3] - 1
+                        ):
+                            continue
+                        if any(seg_in_box(a_, b_, nb) > 0.05 for a_, b_ in others_segs):
+                            continue
+                        if any(box_overlap(nb, ob) > 0.05 for ob in others_boxes):
+                            continue
+                        if in_hatch(nb):
+                            continue
+                        nt = move_prim(pr, dx, dy)
+                        e._prims[i] = nt
+                        segs, boxes = shapes[e.id]
+                        shapes[e.id] = (segs, [nt.box])
+                        e._resolved["bbox"] = list(prims_bbox(e._prims))
+                        changed = True
+                        break
+            if not changed:
+                break
 
     # -- frame, title block, technical requirements -------------------------------------------
     def sheet_frame(self):
@@ -1817,7 +2365,50 @@ class _Layout:
                     dy += max(0.0, F[3] - g[3])
                     dx -= max(0.0, g[0] - F[0])
         dx, dy = dx + bx, dy + by
+        if fv._layout.get("at") is None:
+            # automatic layout is clamped into the frame; a written at is absolute and stays
+            F = sheet["F"]
+            zone = union([sheet["TB"], sheet["TN"]])
+            margin = 1.0  # keep the drawing inside the frame line, not on it
+            for _ in range(3):
+                gb = union(
+                    [
+                        (
+                            vls[n].full[0] + origins[n][0] + dx,
+                            vls[n].full[1] + origins[n][1] + dy,
+                            vls[n].full[2] + origins[n][0] + dx,
+                            vls[n].full[3] + origins[n][1] + dy,
+                        )
+                        for n in names
+                    ]
+                )
+                if gb is None:
+                    break
+                moved = False
+                sx = max(0.0, F[0] + margin - gb[0]) - max(0.0, gb[2] - (F[2] - margin))
+                sy = max(0.0, F[1] + margin - gb[1]) - max(0.0, gb[3] - (F[3] - margin))
+                if abs(sx) > 1e-9 or abs(sy) > 1e-9:
+                    dx, dy = dx + sx, dy + sy
+                    moved = True
+                if not moved and zone and box_overlap(inflate(zone, gap / 2), gb) > 0:
+                    up = zone[3] + gap - gb[1]
+                    left = gb[2] - (zone[0] - gap)
+                    if gb[3] + up <= F[3] - margin:
+                        dy += up
+                    elif gb[0] - left >= F[0] + margin:
+                        dx -= left
+                    else:
+                        dy += max(0.0, F[3] - margin - gb[3])
+                        dx -= max(0.0, gb[0] - F[0] - margin)
+                    moved = True
+                if not moved:
+                    break
         out = {n: (o[0] + dx, o[1] + dy) for n, o in origins.items()}
+        for n in names:  # a written at is an absolute sheet position for every basic view
+            at = vls[n].view._layout.get("at")
+            if at is not None:
+                ox, oy = vls[n].view._layout.get("offset", [0.0, 0.0])
+                out[n] = (at[0] + ox, at[1] + oy)
         for n in auxs:  # place(at=...) on an auxiliary view is an absolute sheet position
             at = vls[n].view._layout.get("at")
             if at is not None:
