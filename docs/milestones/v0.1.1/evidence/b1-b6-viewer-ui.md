@@ -42,6 +42,7 @@
 
 ## 验证
 
-- `uv run pytest`：见 PR 评论（合批 PR 新增 9 个测试）。
-- `uv run ruff check` / `uv run ruff format --check`：见 PR 评论。
-- `uv run python evals/run.py --baseline evals/baseline.json`：见 PR 评论（UI 卡不动规则/布局，预期无回归）。
+- `uv run pytest`：**1170 passed, 1 skipped**（合批 PR 新增 10 个测试，G2 分卡分段）。
+- `uv run ruff check` / `uv run ruff format --check`：通过。
+- `uv run python evals/run.py --baseline evals/baseline.json`：**regressions: []**，D 0.972252（2775, 77）与当前基线逐项一致。
+- CI 四项（run 44979660670）全绿。Codex 一轮 5 条意见已在 a5f97fd 全部修复。
