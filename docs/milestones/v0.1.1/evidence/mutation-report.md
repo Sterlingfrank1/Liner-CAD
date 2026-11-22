@@ -5,6 +5,14 @@
 - 规则数：35；变异数：35；检出：35；检出率：1.0；参考图误报：0；跳过用例：0；债务冻结精确：True
 - 冻结已知债务（E5 排布 + 径向引线交叉现存违规）：97 条，分布在 20 个参考图；变异框架把已知债务算真阳性
 
+## 覆盖边界（已知盲区，明示不静默）
+
+- place_dim_cross 只判尺寸线×尺寸线（frame 与 leader 的尺寸线），不判尺寸界线、中心线。
+- place_dim_outline 只判 frame 型尺寸线×轮廓；leader 型整体不判（引线本来要穿过轮廓到要素）。
+- place_ext_line 只判尺寸界线自身的超出 / 起点 / 穿越轮廓。
+- place_leader_cross（E2）只判径向引线×其它尺寸线/引线；径向引线×尺寸界线、×中心线、×轮廓未计量。
+- 这些盲区中，D1 在 layout 放置阶段用 placement.resolved 的 crossings / violations / corridors（with + kind：overlap / cross / coincide / outline）记录可避免交叉并写进 reason；残余不可避免者由 E2 的 warn 规则承接；把引线扩到尺寸界线 / 中心线 / 轮廓属 D2 或 place 子规则扩展，另卡处理。
+
 ## baseline 变更（新增项，不是退化）
 
 | 族 | E5 基线 | E2 基线 | 变化 | 来源 |

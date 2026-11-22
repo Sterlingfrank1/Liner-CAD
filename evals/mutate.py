@@ -998,6 +998,26 @@ def markdown(report) -> str:
         f"分布在 {report['known_debt']['cases']} 个参考图；变异框架把已知债务算真阳性"
     )
     lines.append("")
+    lines.append("## 覆盖边界（已知盲区，明示不静默）")
+    lines.append("")
+    lines.append(
+        "- place_dim_cross 只判尺寸线×尺寸线（frame 与 leader 的尺寸线），不判尺寸界线、中心线。"
+    )
+    lines.append(
+        "- place_dim_outline 只判 frame 型尺寸线×轮廓；leader 型整体不判（引线本来要穿过轮廓到要素）。"
+    )
+    lines.append("- place_ext_line 只判尺寸界线自身的超出 / 起点 / 穿越轮廓。")
+    lines.append(
+        "- place_leader_cross（E2）只判径向引线×其它尺寸线/引线；"
+        "径向引线×尺寸界线、×中心线、×轮廓未计量。"
+    )
+    lines.append(
+        "- 这些盲区中，D1 在 layout 放置阶段用 placement.resolved 的 crossings / violations / "
+        "corridors（with + kind：overlap / cross / coincide / outline）记录可避免交叉并写进 reason；"
+        "残余不可避免者由 E2 的 warn 规则承接；把引线扩到尺寸界线 / 中心线 / 轮廓属 D2 或 "
+        "place 子规则扩展，另卡处理。"
+    )
+    lines.append("")
     lines.extend(_baseline_table())
     lines.append("| 规则 | 参考图机会 | 变异基座机会 | 变异 | 检出 | 检出率 | 误报 | 基线 |")
     lines.append("|---|---|---|---|---|---|---|---|")
