@@ -211,6 +211,7 @@ class Viewer:
             return {
                 "ok": True,
                 "version": self.version,
+                "resolved": self._resolved(r),
                 "content_bbox": _content_bbox(r.d),
                 "title_bbox": _title_bbox(r.d),
                 "elements": out,
@@ -302,6 +303,7 @@ class Viewer:
                 self.preview_seq = seq
             if not values:
                 self.preview = None
+                self.param_errors = {}
                 self.version += 1
                 self._write_snapshot()
                 findings = [_finding(f) for f in (self.res.findings if self.res else [])]
@@ -310,6 +312,7 @@ class Viewer:
                     "version": self.version,
                     "findings": findings,
                     "affected": [],
+                    "resolved": self._resolved(self.res) if self.res else {},
                 }
             try:
                 res = build(self.dir, params=values)
@@ -336,6 +339,7 @@ class Viewer:
                 "timing_ms": ms,
                 "findings": [_finding(f) for f in res.findings],
                 "affected": [],
+                "resolved": self._resolved(res),
                 "stale_ops": stale,
             }
 
@@ -346,6 +350,35 @@ class Viewer:
         if r is None or not name:
             return []
         return [e.id for e in r.d._els.values() if e._prims and name in (e._covers or [])]
+
+    def _finding_targets(self, f, r):
+        """Drawn element ids a finding stands for. A finding whose id is not drawn itself (a view
+        such as V.top, or a parameter) is mapped to the elements that can be marked on the canvas."""
+        eid = f.get("id")
+        el = r.d._els.get(eid)
+        if el is not None and el._prims:
+            return [eid]
+        if isinstance(eid, str) and eid.startswith("V."):
+            view = eid[2:]
+            return [e.id for e in r.d._els.values() if e._prims and e._intent.get("view") == view]
+        if isinstance(eid, str) and eid.startswith("P."):
+            name = eid[2:]
+            return [e.id for e in r.d._els.values() if e._prims and name in (e._covers or [])]
+        return []
+
+    def _resolved(self, r):
+        """element id → severity for findings whose own id is not a drawn element (canvas marks)."""
+        out = {}
+        if r is None:
+            return out
+        for f in r.findings:
+            for eid in self._finding_targets(f, r):
+                if eid == f.get("id"):
+                    continue
+                sev = f.get("severity") or "warn"
+                if out.get(eid) != "error":
+                    out[eid] = "error" if sev == "error" else "warn"
+        return out
 
     def writeback(self, name, value):
         from .. import txn

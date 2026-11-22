@@ -269,6 +269,7 @@ def test_preview_returns_e1_finding_fields(flange_dir):
     assert f["expected"]["overlap"] == 0.0  # E1 expectation
     assert f["candidates"] == [] and isinstance(f["candidates"], list)  # E1 candidates
     assert f["pack"] == "layout" and f["std"] == "GB/T 4458.4-2003"
+    assert r["resolved"] == {}  # every D=140 finding points at a drawn element directly
 
 
 def test_preview_findings_reach_model_and_snapshot(flange_dir):
@@ -306,6 +307,30 @@ def test_preview_param_rule_error_lists_affected_elements_only(flange_dir):
     assert {"message", "values", "hint", "candidates"} <= set(r["error"])
     # ParamError has no E1 finding fields: do not fabricate them
     assert not {"clause", "measured", "expected"} & set(r["error"])
+    snap = json.loads((flange_dir / ".linercad/snapshot.json").read_text(encoding="utf-8"))
+    assert snap["param_errors"]["error"]["id"] == "Dh" and snap["param_errors"]["affected"] == [
+        "D.Dh"
+    ]
+    # withdrawing the preview must also clear the param error from snapshot.json (B3 review)
+    assert v.do_preview({})["ok"]
+    snap = json.loads((flange_dir / ".linercad/snapshot.json").read_text(encoding="utf-8"))
+    assert snap["param_errors"] == {}
+
+
+def test_non_drawn_finding_ids_are_resolved_to_view_elements(flange_dir):
+    v = Viewer(flange_dir)
+    assert v._finding_targets({"id": "V.left"}, v.res)  # a view has no prims: mark its elements
+    assert v._finding_targets({"id": "V.nope"}, v.res) == []
+    # a view-level finding (view_align) as the checks produce it: the canvas targets the view's elements
+    v.res.findings.append(
+        {"rule": "view_align", "id": "V.left", "severity": "warn", "message": "m"}
+    )
+    model = v.model()
+    resolved = model["resolved"]
+    left_ids = {e["id"] for e in model["elements"] if e["view"] == "left"}
+    assert left_ids and left_ids <= set(resolved)  # the canvas can mark the view's elements
+    assert all(resolved[i] in ("warn", "error") for i in left_ids)
+    assert "V.left" not in resolved  # the view id itself is not drawn
 
 
 def test_viewer_consumes_preview_findings_on_the_canvas():
@@ -323,6 +348,9 @@ def test_viewer_consumes_preview_findings_on_the_canvas():
         "i.measured",
         "i.expected",
         "i.candidates",
+        "resolved",
+        "releasePreview",
+        "无",
         "条款",
         "实测",
         "要求",

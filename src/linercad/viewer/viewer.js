@@ -5,7 +5,7 @@ const $ = (id) => document.getElementById(id);
 const S = { version: -1, model: null, byId: {}, sel: [], svg: null, vb: null, full: null, params: [],
   values: {}, dragging: false, previewTimer: null, previewSeq: 0, fitted: false,
   versions: [], pick: [], cmp: null, busy: false,
-  previewIds: new Set(), previewFindings: [], paramError: null };  // B3: preview violations on the canvas
+  previewIds: new Set(), previewFindings: [], paramError: null, resolved: {} };  // B3: preview violations on the canvas
 
 async function api(path, body) {
   const opt = body === undefined ? { headers: { "X-LCAD-Token": TOKEN } } : { method: "POST", body: JSON.stringify(body),
@@ -18,7 +18,7 @@ async function api(path, body) {
 async function poll() {
   try {
     const st = await api("/api/state");
-    if (!st.preview) clearPreviewFindings();
+    if (!st.preview && clearPreviewFindings()) { colour(); inspect(); }
     setStatus(st);
     if (st.version !== S.version) { S.version = st.version; await reload(st); }
   } catch (e) { $("st-text").textContent = "与服务断开：" + e; }
@@ -42,9 +42,10 @@ async function reload(st) {
   if (m.ok) {
     S.model = m; S.byId = {};
     for (const e of m.elements) S.byId[e.id] = e;
+    S.resolved = m.resolved || {};
     if (st.preview) {  // a page reload while a preview is active: keep the red marks (B3)
       S.previewFindings = m.issues || [];
-      S.previewIds = new Set((m.issues || []).map((f) => f.id));
+      S.previewIds = new Set((m.issues || []).map((f) => f.id).concat(Object.keys(S.resolved)));
     }
   }
   const r = S.cmp ? null : await fetch("/svg?v=" + S.version);  // a compare overlay stays up
@@ -81,8 +82,9 @@ function fitBox() {
 }
 
 function clearPreviewFindings() {
-  if (!S.previewIds.size && !S.previewFindings.length && !S.paramError) return;
+  if (!S.previewIds.size && !S.previewFindings.length && !S.paramError) return false;
   S.previewIds = new Set(); S.previewFindings = []; S.paramError = null;
+  return true;
 }
 
 function fmtObj(v) { return v && typeof v === "object" ? JSON.stringify(v) : String(v); }
@@ -90,17 +92,19 @@ function fmtObj(v) { return v && typeof v === "object" ? JSON.stringify(v) : Str
 // one finding with the E1 fields as the inspector and snapshot.json carry them
 function issueHtml(i) {
   const rows = [["条款", i.clause], ["实测", i.measured], ["要求", i.expected], ["候选", i.candidates]];
-  const kv = rows.filter(([, v]) => v !== undefined && v !== null && v !== "" &&
-      !(Array.isArray(v) && !v.length) &&
-      !(v && typeof v === "object" && !Array.isArray(v) && !Object.keys(v).length))
-    .map(([k, v]) => "<div class=\"k\">" + esc(k) + "</div><div class=\"v\">" + esc(fmtObj(v)) + "</div>").join("");
+  const kv = rows.map(([k, v]) => {
+    const empty = v === undefined || v === null || v === "" ||
+      (Array.isArray(v) && !v.length) ||
+      (v && typeof v === "object" && !Array.isArray(v) && !Object.keys(v).length);
+    return "<div class=\"k\">" + esc(k) + "</div><div class=\"v\">" + esc(empty ? "无" : fmtObj(v)) + "</div>";
+  }).join("");
   return "<div class=\"issue " + esc(i.severity) + "\"><b>" + esc(i.rule) + "</b> " + esc(i.message) +
     (kv ? "<div class=\"kv\">" + kv + "</div>" : "") +
     "<div class=\"muted\">" + esc(i.std || "") + "</div></div>";
 }
 
 // findings of the preview response: per-element issues + the red ids the canvas colours
-function applyFindings(findings, isPreview) {
+function applyFindings(findings, isPreview, resolved) {
   const byId = {};
   for (const f of findings || []) (byId[f.id] ||= []).push(f);
   for (const e of Object.values(S.byId)) {
@@ -109,7 +113,8 @@ function applyFindings(findings, isPreview) {
     else if (e.issues.length) e.status = "warn";
   }
   S.previewFindings = isPreview ? findings : [];
-  S.previewIds = new Set(isPreview ? findings.map((f) => f.id) : []);
+  S.previewIds = new Set(isPreview ? findings.map((f) => f.id).concat(Object.keys(resolved || {})) : []);
+  if (resolved !== undefined) S.resolved = resolved || {};
   colour();
 }
 
@@ -120,7 +125,8 @@ function colour() {
     g.classList.remove("st-error", "st-warn", "st-accepted", "st-violation");
     if (!e) continue;
     if (S.previewIds.has(e.id)) { g.classList.add("st-violation"); continue; }  // B3: red
-    const sev = e.issues.some((i) => i.severity === "error") ? "error" : e.issues.length ? "warn" : null;
+    const sev = e.issues.some((i) => i.severity === "error") ? "error" :
+      e.issues.length ? "warn" : S.resolved[e.id] || null;
     if (sev) g.classList.add("st-" + sev);
     else if ((e.status || "").startsWith("accepted")) g.classList.add("st-accepted");
   }
@@ -169,7 +175,11 @@ window.addEventListener("mouseup", (ev) => {
   if (ev.target.closest && ev.target.closest("#canvas")) click(pick(ev), ev.ctrlKey || ev.metaKey);
 });
 window.addEventListener("keydown", (ev) => {
-  if (ev.key === "Escape") { if (S.cmp) exitCompare(); else { S.sel = []; sendSel(); } }
+  if (ev.key === "Escape") {
+    if (S.cmp) exitCompare();
+    else if (S.previewIds.size || S.paramError) releasePreview();  // B3: Esc withdraws the preview
+    else { S.sel = []; sendSel(); }
+  }
   const idle = document.activeElement === document.body;
   if (ev.key === "f" && idle && S.svg) { setVB(fitBox()); viewChanged(); }
   if (ev.key === "0" && idle && S.svg) { setVB(S.full.slice()); viewChanged(); }
@@ -370,7 +380,7 @@ function schedulePreview() {
       return;
     }
     for (const row of rows) row.clearBad();
-    applyFindings(r.findings || [], Object.keys(values).length > 0);  // B3: the canvas turns red
+    applyFindings(r.findings || [], Object.keys(values).length > 0, r.resolved);  // B3: the canvas turns red
     S.paramError = null;
     msg.className = "msg";
     msg.textContent = Object.keys(values).length ? `预览 ${r.timing_ms} ms` +
@@ -385,13 +395,16 @@ async function writeback(name, value) {
   if (r.ok) { msg.className = "msg"; msg.textContent = `已写回 ${name}=${value}（${r.edit || ""}）`; S.version = -2; }
   else { msg.className = "msg bad"; msg.textContent = r.error.message + (r.error.hint ? "\n" + r.error.hint : ""); }
 }
-$("btn-reset").onclick = async () => {
+async function releasePreview() {
+  // withdraw the preview: values back to the committed ones, red marks and the panels clear
   S.values = {};
   const r = await api("/api/preview", { values: {} });
   clearPreviewFindings();
-  if (r && r.findings) applyFindings(r.findings, false);
-  S.version = -2; await loadParams();
-};
+  if (r && r.findings) applyFindings(r.findings, false, r.resolved);
+  S.version = -2;
+  await loadParams();
+}
+$("btn-reset").onclick = () => releasePreview();
 
 // ---- versions and compare (M3 S2) -----------------------------------------------------------------
 const vref = (v) => v.edit || v.commit;
