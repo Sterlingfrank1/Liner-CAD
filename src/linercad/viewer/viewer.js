@@ -4,7 +4,8 @@ const TOKEN = document.querySelector('meta[name="lcad-token"]').content;
 const $ = (id) => document.getElementById(id);
 const S = { version: -1, model: null, byId: {}, sel: [], svg: null, vb: null, full: null, params: [],
   values: {}, dragging: false, previewTimer: null, previewSeq: 0, fitted: false,
-  versions: [], pick: [], cmp: null, busy: false };
+  versions: [], pick: [], cmp: null, busy: false,
+  previewIds: new Set(), previewFindings: [], paramError: null, resolved: {}, previewActive: false, unplaced: [], statusOrig: {}, savedScroll: 0, previewPending: false };  // B3/B6
 
 async function api(path, body) {
   const opt = body === undefined ? { headers: { "X-LCAD-Token": TOKEN } } : { method: "POST", body: JSON.stringify(body),
@@ -17,29 +18,69 @@ async function api(path, body) {
 async function poll() {
   try {
     const st = await api("/api/state");
+    if (!st.preview && !st.param_errors && clearPreviewFindings()) { colour(); inspect(); }
     setStatus(st);
     if (st.version !== S.version) { S.version = st.version; await reload(st); }
-  } catch (e) { $("st-text").textContent = "与服务断开：" + e; }
+  } catch (e) { $("st-edit").textContent = "与服务断开：" + e; }
   setTimeout(poll, 1000);
 }
 
+// B4: the canvas badge says what the preview is and, once the drag ends, how to commit it
+function updatePreviewBadge() {
+  const b = $("preview-badge");
+  b.hidden = !S.previewActive;
+  if (!S.previewActive) return;
+  if (S.paramError) b.textContent = "预览（未写回）· 被规则拒绝";
+  else if (S.previewPending) b.textContent = "预览（未写回）· 计算中…";
+  else if (S.dragging) b.textContent = "预览（未写回）· 拖动中…";
+  else b.textContent = "预览（未写回）· 点「写回源码」提交";
+}
+
 function setStatus(st) {
+  S.previewActive = !!st.preview;
+  if (typeof st.preview_seq === "number") S.previewSeq = Math.max(S.previewSeq, st.preview_seq);
   const bar = $("status");
   bar.classList.toggle("has-error", !!st.build_error || st.errors > 0);
   bar.classList.toggle("has-warn", !st.build_error && !st.errors && st.warnings > 0);
   bar.classList.toggle("is-preview", !!st.preview);
   $("canvas-wrap").classList.toggle("is-preview", !!st.preview);  // marked on the canvas too
-  $("preview-badge").hidden = !st.preview;
-  $("st-text").title = st.status || "";
-  $("st-text").textContent = (st.status || "") + (st.preview ? " · 预览中（未写回）" : "") +
-    (st.build_error ? " · 构建失败：" + st.build_error.message : "");
+  updatePreviewBadge();
+  // B5: edit id, coloured counts and a one-line message that expands on click
+  $("st-edit").textContent = st.edit || "";
+  const errs = st.errors || 0, warns = st.warnings || 0;
+  const el = $("st-errors"), wl = $("st-warnings"), ml = $("st-msg");
+  el.textContent = errs + " error";
+  el.className = "cnt " + (errs ? "st-error" : "st-ok");
+  wl.textContent = warns + " warn";
+  wl.className = "cnt " + (warns ? "st-warn" : "st-ok");
+  if (st.build_error) {  // M2 contract: a build error is shown in the status bar itself
+    const text = "构建失败：" + st.build_error.message;
+    ml.textContent = text;
+    ml.title = text;
+    ml.className = "msg-line st-error";
+    $("st-full").textContent = text;
+  } else {
+    ml.textContent = st.message ? "“" + st.message + "”" : "";
+    ml.title = st.message || "";
+    ml.className = "msg-line";
+    $("st-full").textContent = st.message || "";
+  }
 }
 
 async function reload(st) {
+  // B6: a polling refresh re-renders the panel; keep the version list open and its scroll position
+  const verOpen = $("versions").open;
+  const scrollTop = $("params").scrollTop;
   const m = await api("/api/model");  // first: its content box sets the initial view
   if (m.ok) {
     S.model = m; S.byId = {};
     for (const e of m.elements) S.byId[e.id] = e;
+    S.resolved = m.resolved || {};
+    S.unplaced = m.unplaced || [];
+    if (st.preview) {  // a page reload while a preview is active: keep the red marks (B3)
+      S.previewFindings = m.issues || [];
+      S.previewIds = new Set((m.issues || []).map((f) => f.id).concat(Object.keys(S.resolved)));
+    }
   }
   const r = S.cmp ? null : await fetch("/svg?v=" + S.version);  // a compare overlay stays up
   if (r && r.ok) {
@@ -56,9 +97,13 @@ async function reload(st) {
     if (first) viewChanged();
   }
   if (m.ok && !S.cmp) colour();
-  if (!S.dragging && !st.preview) await loadParams();
+  if (!S.dragging && (!st.preview || !S.params.length)) await loadParams();
   S.sel = S.sel.filter((id) => S.byId[id]);
   markSel(); inspect(); loadVersions();
+  $("versions").open = verOpen;
+  if (scrollTop > 0) S.savedScroll = scrollTop;
+  // the panel only reaches its full height after the rows exist: apply the saved scroll now
+  restoreScroll();
 }
 
 // the drawing's content (views, dimensions, notes) and the title block plus a margin, as an SVG
@@ -74,13 +119,62 @@ function fitBox() {
   return [x0, fh - y1, Math.max(x1 - x0, 1), Math.max(y1 - y0, 1)];
 }
 
+function clearPreviewFindings() {
+  if (!S.previewIds.size && !S.previewFindings.length && !S.paramError) return false;
+  S.previewIds = new Set(); S.previewFindings = []; S.paramError = null;
+  return true;
+}
+
+function fmtObj(v) { return v && typeof v === "object" ? JSON.stringify(v) : String(v); }
+
+// one finding with the E1 fields as the inspector and snapshot.json carry them
+function issueHtml(i) {
+  const rows = [["条款", i.clause], ["实测", i.measured], ["要求", i.expected], ["候选", i.candidates]];
+  const kv = rows.map(([k, v]) => {
+    const empty = v === undefined || v === null || v === "" ||
+      (Array.isArray(v) && !v.length) ||
+      (v && typeof v === "object" && !Array.isArray(v) && !Object.keys(v).length);
+    return "<div class=\"k\">" + esc(k) + "</div><div class=\"v\">" + esc(empty ? "无" : fmtObj(v)) + "</div>";
+  }).join("");
+  return "<div class=\"issue " + esc(i.severity) + "\"><b>" + esc(i.rule) + "</b> " + esc(i.message) +
+    (kv ? "<div class=\"kv\">" + kv + "</div>" : "") +
+    "<div class=\"muted\">" + esc(i.std || "") + "</div></div>";
+}
+
+// findings of the preview response: per-element issues + the red ids the canvas colours
+function applyFindings(findings, isPreview, resolved, elementIssues) {
+  const byId = elementIssues || {};
+  if (!elementIssues) for (const f of findings || []) (byId[f.id] ||= []).push(f);
+  for (const e of Object.values(S.byId)) {
+    e.issues = byId[e.id] || [];
+    if (isPreview) {
+      if (!(e.id in S.statusOrig)) S.statusOrig[e.id] = e.status;
+      if (e.issues.some((i) => i.severity === "error")) e.status = "error";
+      else if (e.issues.length) e.status = "warn";
+    } else {
+      const orig = S.statusOrig[e.id];
+      delete S.statusOrig[e.id];
+      if (e.issues.some((i) => i.severity === "error")) e.status = "error";
+      else if (e.issues.length) e.status = "warn";
+      else if (orig !== undefined) e.status = orig;
+    }
+  }
+  S.previewFindings = isPreview ? findings : [];
+  S.previewIds = new Set(isPreview ? findings.map((f) => f.id).concat(Object.keys(resolved || {})) : []);
+  if (resolved !== undefined) S.resolved = resolved || {};
+  colour();
+  inspect();
+}
+
 function colour() {
   if (!S.svg) return;
   for (const g of S.svg.querySelectorAll("g[data-id]")) {
     const e = S.byId[g.dataset.id];
-    g.classList.remove("st-error", "st-warn", "st-accepted");
+    g.classList.remove("st-error", "st-warn", "st-accepted", "st-violation");
     if (!e) continue;
-    const sev = e.issues.some((i) => i.severity === "error") ? "error" : e.issues.length ? "warn" : null;
+    if (S.previewIds.has(e.id)) { g.classList.add("st-violation"); continue; }  // B3: red
+    const sev = e.issues.some((i) => i.severity === "error") ? "error" :
+      e.issues.length ? "warn" : S.resolved[e.id] || null;
     if (sev) g.classList.add("st-" + sev);
     else if ((e.status || "").startsWith("accepted")) g.classList.add("st-accepted");
   }
@@ -129,7 +223,11 @@ window.addEventListener("mouseup", (ev) => {
   if (ev.target.closest && ev.target.closest("#canvas")) click(pick(ev), ev.ctrlKey || ev.metaKey);
 });
 window.addEventListener("keydown", (ev) => {
-  if (ev.key === "Escape") { if (S.cmp) exitCompare(); else { S.sel = []; sendSel(); } }
+  if (ev.key === "Escape") {
+    if (S.cmp) exitCompare();
+    else if (S.previewActive || S.previewIds.size || S.paramError) releasePreview();  // B3: Esc
+    else { S.sel = []; sendSel(); }
+  }
   const idle = document.activeElement === document.body;
   if (ev.key === "f" && idle && S.svg) { setVB(fitBox()); viewChanged(); }
   if (ev.key === "0" && idle && S.svg) { setVB(S.full.slice()); viewChanged(); }
@@ -200,13 +298,60 @@ function fmt(v, k) {
   return typeof v === "object" ? JSON.stringify(v) : String(v);
 }
 
+// B3: preview violations in the inspector. Findings show the E1 fields (clause / measured /
+// expected / candidates); a param-rule error shows only what ParamError really has.
+function previewPanel() {
+  let h = "";
+  if (S.paramError) {
+    const e = S.paramError;
+    h += "<div class=\"issue error\"><b>参数违规</b> " + esc(e.message) + "<div class=\"kv\">" +
+      (e.values ? "<div class=\"k\">值</div><div class=\"v\">" + esc(fmtObj(e.values)) + "</div>" : "") +
+      (e.hint ? "<div class=\"k\">提示</div><div class=\"v\">" + esc(e.hint) + "</div>" : "") +
+      (e.candidates && e.candidates.length ? "<div class=\"k\">候选</div><div class=\"v\">" + esc(fmtObj(e.candidates)) + "</div>" : "") +
+      "</div>" +
+      (e.affected && e.affected.length ? "<div class=\"row\">" + e.affected.map((id) =>
+        "<a class=\"ref\" data-ref=\"" + esc(id) + "\">" + esc(id) + "</a>").join(" ") + "</div>" : "") +
+      "</div>";
+  }
+  if (S.unplaced.length) {
+    h += "<h3>未定位违规（" + S.unplaced.length + "）</h3><p class=\"muted\">finding 的 ID 不是可画元素（如参数），列在这里而不是画布</p>";
+    for (const f of S.unplaced) h += issueHtml(f);
+  }
+  if (S.previewFindings.length) {
+    const unplaced = new Set(S.unplaced.map((f) => f.rule + "|" + f.id));
+    const shown = S.previewFindings.filter((f) => !unplaced.has(f.rule + "|" + f.id));
+    h += "<h3>预览违规（" + shown.length + "）</h3>";
+    for (const f of shown) h += issueHtml(f) +
+      "<div class=\"row\"><a class=\"ref\" data-ref=\"" + esc(f.id) + "\">" + esc(f.id) + "</a></div>";
+  }
+  return h;
+}
+
+function bindRefs(box) {
+  for (const a of box.querySelectorAll("a.ref")) a.onclick = () => {
+    if (S.byId[a.dataset.ref]) { S.sel = [a.dataset.ref]; sendSel(); }
+  };
+}
+
 function inspect() {
   const box = $("insp-body");
   if (S.cmp) { cmpPanel(box); return; }
-  if (!S.sel.length) { box.innerHTML = '<p class="muted">点选图上的元素（Ctrl 多选）</p>'; return; }
+  if (!S.sel.length) {
+    // B2: an empty inspector still tells the user how to work and what the drawing contains
+    const sum = (S.model && S.model.summary) || { elements: 0, errors: 0, warnings: 0 };
+    let h = '<div id="insp-empty"><h3>用法</h3><div class="kv">' +
+      '<div class="k">点选</div><div class="v">单击画布元素（Ctrl 多选）</div>' +
+      '<div class="k">@ID</div><div class="v">选中后点「复制 @ID」，直接粘给 Agent</div></div>';
+    h += '<h3>图纸摘要</h3><div id="insp-summary" class="kv">' +
+      '<div class="k">元素</div><div class="v">' + sum.elements + '</div>' +
+      '<div class="k">错误</div><div class="v ' + (sum.errors ? "st-error" : "muted") + '">' + sum.errors + '</div>' +
+      '<div class="k">警告</div><div class="v ' + (sum.warnings ? "st-warn" : "muted") + '">' + sum.warnings + '</div></div>';
+    h += previewPanel();
+    box.innerHTML = h; bindRefs(box); return;
+  }
   const els = S.sel.map((id) => S.byId[id]).filter(Boolean);
   const refs = els.map((e) => e.ref).join(" ");
-  let h = `<div class="row"><button class="primary" id="btn-copy">复制 @ID</button>
+  let h = previewPanel() + `<div class="row"><button class="primary" id="btn-copy">复制 @ID</button>
     <span class="muted">${els.length} 个已写入 selection.json</span></div>`;
   for (const e of els) {
     h += `<h3>${esc(e.kind)}</h3><div class="idline">${esc(e.id)}</div><div class="kv">`;
@@ -222,12 +367,12 @@ function inspect() {
     h += `<div class="k">来源</div><div class="v">${e.src_link ? `<a href="${esc(e.src_link)}">${esc(src)}</a>` : esc(src)}` +
       `${e.history && e.history.length ? " · 修改于 " + esc(e.history.join(", ")) : ""}</div>`;
     h += `<div class="k">状态</div><div class="v st-${esc((e.status || "").split("(")[0])}">${esc(e.status)}</div></div>`;
-    for (const i of e.issues || []) h += `<div class="issue ${esc(i.severity)}"><b>${esc(i.rule)}</b> ${esc(i.message)}<br><span class="muted">${esc(i.std || "")}</span></div>`;
+    for (const i of e.issues || []) h += issueHtml(i);
     if (e.selector) h += `<h3>选择器</h3><code class="sel">${esc(e.selector)}</code>`;
   }
   box.innerHTML = h;
   $("btn-copy").onclick = () => copy(refs);
-  for (const a of box.querySelectorAll("a.ref")) a.onclick = () => { if (S.byId[a.dataset.ref]) { S.sel = [a.dataset.ref]; sendSel(); } };
+  bindRefs(box);
 }
 function copy(text) {
   (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).catch(() => {
@@ -251,15 +396,29 @@ async function loadParams() {
     for (const p of ps) div.appendChild(paramRow(p));
     list.appendChild(div);
   }
-  $("btn-reset").disabled = true; $("param-msg").textContent = "";
+  S.values = {};
+  for (const p of r.params) if (p.value !== p.default) S.values[p.name] = p.value;
+  for (const row of list.querySelectorAll(".param")) {
+    const p = r.params.find((q) => q.name === row.dataset.name);
+    row.classList.toggle("changed", !!p && p.value !== p.default);
+  }
+  $("btn-reset").disabled = !Object.keys(S.values).length;
+  $("param-msg").textContent = Object.keys(S.values).length ? "预览值已从服务端恢复（页面 reload）" : "";
 }
 function paramRow(p) {
-  const v0 = p.default, lo = p.min ?? +(v0 * 0.5).toFixed(3), hi = p.max ?? +(v0 * 1.5 || 10).toFixed(3);
+  const v0 = p.default;
+  const range = p.range || { min: p.min ?? +(v0 * 0.5).toFixed(3), max: p.max ?? +(v0 * 1.5 || 10).toFixed(3) };
+  const lo = range.min, hi = range.max;
   const step = p.step ?? (Math.abs(v0) >= 10 ? 1 : 0.1);
+  const fnum = (x) => (Number.isInteger(x) ? String(x) : String(+x.toFixed(3)));
+  // B1: min / max labels at both ends and four tick marks on the slider track
+  const ticks = Array.from({ length: 6 }, (_, i) =>
+    `<i class="p-tick" style="left:${(100 * i) / 5}%"></i>`).join("");
   const row = document.createElement("div"); row.className = "param"; row.dataset.name = p.name;
   row.innerHTML = `<div class="top"><span title="${esc(p.rule || "")}">${esc(p.label || p.name)} <span class="muted">${esc(p.name)}</span></span>
     <span class="val">${esc(p.value)} ${esc(p.unit || "")}</span></div>
     <input type="range" min="${lo}" max="${hi}" step="${step}" value="${p.value}">
+    <div class="p-scale"><span class="p-min">${fnum(lo)}</span><span class="p-ticks">${ticks}</span><span class="p-max">${fnum(hi)}</span></div>
     <div class="err"></div><button type="button" hidden>写回源码</button>`;
   const inp = row.querySelector("input"), btn = row.querySelector("button"), err = row.querySelector(".err");
   // [写回源码] only for a changed value whose preview the rules accepted: not while the preview is
@@ -272,7 +431,9 @@ function paramRow(p) {
     if (v === v0) delete S.values[p.name]; else S.values[p.name] = v;
     row.classList.toggle("changed", v !== v0);
     row.classList.add("pending"); row.clearBad();
-    S.dragging = true; schedulePreview();
+    S.dragging = true; S.previewActive = true; S.previewPending = true;  // B3/B4
+    updatePreviewBadge();
+    schedulePreview();
   });
   btn.onclick = () => writeback(p.name, +inp.value);
   return row;
@@ -285,17 +446,31 @@ function schedulePreview() {
     try { r = await api("/api/preview", { values, seq }); } catch (e) { r = { ok: false, error: { message: String(e) } }; }
     if (seq !== S.previewSeq || r.superseded) return;  // a newer drag superseded this one
     S.dragging = false;
+    S.previewPending = false;
     const rows = [...document.querySelectorAll(".param")];
     for (const row of rows) row.classList.remove("pending");
     const msg = $("param-msg");
     if (!r.ok) {
       msg.className = "msg bad"; msg.textContent = r.error.message;
+      S.paramError = { message: r.error.message, values: r.error.values || null,
+        hint: r.error.hint || "", candidates: r.error.candidates || [], affected: r.affected || [] };
+      S.previewFindings = [];
+      S.previewIds = new Set(r.affected || []);  // B3: red on the elements that cover the parameter
+      S.previewActive = true;
+      S.unplaced = [];
+      updatePreviewBadge();
+      colour(); inspect();
       const bad = new Set(Object.keys(values));  // the changed rows, and the row whose rule failed
       if (r.error.id) bad.add(r.error.id);
       for (const row of rows) { if (bad.has(row.dataset.name)) row.setBad(r.error.message); else row.sync(); }
       return;
     }
     for (const row of rows) row.clearBad();
+    applyFindings(r.findings || [], Object.keys(values).length > 0, r.resolved, r.element_issues);
+    S.previewActive = true;
+    S.unplaced = r.unplaced || [];
+    S.paramError = null;
+    updatePreviewBadge();
     msg.className = "msg";
     msg.textContent = Object.keys(values).length ? `预览 ${r.timing_ms} ms` +
       (r.stale_ops && r.stale_ops.length ? `\n失效的日志操作：${r.stale_ops.map((s) => `${s.edit} ${s.op} ${s.id || ""}`).join("；")}` : "") : "";
@@ -309,7 +484,22 @@ async function writeback(name, value) {
   if (r.ok) { msg.className = "msg"; msg.textContent = `已写回 ${name}=${value}（${r.edit || ""}）`; S.version = -2; }
   else { msg.className = "msg bad"; msg.textContent = r.error.message + (r.error.hint ? "\n" + r.error.hint : ""); }
 }
-$("btn-reset").onclick = async () => { S.values = {}; await api("/api/preview", { values: {} }); S.version = -2; await loadParams(); };
+async function releasePreview() {
+  // withdraw the preview: values back to the committed ones, red marks and the panels clear.
+  // Bump the sequence first so a preview request still in flight cannot bring the old preview back.
+  S.values = {};
+  S.previewActive = false;
+  S.unplaced = [];
+  updatePreviewBadge();
+  const seq = ++S.previewSeq;
+  const r = await api("/api/preview", { values: {}, seq });
+  clearPreviewFindings();
+  if (r && r.findings) applyFindings(r.findings, false, r.resolved, r.element_issues);
+  colour(); inspect();
+  S.version = -2;
+  await loadParams();
+}
+$("btn-reset").onclick = () => releasePreview();
 
 // ---- versions and compare (M3 S2) -----------------------------------------------------------------
 const vref = (v) => v.edit || v.commit;
@@ -401,5 +591,47 @@ function zoomTo(id) {
   const m = Math.max(0.6 * Math.max(b.width, b.height), 12);
   setVB([b.x - m, b.y - m, b.width + 2 * m, b.height + 2 * m]); viewChanged();
 }
+
+// B6: persist the version list's open state and the parameters panel scroll across refreshes
+const VER_OPEN_KEY = "lcad-viewer:versions-open";
+const PARAMS_SCROLL_KEY = "lcad-viewer:params-scroll";
+function preserveScroll() {
+  const top = $("params").scrollTop;  // a user scroll to the top is a position like any other
+  S.savedScroll = top;
+  try { sessionStorage.setItem(PARAMS_SCROLL_KEY, String(top)); } catch (e) {}
+}
+// the panel reaches its full height only after the rows arrive: retry until the target fits
+function restoreScroll(tries) {
+  const target = S.savedScroll || 0;
+  if (!target) return;
+  const p = $("params");
+  p.scrollTop = target;
+  if (p.scrollTop < target - 1 && (tries || 0) < 20) {
+    setTimeout(() => restoreScroll((tries || 0) + 1), 50);
+  }
+}
+(function restorePanelState() {
+  try {
+    const open = sessionStorage.getItem(VER_OPEN_KEY);
+    if (open !== null) $("versions").open = open === "1";
+    S.savedScroll = +(sessionStorage.getItem(PARAMS_SCROLL_KEY) || 0);
+    if (S.savedScroll > 0) restoreScroll();
+  } catch (e) {}
+  $("versions").addEventListener("toggle", () => {
+    try { sessionStorage.setItem(VER_OPEN_KEY, $("versions").open ? "1" : "0"); } catch (e) {}
+  });
+  $("params").addEventListener("scroll", () => {
+    clearTimeout(S.scrollTimer);
+    S.scrollTimer = setTimeout(preserveScroll, 200);
+  });
+
+})();
+
+// B5: click the one-line message to expand the full commit message above the status bar
+$("st-msg").onclick = () => {
+  const full = $("st-full");
+  full.hidden = !full.hidden;
+  $("st-msg").classList.toggle("expanded", !full.hidden);
+};
 
 poll();

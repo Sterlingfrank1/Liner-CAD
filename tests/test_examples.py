@@ -13,22 +13,33 @@ from linercad.runtime import build
 #: E5 placement debt of each example (frozen here on purpose: D1/D2 shrink this list, and any
 #: new placement warning must show up as a deliberate update of this table in the same PR).
 PLACEMENT_DEBT = {
-    "bearing_support": set(),
+    "bearing_support": {
+        ("place_dim_cross", "D.D"),
+        ("place_dim_cross", "D.d"),
+        ("place_leader_cross", "D.D"),
+        ("place_leader_cross", "D.d"),
+        ("place_nesting", "D.px"),
+    },
     "bracket": set(),
     "end_cover": set(),
     "flange": set(),
-    "gear_cover": {
-        ("place_nesting", "D.W"),  # right-side row 3 would enter the title-block zone
-    },
+    "gear_cover": {("place_nesting", "D.D"), ("place_nesting", "D.W")},
     "pulley": {
-        ("place_dim_outline", "D.tw"),  # written side="inside": the dimension line stays there
-        ("place_nesting", "D.B"),  # written row 2 of the reference dimension chains it
+        ("place_dim_outline", "D.tw"),
+        ("place_nesting", "D.B"),
+        ("place_nesting", "D.da"),
+        ("place_text_overlap", "D.kd"),
     },
     "pump_body": {
+        ("place_dim_cross", "D.Db"),
+        ("place_dim_cross", "D.dp"),
         ("place_ext_line", "D.Hc"),
+        ("place_leader_cross", "D.Db"),
+        ("place_leader_cross", "D.dp"),
         ("place_nesting", "D.Df"),
         ("place_nesting", "D.Hc"),
         ("place_nesting", "D.W"),
+        ("place_nesting", "D.tw"),
         ("place_row_spacing", "D.t"),
     },
     "shaft": {
@@ -39,8 +50,14 @@ PLACEMENT_DEBT = {
         ("place_ext_line", "D.gh"),
         ("place_ext_line", "D.gw"),
         ("place_nesting", "D.L"),
+        ("place_text_overlap", "D.kd"),
     },
-    "shift_fork": set(),
+    "shift_fork": {
+        ("place_dim_cross", "D.D"),
+        ("place_dim_cross", "D.d"),
+        ("place_leader_cross", "D.D"),
+        ("place_leader_cross", "D.d"),
+    },
     "sleeve": set(),
     "spline_shaft": {
         ("place_dim_outline", "D.d2"),

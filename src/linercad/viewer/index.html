@@ -24,7 +24,7 @@
   </section>
   <section id="canvas-wrap" aria-label="图纸">
     <div id="canvas"></div>
-    <div id="preview-badge" hidden>预览中 · 未写回源码</div>
+    <div id="preview-badge" hidden>预览（未写回）</div>
     <div id="cmp-banner" hidden>
       <span id="cmp-text"></span>
       <span class="legend"><i class="lg lg-a"></i>A <i class="lg lg-b"></i>B <i class="lg lg-add"></i>新增 <i class="lg lg-del"></i>删除 <i class="lg lg-chg"></i>改动</span>
@@ -36,7 +36,16 @@
     <h2>检查器</h2>
     <div id="insp-body"><p class="muted">点选图上的元素</p></div>
   </section>
-  <footer id="status"><span id="st-text">加载中…</span><span id="st-extra"></span></footer>
+  <footer id="status">
+    <span id="st-main">
+      <span id="st-edit">加载中…</span>
+      <span id="st-errors" class="cnt"></span>
+      <span id="st-warnings" class="cnt"></span>
+      <span id="st-msg" class="msg-line" title="点击展开原话"></span>
+    </span>
+    <span id="st-extra"></span>
+    <div id="st-full" hidden></div>
+  </footer>
 </main>
 <script src="/viewer.js"></script>
 </body>
