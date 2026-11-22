@@ -180,9 +180,7 @@ class Viewer:
                 return {"ok": False, "error": self.error}
             issues = {}
             for f in r.findings:
-                issues.setdefault(f.get("id"), []).append(
-                    {k: f.get(k) for k in ("rule", "pack", "severity", "message", "std")}
-                )
+                issues.setdefault(f.get("id"), []).append(_finding(f))
             out = []
             for e in r.d._els.values():
                 if not e._prims:
@@ -216,9 +214,7 @@ class Viewer:
                 "content_bbox": _content_bbox(r.d),
                 "title_bbox": _title_bbox(r.d),
                 "elements": out,
-                "issues": [
-                    {k: f.get(k) for k in ("rule", "id", "severity", "message")} for f in r.findings
-                ],
+                "issues": [_finding(f) for f in r.findings],
             }
 
     def params(self):
@@ -280,10 +276,7 @@ class Viewer:
             "version": edit,
             "commit": h,
             "selection": self.selection,
-            "issues": [
-                {k: f.get(k) for k in ("rule", "id", "severity", "message")}
-                for f in (r.findings if r else [])
-            ],
+            "issues": [_finding(f) for f in (r.findings if r else [])],
             "viewport": self.viewport,
             "params": dict(self.preview["values"]) if self.preview else {},
             "param_errors": self.param_errors,
@@ -311,13 +304,25 @@ class Viewer:
                 self.preview = None
                 self.version += 1
                 self._write_snapshot()
-                return {"ok": True, "version": self.version}
+                findings = [_finding(f) for f in (self.res.findings if self.res else [])]
+                return {
+                    "ok": True,
+                    "version": self.version,
+                    "findings": findings,
+                    "affected": [],
+                }
             try:
                 res = build(self.dir, params=values)
             except LinerError as e:
-                self.param_errors = {"values": dict(values), "error": e.to_dict()}
+                info = e.to_dict()
+                affected = self._affected_ids(info.get("id"))
+                self.param_errors = {
+                    "values": dict(values),
+                    "error": info,
+                    "affected": affected,
+                }
                 self._write_snapshot()
-                return {"ok": False, "error": e.to_dict()}
+                return {"ok": False, "error": info, "affected": affected}
             self.param_errors = {}
             svg = svgout.svg(res.d)
             ms = round((time.perf_counter() - t0) * 1000, 1)
@@ -325,7 +330,22 @@ class Viewer:
             self.version += 1
             self._write_snapshot()
             stale = [{k: s.get(k) for k in ("edit", "op", "id", "reason")} for s in res.stale]
-            return {"ok": True, "version": self.version, "timing_ms": ms, "stale_ops": stale}
+            return {
+                "ok": True,
+                "version": self.version,
+                "timing_ms": ms,
+                "findings": [_finding(f) for f in res.findings],
+                "affected": [],
+                "stale_ops": stale,
+            }
+
+    def _affected_ids(self, name):
+        """Drawn elements that cover parameter name: a param-rule error has no element finding,
+        so the canvas marks the elements that display / depend on that parameter."""
+        r = self.res
+        if r is None or not name:
+            return []
+        return [e.id for e in r.d._els.values() if e._prims and name in (e._covers or [])]
 
     def writeback(self, name, value):
         from .. import txn
@@ -486,6 +506,31 @@ def _brief_intent(e):
         "expr",
     )
     return {k: v for k, v in e.to_dict()["intent"].items() if k in keep}
+
+
+#: fields of one check finding as the Viewer, the inspector and snapshot.json show them. E1 added
+#: clause / measured / expected / candidates next to the old rule / id / severity / message.
+FINDING_KEYS = (
+    "rule",
+    "id",
+    "severity",
+    "message",
+    "clause",
+    "measured",
+    "expected",
+    "candidates",
+    "pack",
+    "std",
+)
+
+
+def _finding(f) -> dict:
+    """One finding with the fields of the E1 finding protocol (missing containers become empty)."""
+    out = {k: f.get(k) for k in FINDING_KEYS}
+    out["measured"] = dict(out["measured"] or {})
+    out["expected"] = dict(out["expected"] or {})
+    out["candidates"] = list(out["candidates"] or [])
+    return out
 
 
 def _write_json(path: Path, doc):

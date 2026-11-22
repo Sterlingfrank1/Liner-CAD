@@ -24,9 +24,13 @@ h3 { font-size: 12px; margin: 10px 0 4px; color: var(--muted); }
 #canvas svg polygon.solid { fill: currentColor; }
 #canvas svg path.hatch { stroke: none; }
 #canvas svg g.st-error { color: var(--err); } #canvas svg g.st-warn { color: var(--warn); }
+#canvas svg g.st-violation { color: var(--err); filter: drop-shadow(0 0 1.4px var(--err)) drop-shadow(0 0 1.4px var(--err)); }
 #canvas svg g.st-accepted { color: var(--acc); }
 #canvas svg g.hover { color: var(--hover); }
 #canvas svg g.sel { color: var(--sel); }
+/* B3: a preview violation stays red even when selected or hovered */
+#canvas svg g.sel.st-violation, #canvas svg g.hover.st-violation { color: var(--err);
+  filter: drop-shadow(0 0 1.4px var(--err)) drop-shadow(0 0 1.4px var(--err)); }
 #canvas svg g.sel line, #canvas svg g.sel path, #canvas svg g.sel circle, #canvas svg g.sel polyline { stroke-width: .6; }
 /* params */
 .pgroup { margin-bottom: 10px; } .pgroup > .gname { color: var(--muted); font-size: 11px; margin: 6px 0 2px; }

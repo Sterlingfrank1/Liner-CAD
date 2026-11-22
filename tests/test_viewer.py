@@ -256,7 +256,9 @@ def flange_dir(tmp_path):
 
 def test_preview_returns_e1_finding_fields(flange_dir):
     v = Viewer(flange_dir)
-    r = v.do_preview({"D": 140})  # the flange drags D out until the position frame overlaps a dimension
+    r = v.do_preview(
+        {"D": 140}
+    )  # the flange drags D out until the position frame overlaps a dimension
     assert r["ok"] and r["findings"], r
     hit = [f for f in r["findings"] if f["rule"] == "overlap" and f["id"] == "G.pos"]
     assert hit, r["findings"]
@@ -275,7 +277,9 @@ def test_preview_findings_reach_model_and_snapshot(flange_dir):
     ids = {f["id"] for f in r["findings"]}
     model = v.model()
     drawn = {e["id"] for e in model["elements"]}
-    assert ids and ids <= drawn  # every violation points at a drawn element: the canvas can colour it
+    assert (
+        ids and ids <= drawn
+    )  # every violation points at a drawn element: the canvas can colour it
     by_id = {e["id"]: e for e in model["elements"]}
     issue = next(i for i in by_id["G.pos"]["issues"] if i["rule"] == "overlap")
     assert {"clause", "measured", "expected", "candidates"} <= set(issue)
@@ -315,10 +319,10 @@ def test_viewer_consumes_preview_findings_on_the_canvas():
         "previewIds",
         "st-violation",
         "r.findings",
-        '"clause"',
-        '"measured"',
-        '"expected"',
-        '"candidates"',
+        "i.clause",
+        "i.measured",
+        "i.expected",
+        "i.candidates",
         "条款",
         "实测",
         "要求",
