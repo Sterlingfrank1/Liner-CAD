@@ -199,20 +199,20 @@ def test_diff_in_a_subdirectory_of_a_bigger_repo(tmp_path):
 # ---- B7: a whole-view translation is one view move, not one layout change per element -------------
 
 
-def _el(view, bbox, kind="edge"):
-    return {"kind": kind, "intent": {"view": view}, "bbox": bbox, "view": view}
+def _el(view, bbox, kind="edge", origin=None):
+    return {"kind": kind, "intent": {"view": view}, "bbox": bbox, "view": view, "origin": origin}
 
 
 def test_compare_merges_a_whole_view_translation():
     # real snapshots contain the view element V.<name>: it is the explicit anchor of the view move
     a = {
-        "V.left": _el("left", [0, 0, 60, 20]),
+        "V.left": _el("left", [0, 0, 60, 20], origin=[0, 0]),
         "E.left.1": _el("left", [0, 0, 10, 10]),
         "E.left.2": _el("left", [20, 0, 30, 10]),
         "E.front.1": _el("front", [100, 0, 110, 10]),
     }
     b = {
-        "V.left": _el("left", [10, 5, 70, 25]),
+        "V.left": _el("left", [10, 5, 70, 25], origin=[10, 5]),
         "E.left.1": _el("left", [10, 5, 20, 15]),
         "E.left.2": _el("left", [30, 5, 40, 15]),
         "E.front.1": _el("front", [100, 0, 110, 10]),
@@ -228,11 +228,43 @@ def test_compare_merges_a_whole_view_translation():
 
 
 def test_compare_view_anchor_wins_over_a_lone_child():
-    a = {"V.left": _el("left", [0, 0, 40, 10]), "E.left.1": _el("left", [0, 0, 5, 5])}
-    b = {"V.left": _el("left", [10, 0, 50, 10]), "E.left.1": _el("left", [25, 0, 30, 5])}
+    a = {
+        "V.left": _el("left", [0, 0, 40, 10], origin=[0, 0]),
+        "E.left.1": _el("left", [0, 0, 5, 5]),
+    }
+    b = {
+        "V.left": _el("left", [10, 0, 50, 10], origin=[10, 0]),
+        "E.left.1": _el("left", [25, 0, 30, 5]),
+    }
     out = versions.compare(a, b)
     assert out["view_moves"] == [{"view": "left", "dx": 10.0, "dy": 0.0, "elements": 1}]
     assert out["layout_changed"] == ["E.left.1"]
+
+
+def test_compare_does_not_treat_a_shape_change_as_a_view_move():
+    # the view origin is unchanged (only the content grew): V's bbox grows with the content
+    a = {
+        "V.left": _el("left", [0, 0, 40, 40], origin=[50, 60]),
+        "E.left.1": _el("left", [0, 0, 20, 20]),
+    }
+    b = {
+        "V.left": _el("left", [0, 0, 80, 80], origin=[50, 60]),
+        "E.left.1": _el("left", [0, 0, 40, 40]),
+    }
+    out = versions.compare(a, b)
+    assert out["view_moves"] == []
+    assert out["layout_changed"] == ["E.left.1", "V.left"]
+
+
+def test_compare_requires_a_strict_majority_without_an_anchor():
+    a = {}
+    b = {}
+    for i, dx in enumerate((10, 10, 5, -5)):
+        a[f"E.left.{i}"] = _el("left", [0, 0, 10, 10])
+        b[f"E.left.{i}"] = _el("left", [dx, 0, 10 + dx, 10])
+    out = versions.compare(a, b)
+    assert out["view_moves"] == []  # the top group is exactly half: not a view translation
+    assert out["layout_changed"] == sorted(a)
 
 
 def test_compare_reports_no_view_move_for_conflicting_translations():

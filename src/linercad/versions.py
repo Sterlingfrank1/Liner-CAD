@@ -142,11 +142,14 @@ def snapshot(d) -> dict:
     out = {}
     for e in d._els.values():
         bbox = e._resolved.get("bbox")
+        origin = e._resolved.get("origin")
         out[e.id] = {
             "kind": e.kind,
             "intent": _norm(e.to_dict()["intent"]),
             "bbox": [float(v) for v in bbox] if bbox else None,
             "view": e._intent.get("view"),
+            # a view element's bbox is its content union; the origin is the translation anchor
+            "origin": [float(v) for v in origin] if origin else None,
         }
     return out
 
@@ -212,17 +215,20 @@ def compare(sa: dict, sb: dict) -> dict:
             groups.setdefault(view, []).append((i, delta))
     for view in sorted(groups):
         rows = groups[view]
-        # the view element V.<name> is the explicit anchor: when it moved, that translation is the
-        # view move even if only one child shares it (the other children are the extra movements)
-        anchor_delta = next((d for i, d in rows if i == f"V.{view}"), None)
-        if anchor_delta is not None:
-            if max(abs(x) for x in anchor_delta) <= BBOX_EPS:
+        # the view element V.<name> carries the view origin, the exact translation anchor; its bbox
+        # is only the content union (a shape change must not look like a view move)
+        vid = f"V.{view}"
+        oa = (sa.get(vid) or {}).get("origin")
+        ob = (sb.get(vid) or {}).get("origin")
+        if oa is not None and ob is not None:
+            dx, dy = round(ob[0] - oa[0], 6), round(ob[1] - oa[1], 6)
+            if abs(dx) <= BBOX_EPS and abs(dy) <= BBOX_EPS:
                 continue  # the view itself did not move: children moved on their own
+            anchor_delta = (dx, dy, dx, dy)
+            absorbed.add(vid)  # the view element itself is part of its translation
             absorbed |= {i for i, d in rows if d == anchor_delta}
             n = sum(1 for _i, d in rows if d == anchor_delta)
-            view_moves.append(
-                {"view": view, "dx": anchor_delta[0], "dy": anchor_delta[1], "elements": n}
-            )
+            view_moves.append({"view": view, "dx": dx, "dy": dy, "elements": n})
             continue
         counts = {}
         for _i, delta in rows:
