@@ -8,6 +8,7 @@ from __future__ import annotations
 import ast
 import io
 import json
+import math
 import re
 import secrets
 import subprocess
@@ -160,6 +161,7 @@ class Viewer:
                 "version": self.version,
                 "edit": edit,
                 "status": status,
+                "message": msg,
                 "errors": errors,
                 "warnings": warns,
                 "build_error": self.error,
@@ -209,9 +211,15 @@ class Viewer:
                         "selector": svgout.selector(e),
                     }
                 )
+            errors = sum(1 for f in r.findings if f.get("severity") == "error")
             return {
                 "ok": True,
                 "version": self.version,
+                "summary": {
+                    "elements": len(out),
+                    "errors": errors,
+                    "warnings": len(r.findings) - errors,
+                },
                 "resolved": self._resolved(r),
                 "unplaced": self._unplaced(r),
                 "content_bbox": _content_bbox(r.d),
@@ -232,6 +240,22 @@ class Viewer:
                 p["default"] = p["value"]
                 if self.preview and n in self.preview["values"]:
                     p["value"] = self.preview["values"][n]
+                lo, hi = p.get("min"), p.get("max")
+                base = p["default"]
+                declared = lo is not None and hi is not None
+                if not declared:
+                    # fallback range: 0.5–1.5 × default, aligned to the step grid so the default
+                    # value is reachable on the slider (Param(11) must not become 5.5–16.5 with step 1)
+                    step = p.get("step")
+                    if step is None:
+                        step = 1 if abs(base) >= 10 else 0.1
+                    if lo is None:
+                        lo = math.floor((base * 0.5) / step) * step
+                    if hi is None:
+                        hi = math.ceil((base * 1.5) / step) * step
+                    if not hi > lo:  # a default of 0 must still give a usable slider
+                        lo, hi = base - 1, base + 1
+                p["range"] = {"min": round(float(lo), 6), "max": round(float(hi), 6)}
                 out.append(p)
             return {"ok": True, "params": out}
 
