@@ -11,6 +11,8 @@
 
 ## dsh 现场验收（临时目录图纸仓库，产物不入库）
 
+现场验收按 lead 2026-11-21 口径只做 dsh 侧：卡片 Goal 里「Claude Code 与 dsh 各出一张图」的 Claude Code 半句是旧措辞（Claude Code 不在本版本验收范围），Codex 侧由评审轮覆盖，不另设 Claude Code 验收。
+
 环境：`LCAD_VIEW_IDLE_TIMEOUT` 按用例设为 12/30/60 s；`CI`、`LCAD_NO_VIEW` 未设置。
 
 ### ① 首次 build 自动起 Viewer 并打开一次

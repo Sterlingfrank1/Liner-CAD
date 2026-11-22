@@ -169,7 +169,10 @@ def _run(args, parser) -> int:
     if args.cmd in ("build", "edit") and out.get("ok"):
         from .viewer import autostart
 
-        state = autostart(d, disabled=bool(getattr(args, "no_view", False)))
+        try:
+            state = autostart(d, disabled=bool(getattr(args, "no_view", False)))
+        except Exception as e:  # noqa: BLE001 - a Viewer problem must not fail the transaction
+            state = {"url": None, "opened": False, "error": f"{type(e).__name__}: {e}"}
         if state is not None:
             out["viewer"] = state
     emit(out)

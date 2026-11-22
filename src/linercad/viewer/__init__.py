@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import ast
+import contextlib
 import io
 import json
 import math
@@ -820,6 +821,13 @@ def _pid_alive(pid) -> bool:
             return bool(ok) and code.value == STILL_ACTIVE
         finally:
             ctypes.windll.kernel32.CloseHandle(h)
+    # a detached child that exited but was not reaped is a zombie: it is not a running Viewer
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8", errors="replace")
+        if stat.rsplit(")", 1)[1].split()[0] == "Z":
+            return False
+    except (OSError, IndexError):
+        pass
     try:
         os.kill(pid, 0)
     except (ProcessLookupError, OSError):
@@ -903,6 +911,54 @@ def _log_tail(dir, limit=400) -> str:
     return data.decode("utf-8", "replace").strip()
 
 
+#: Popen objects of spawned viewers; polled so exited children are reaped (no zombies).
+_CHILDREN = []
+_LOCK = ".linercad/viewer.lock"
+
+
+def _reap_children():
+    for proc in list(_CHILDREN):
+        if proc.poll() is not None:
+            _CHILDREN.remove(proc)
+
+
+@contextlib.contextmanager
+def _viewer_lock(dir):
+    """A cross-process lock: only one build/edit may decide to spawn the background Viewer."""
+    path = Path(dir) / _LOCK
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = None
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            break
+        except FileExistsError:
+            time.sleep(0.05)
+    if fd is None:  # a crashed build left the lock behind: take it over once
+        try:
+            path.unlink()
+        except OSError:
+            pass
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            fd = None
+    try:
+        if fd is not None:
+            os.write(fd, str(os.getpid()).encode("ascii"))
+            os.close(fd)
+            fd = None
+        yield
+    finally:
+        if fd is not None:
+            os.close(fd)
+        try:
+            path.unlink()
+        except OSError:
+            pass
+
+
 def autostart(dir, disabled=False, open_browser=True):
     """After a successful build / edit: make sure a Viewer runs and open it once.
 
@@ -911,63 +967,66 @@ def autostart(dir, disabled=False, open_browser=True):
     """
     if _suppressed(disabled):
         return None
-    dir = Path(dir)
-    running = _running(dir)
-    if running is not None:
-        return {"url": running["url"], "opened": False}
-    log = _log_path(dir)
-    log.parent.mkdir(parents=True, exist_ok=True)
-    args = [
-        sys.executable,
-        "-m",
-        "linercad.viewer",
-        "--background",
-        "--dir",
-        str(dir),
-        "--port",
-        "0",
-        "--idle-timeout",
-        str(_idle_timeout()),
-    ]
-    kwargs = dict(
-        stdin=subprocess.DEVNULL,
-        stderr=subprocess.STDOUT,
-        cwd=str(dir),
-        close_fds=True,
-    )
-    if os.name == "nt":
-        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
-    else:
-        kwargs["start_new_session"] = True
-    handle = open(log, "ab")
+    dir = Path(dir).resolve()  # --dir and the child cwd must agree for lcad -C <relative>
+    _reap_children()
     try:
-        subprocess.Popen(args, stdout=handle, **kwargs)
-    finally:
-        handle.close()  # the child keeps its own duplicate
-
-    # the Windows venv launcher may exit after starting the real interpreter, so accept the state
-    # file written by the child (any live pid + open port), not only the launcher's pid
-    state = None
-    deadline = time.monotonic() + 8
-    while time.monotonic() < deadline:
-        candidate = _read_state(dir)
-        if (
-            candidate
-            and candidate.get("pid")
-            and candidate.get("port")
-            and _pid_alive(candidate["pid"])
-            and _port_open(candidate["port"])
-        ):
-            state = candidate
-            break
-        time.sleep(0.05)
-    if not state or not state.get("port"):
-        return {
-            "url": None,
-            "opened": False,
-            "error": _log_tail(dir) or "Viewer 后台进程启动失败",
-        }
-    url = state["url"]
+        with _viewer_lock(dir):
+            running = _running(dir)
+            if running is not None:
+                return {"url": running["url"], "opened": False}
+            log = _log_path(dir)
+            log.parent.mkdir(parents=True, exist_ok=True)
+            args = [
+                sys.executable,
+                "-m",
+                "linercad.viewer",
+                "--background",
+                "--dir",
+                str(dir),
+                "--port",
+                "0",
+                "--idle-timeout",
+                str(_idle_timeout()),
+            ]
+            kwargs = dict(
+                stdin=subprocess.DEVNULL,
+                stderr=subprocess.STDOUT,
+                cwd=str(dir),
+                close_fds=True,
+            )
+            if os.name == "nt":
+                kwargs["creationflags"] = (
+                    subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+                )
+            else:
+                kwargs["start_new_session"] = True
+            with open(log, "ab") as handle:
+                _CHILDREN.append(subprocess.Popen(args, stdout=handle, **kwargs))
+            # the Windows venv launcher may exit after starting the real interpreter, so accept
+            # the state file written by the child (any live pid + open port)
+            state = None
+            deadline = time.monotonic() + 15  # CI runners can be slow to import the package
+            while time.monotonic() < deadline:
+                candidate = _read_state(dir)
+                if (
+                    candidate
+                    and candidate.get("pid")
+                    and candidate.get("port")
+                    and _pid_alive(candidate["pid"])
+                    and _port_open(candidate["port"])
+                ):
+                    state = candidate
+                    break
+                time.sleep(0.05)
+            if not state or not state.get("port"):
+                return {
+                    "url": None,
+                    "opened": False,
+                    "error": _log_tail(dir) or "Viewer 后台进程启动失败",
+                }
+            url = state["url"]
+    except Exception as e:  # noqa: BLE001 - a Viewer failure must not fail the build/edit
+        return {"url": None, "opened": False, "error": f"{type(e).__name__}: {e}"}
     opened = False
     if open_browser:
         try:
@@ -990,18 +1049,32 @@ def _serve_until_idle(httpd, v, idle_timeout):
 
 def serve(dir, port=8765, open_browser=True, idle_timeout=None):
     """Start the Viewer on 127.0.0.1:<port> (blocks). Writes .linercad/viewer.json for H3."""
-    v = Viewer(dir)
-    httpd = _Server(("127.0.0.1", int(port)), make_handler(v))
-    url = f"http://127.0.0.1:{httpd.server_address[1]}/"
-    _write_json(
-        _state_path(dir),
-        {
-            "pid": os.getpid(),
-            "port": int(httpd.server_address[1]),
-            "url": url,
-            "started": datetime.now(UTC).isoformat(timespec="seconds"),
-        },
-    )
+    dir = Path(dir).resolve()
+    with _viewer_lock(dir):
+        existing = _running(dir)
+        if existing is not None and int(existing.get("pid", 0)) != os.getpid():
+            # another Viewer already serves this drawing: report it instead of writing a state
+            # file that would orphan the running process (lcad view + auto-open collision)
+            print(
+                json.dumps(
+                    {"ok": True, "url": existing["url"], "dir": str(dir), "existing": True},
+                    ensure_ascii=False,
+                ),
+                flush=True,
+            )
+            return
+        v = Viewer(dir)
+        httpd = _Server(("127.0.0.1", int(port)), make_handler(v))
+        url = f"http://127.0.0.1:{httpd.server_address[1]}/"
+        _write_json(
+            _state_path(dir),
+            {
+                "pid": os.getpid(),
+                "port": int(httpd.server_address[1]),
+                "url": url,
+                "started": datetime.now(UTC).isoformat(timespec="seconds"),
+            },
+        )
     print(json.dumps({"ok": True, "url": url, "dir": str(v.dir)}, ensure_ascii=False), flush=True)
     if open_browser:
         import webbrowser
