@@ -414,14 +414,20 @@ def edit(dir, script, msg, dry_run=False):
     return edit_full(dir, script, msg, dry_run=dry_run)[0]
 
 
-def _dry_run_preview(dir, res, edit_id):
-    """Write the would-be result to .linercad/tmp only (a DXF the agent can inspect)."""
+def _dry_run_previews(dir, res, edit_id):
+    """Render the would-be result into .linercad/tmp only: a PNG to look at plus a DXF to inspect."""
     from . import dxfout
+    from .render import render_png
 
     out = Path(dir) / TMP_DIR
     out.mkdir(parents=True, exist_ok=True)
-    p = dxfout.save_doc(res.doc, out / f"dry-run-{edit_id}.dxf")
-    return p.relative_to(dir).as_posix()
+    dxf = dxfout.save_doc(res.doc, out / f"dry-run-{edit_id}.dxf")
+    w, h = res.d.template["size"]
+    png = render_png(res.doc, (w, h), out / f"dry-run-{edit_id}.png")
+    return {
+        "preview": png.relative_to(dir).as_posix(),
+        "preview_dxf": dxf.relative_to(dir).as_posix(),
+    }
 
 
 def edit_full(dir, script, msg, dry_run=False):
@@ -451,8 +457,7 @@ def edit_full(dir, script, msg, dry_run=False):
     filled = record.fill_layout(numbered, r1.d)
     r2 = build(dir, filled, current_edit=edit_id)
     if dry_run:
-        preview = _dry_run_preview(dir, r2, edit_id)
-        prune_tmp(dir)
+        previews = _dry_run_previews(dir, r2, edit_id)
         changed = []
         for op in filled:
             if op.get("id") and op["id"] not in changed:
@@ -466,9 +471,13 @@ def edit_full(dir, script, msg, dry_run=False):
             "changed": changed,
             "errors": _errors(r2.findings),
             "warnings": _warnings(r2.findings, base.findings),
-            "preview": preview,
+            **previews,
             "hint": "试改结果：没有写入 drawing.actions.jsonl、没有改源文件、没有提交；"
-            "确认后去掉 --dry-run 重跑同一脚本即可提交",
+            + (
+                '确认后加 -m "<用户原话>" 并去掉 --dry-run 重跑同一脚本即可提交'
+                if not msg
+                else "确认后去掉 --dry-run 重跑同一脚本即可提交"
+            ),
         }, r2
     old = log_path.read_bytes() if log_path.exists() else b""
     lines = "".join(record.dumps(op) + "\n" for op in filled)

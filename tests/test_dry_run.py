@@ -31,7 +31,10 @@ def cli(*args, cwd=None):
         env=env,
         cwd=cwd,
     )
-    return r.returncode, json.loads(r.stdout)
+    try:
+        return r.returncode, json.loads(r.stdout)
+    except json.JSONDecodeError as e:
+        raise AssertionError(f"stdout={r.stdout!r} stderr={r.stderr!r}") from e
 
 
 def repo_state(d):
@@ -60,9 +63,11 @@ def test_dry_run_writes_nothing_and_reports_change_findings_preview(shaft):
     assert code == 0 and out["ok"] and out["dry_run"] is True
     assert out["commit"] is None and out["edit"] == "e1"
     assert "D.L" in out["changed"]
-    assert out["preview"].endswith(".dxf")
-    preview = shaft / out["preview"]
-    assert preview.is_file() and preview.stat().st_size > 0
+    assert out["preview"].endswith(".png")
+    png = shaft / out["preview"]
+    assert png.is_file() and png.stat().st_size > 0  # rendered preview for the agent to look at
+    dxf = shaft / out["preview_dxf"]
+    assert dxf.is_file() and dxf.stat().st_size > 0
     assert out["warnings"], out
     for finding in out["warnings"]:
         assert all(k in finding for k in E1), finding
@@ -151,3 +156,21 @@ def test_dry_run_without_a_message_is_allowed(shaft):
     script = write_script(shaft, '    d["D.L"].place(side="top")\n')
     code, out = cli("-C", str(shaft), "edit", str(script), "--dry-run")
     assert code == 0 and out["ok"] and out["dry_run"] is True
+    assert "-m" in out["hint"]  # the hint must say how to commit for real
+
+
+def test_dry_run_does_not_prune_the_script_it_was_asked_to_replay(shaft):
+    import time
+
+    script = write_script(shaft, '    d["D.L"].place(side="top")\n')
+    old = time.time() - 3600
+    os.utime(script, (old, old))  # older than the junk files below
+    tmp = shaft / ".linercad" / "tmp"
+    for k in range(25):
+        f = tmp / f"junk-{k:02d}.py"
+        f.write_text("pass\n", encoding="utf-8")
+    code, dry = cli("-C", str(shaft), "edit", str(script), "-m", "试改", "--dry-run")
+    assert code == 0 and dry["ok"]
+    assert script.is_file()  # dry-run must not prune the script it just replayed
+    code, real = cli("-C", str(shaft), "edit", str(script), "-m", "试改")
+    assert code == 0 and real["ok"] and real["commit"]
