@@ -323,9 +323,12 @@ def test_balloons_on_one_side_stay_aligned():
     leader, circle = _balloon_prims(el)
     shifted = Circle((circle.c[0] + 6.0, circle.c[1]), circle.r, circle.layer)
     el._prims = [shifted if p is circle else p for p in el._prims]
-    findings, _ = _run(d, "place_balloon_align")
-    hit = next(f for f in findings if f["id"] == "B.b1")
-    _assert_finding(hit, "place_balloon_align", "B.b1")
+    findings, checks = _run(d, "place_balloon_align")
+    assert len(findings) == 1 and checks == 1  # one check per view side, one finding for the group
+    f = findings[0]
+    _assert_finding(f, "place_balloon_align", f["id"])
+    assert set(f["measured"]["balloons"]) == {"B.b0", "B.b1"}
+    assert f["measured"]["spread"] > 0.5
 
 
 def test_balloons_keep_a_minimum_spacing():
@@ -339,3 +342,91 @@ def test_balloons_keep_a_minimum_spacing():
     findings, _ = _run(d, "place_balloon_spacing")
     assert findings and findings[0]["id"] == "B.b1"
     _assert_finding(findings[0], "place_balloon_spacing", "B.b1")
+
+
+def test_placement_tolerances_come_from_the_std_profile():
+    # the profile (GB, or an enterprise overlay) owns the numeric conventions
+    d = _balloons()
+    assert _run(d, "place_balloon_spacing")[0] == []
+    d.std["placement"]["balloon_clearance"] = 50.0
+    findings, _ = _run(d, "place_balloon_spacing")
+    assert findings  # the clean pair now violates the overridden clearance
+    d2 = _dims()
+    d2.std["placement"]["row_tol"] = 5.0  # 6 mm between rows is accepted with a 5 mm slack
+    w = _dim_line(_el(d2, "D.W"))
+    ln = _dim_line(_el(d2, "D.L"))
+    dy = -(d2.std["dim"]["row_pitch"] - 1.0)
+    _set_line(_el(d2, "D.L"), ln, (ln.p[0], w.p[1] + dy), (ln.q[0], w.q[1] + dy))
+    assert _run(d2, "place_row_spacing")[0] == []
+
+
+def test_dimension_text_may_not_sit_on_its_own_primitives():
+    d = _dims()
+    assert _run(d, "place_text_overlap")[0] == []
+    e = _el(d, "D.W")
+    line = _dim_line(e)
+    moved = [
+        Text(
+            p.text,
+            ((line.p[0] + line.q[0]) / 2, line.p[1]),
+            p.height,
+            p.rot,
+            p.layer,
+            (
+                (line.p[0] + line.q[0]) / 2 - 2,
+                line.p[1] - 1.5,
+                (line.p[0] + line.q[0]) / 2 + 2,
+                line.p[1] + 1.5,
+            ),
+        )
+        for p in e._prims
+        if isinstance(p, Text)
+    ]
+    e._prims = [p for p in e._prims if not isinstance(p, Text)] + moved
+    findings, _ = _run(d, "place_text_overlap")
+    assert "D.W" in [f["id"] for f in findings]
+
+
+def _three_rows():
+    """Three parallel dimensions in one row stack: A (10 mm out), B (12, disjoint span),
+    C (15). A and C overlap but are not neighbours in the distance order."""
+    d = Drawing(sheet="A3")
+    f = d.view("front")
+    f.rect((0, 0), 300, 60, name="body")
+    f.dim.linear("A", (0, 0), (40, 0), value=40, side="bottom", row=1)
+    f.dim.linear("B", (200, 0), (260, 0), value=60, side="bottom", row=1, offset=2)
+    f.dim.linear("C", (0, 0), (120, 0), value=120, side="bottom", row=1, offset=5)
+    layout(d)
+    return d
+
+
+def test_row_spacing_checks_all_overlapping_pairs():
+    d = _three_rows()
+    findings, _ = _run(d, "place_row_spacing")
+    assert findings  # A and C overlap and are only 5 mm apart, with B between them
+    ids = {f["id"] for f in findings}
+    assert ids & {"D.A", "D.C"}
+
+
+def test_nesting_checks_all_overlapping_pairs():
+    d = _three_rows()
+    assert _run(d, "place_nesting")[0] == []  # A (40) inside C (120) is the correct order
+    # make the inner one the long one while C stays between A and B in the distance order:
+    # widen A's extension lines and narrow C's, keeping the two spans overlapping
+    bbox = place._view_bbox(d, "front")
+    left = bbox[0]
+
+    def set_span(eid, x0, x1):
+        ext = _ext_lines(_el(d, eid))
+        for k, line in enumerate(ext):
+            _set_line(
+                _el(d, eid),
+                line,
+                (x0 if k == 0 else x1, line.p[1]),
+                (x0 if k == 0 else x1, line.q[1]),
+            )
+
+    set_span("D.A", left, left + 120)
+    set_span("D.C", left, left + 40)
+    findings, _ = _run(d, "place_nesting")
+    assert findings and findings[0]["id"] == "D.A"  # the non-adjacent A / C pair is judged

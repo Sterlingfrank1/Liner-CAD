@@ -31,7 +31,7 @@ CLAUSES = {
     "place_dim_outline": "尺寸线不应与轮廓线相交",
     "place_row_spacing": "平行的尺寸线之间应保持不小于排距的间距",
     "place_nesting": "尺寸较小的尺寸应靠近轮廓，尺寸较大的尺寸应在外侧",
-    "place_ext_line": "尺寸界线应超出尺寸线约 2 mm，并应从轮廓线、轴线或中心线引出",
+    "place_ext_line": "尺寸界线应超出尺寸线约 2 mm，并应从轮廓线、轴线或中心线引出（间隙不超过档值）",
     "place_text_direction": "水平尺寸的数字字头朝上，垂直尺寸的数字字头朝左",
     "place_text_overlap": "尺寸数字不应与其他图元重叠",
     "place_arrow": "同一图纸的箭头大小应一致，并符合标准档的箭头尺寸",
@@ -46,6 +46,19 @@ FAMILY_OVERRIDES = {
     "place_balloon_align": "A",
     "place_balloon_spacing": "A",
 }
+
+
+#: numeric conventions of the placement metrics; the placement profile may override them
+DEFAULTS = {
+    "balloon_clearance": 1.0,  # mm between two balloon circles
+    "balloon_align_tol": 0.5,  # mm a balloon centre may deviate from its column / row
+    "ext_gap_max": 1.5,  # mm the extension line may start away from the contour / axis
+    "row_tol": 0.05,  # mm slack on the row pitch (the layout emits exact multiples)
+}
+
+
+def _cfg(d):
+    return {**DEFAULTS, **(d.std.get("placement") or {})}
 
 
 def _std(d, rule):
@@ -117,24 +130,54 @@ def _is_v(p):
     return abs(p.p[0] - p.q[0]) < EPS
 
 
-def _box_dim(e):
-    """Axis-aligned box dimension: (direction, dim line, extension lines, arrows, texts)."""
+def _line_angle(p):
+    return math.degrees(math.atan2(p.q[1] - p.p[1], p.q[0] - p.p[0])) % 180.0
+
+
+def _parallel(a, b, tol_deg=1.0):
+    d = abs(_line_angle(a) - _line_angle(b)) % 180.0
+    return min(d, 180.0 - d) < tol_deg
+
+
+def _frame_dim(e):
+    """A dimension drawn as two parallel extension lines plus one dimension line (bar or aligned).
+
+    Works on the laid-out primitives only: the two parallel lines are the extension lines, the odd
+    one is the dimension line. Returns None for leaders and angle dimensions (judged separately or
+    not at all)."""
     if e.kind != "dim":
         return None
     lines = [p for p in e._prims if isinstance(p, Line)]
-    if len(lines) < 3:
-        return None
     arrows = [p for p in e._prims if isinstance(p, Solid)]
     texts = [p for p in e._prims if isinstance(p, Text)]
-    if len(arrows) < 2:
+    if len(lines) < 3 or len(arrows) < 2:
         return None
-    h = [p for p in lines if _is_h(p)]
-    v = [p for p in lines if _is_v(p)]
-    if len(h) == 1 and len(v) == 2:
-        return {"dir": "h", "dim": h[0], "ext": v, "arrows": arrows, "texts": texts}
-    if len(v) == 1 and len(h) == 2:
-        return {"dir": "v", "dim": v[0], "ext": h, "arrows": arrows, "texts": texts}
-    return None
+    groups = []
+    for p in lines:
+        for g in groups:
+            if _parallel(p, g[0]):
+                g.append(p)
+                break
+        else:
+            groups.append([p])
+    if len(groups) != 2 or sorted(len(g) for g in groups) != [1, 2]:
+        return None
+    dim = next(g[0] for g in groups if len(g) == 1)
+    ext = next(g for g in groups if len(g) == 2)
+    ang = _line_angle(dim)
+    if ang < 1.0 or ang > 179.0:
+        direction = "h"
+    elif abs(ang - 90.0) < 1.0:
+        direction = "v"
+    else:
+        direction = "d"  # aligned dimension: the dimension line is diagonal
+    return {"dir": direction, "dim": dim, "ext": ext, "arrows": arrows, "texts": texts}
+
+
+def _box_dim(e):
+    """Axis-aligned (bar) dimension: the frame classifier restricted to h / v."""
+    info = _frame_dim(e)
+    return info if info is not None and info["dir"] in ("h", "v") else None
 
 
 def _leader_dim(e):
@@ -143,7 +186,7 @@ def _leader_dim(e):
     lines = [p for p in e._prims if isinstance(p, Line)]
     arrows = [p for p in e._prims if isinstance(p, Solid)]
     texts = [p for p in e._prims if isinstance(p, Text)]
-    if len(lines) != 2 or len(arrows) < 1:
+    if len(lines) != 2 or len(arrows) < 1 or _parallel(lines[0], lines[1], tol_deg=5.0):
         return None
     return {
         "dir": "leader",
@@ -155,12 +198,15 @@ def _leader_dim(e):
 
 
 def _dim_info(e):
-    """(kind, {dir, dim, ext, arrows, texts}) for a dimension element, or None."""
+    """(kind, {dir, dim, ext, arrows, texts}) for a dimension element, or None.
+
+    Angle dimensions (their dimension line is an arc) are deliberately not judged: their placement
+    follows the angle candidate rules, not the linear ones."""
     if e.kind != "dim":
         return None
-    box = _box_dim(e)
-    if box is not None:
-        return "box", box
+    frame = _frame_dim(e)
+    if frame is not None:
+        return "frame", frame
     leader = _leader_dim(e)
     if leader is not None:
         return "leader", leader
@@ -247,6 +293,17 @@ def _center_segments(d, view):
     return out
 
 
+def _straight_edge_segments(d, view):
+    """Only the straight contour segments of a view (arcs are excluded: a diameter leader crosses
+    the arc it points at by design)."""
+    out = []
+    for e in d._els.values():
+        if e.kind != "edge" or e.view != view or e.role not in ("thick", "hidden"):
+            continue
+        out += [(p.p, p.q) for p in e._prims if isinstance(p, Line)]
+    return out
+
+
 def _edge_segments(d, view):
     out = []
     for e in d._els.values():
@@ -272,13 +329,13 @@ def _arrow_size(solid):
 
 
 def place_dim_cross(d):
-    """尺寸线互相交叉 (GB/T 4458.4 / ISO 129-1); judged on box dimensions."""
+    """尺寸线互相交叉 (GB/T 4458.4 / ISO 129-1); bars, aligned dimensions and leaders are judged."""
     targets = []
     for e in d._els.values():
-        info = _box_dim(e)
+        info = _dim_info(e)
         if info is None:
             continue
-        targets.append((e, info["dim"]))
+        targets.append((e, info[1]["dim"]))
     findings = []
     for i, (e, line) in enumerate(targets):
         for j, (other, other_line) in enumerate(targets):
@@ -293,10 +350,7 @@ def place_dim_cross(d):
                             d,
                             me.id,
                             f"{me.id} 的尺寸线与 {them.id} 的尺寸线相交",
-                            measured={
-                                "with": them.id,
-                                "at": [round(pt[0], 2), round(pt[1], 2)],
-                            },
+                            measured={"with": them.id, "at": [round(pt[0], 2), round(pt[1], 2)]},
                             expected={"crossings": 0},
                             candidates=[f"移动 {me.id} 的排 / 侧向，避开 {them.id}"],
                         )
@@ -310,14 +364,15 @@ def place_dim_cross(d):
 
 
 def place_dim_outline(d):
-    """尺寸线与轮廓线交叉; judged on box dimensions (leaders point at their own outline)."""
+    """尺寸线不应与轮廓线相交; the outline is judged on its straight segments (a diameter leader
+    necessarily crosses the arc it points at, so arcs are not counted)."""
     targets, findings = [], []
     for e in d._els.values():
-        info = _box_dim(e)
+        info = _dim_info(e)
         if info is None:
             continue
-        line = info["dim"]
-        edges = _edge_segments(d, e.view)
+        line = info[1]["dim"]
+        edges = _straight_edge_segments(d, e.view)
         hit = any(_crosses(line.p, line.q, a, b) for a, b in edges)
         targets.append(e)
         if hit:
@@ -359,68 +414,81 @@ def _side_groups(d):
 
 
 def place_row_spacing(d):
-    """平行尺寸线的间距不小于标准档排距."""
+    """平行尺寸线的间距不小于标准档排距 (all overlapping pairs, not just neighbours)."""
     groups = _side_groups(d)
     pitch = d.std["dim"]["row_pitch"]
-    tol = 0.5
-    findings, checks = [], 0
+    tol = _cfg(d)["row_tol"]
+    by_outer = {}
+    checks = 0
     for items in groups.values():
-        for (e0, i0, d0), (e1, i1, d1) in zip(items, items[1:]):
-            if not _overlap_1d(_box_interval(i0), _box_interval(i1)):
-                continue  # side by side, not stacked: no row pitch requirement
-            checks += 1
-            gap = d1 - d0
-            if gap < pitch - tol:
-                findings.append(
-                    _f(
-                        "place_row_spacing",
-                        d,
-                        e1.id,
-                        f"{e1.id} 与 {e0.id} 的尺寸线间距 {gap:.2f} 小于排距 {pitch:g}",
-                        measured={"gap": round(gap, 3), "with": e0.id},
-                        expected={"gap": f">= {pitch:g}"},
-                        candidates=[f"外推到下一排：place(row=...)，或移动 {e1.id}"],
-                    )
-                )
+        for i, (e0, i0, d0) in enumerate(items):
+            for e1, i1, d1 in items[i + 1 :]:
+                if not _overlap_1d(_box_interval(i0), _box_interval(i1)):
+                    continue  # side by side, not stacked: no row pitch requirement
+                checks += 1
+                gap = d1 - d0
+                if gap < pitch - tol:
+                    prev = by_outer.get(e1.id)
+                    if prev is None or gap < prev[0]:
+                        by_outer[e1.id] = (gap, e0.id)
+    findings = [
+        _f(
+            "place_row_spacing",
+            d,
+            eid,
+            f"{eid} 与 {other} 的尺寸线间距 {gap:.2f} 小于排距 {pitch:g}",
+            measured={"gap": round(gap, 3), "with": other},
+            expected={"gap": f">= {pitch:g}"},
+            candidates=[f"外推到下一排：place(row=...)，或移动 {eid}"],
+        )
+        for eid, (gap, other) in by_outer.items()
+    ]
     return findings, checks
 
 
 def place_nesting(d):
-    """小尺寸在内、大尺寸在外."""
+    """小尺寸在内、大尺寸在外 (all overlapping pairs)."""
     groups = _side_groups(d)
-    findings, checks = [], 0
+    checks = 0
+    worst = {}
     for items in groups.values():
-        for (e0, i0, _d0), (e1, i1, _d1) in zip(items, items[1:]):
-            if not _overlap_1d(_box_interval(i0), _box_interval(i1)):
-                continue  # side by side, not nested: order does not matter
-            span0, span1 = _box_span(i0), _box_span(i1)
-            checks += 1
-            if span0 > span1 + 0.01:  # the inner dimension is the longer one
-                findings.append(
-                    _f(
-                        "place_nesting",
-                        d,
-                        e0.id,
-                        f"{e0.id}（{span0:.1f}）比外侧的 {e1.id}（{span1:.1f}）大，小尺寸应在内",
-                        measured={
-                            "inner": e0.id,
-                            "inner_span": round(span0, 3),
-                            "outer": e1.id,
-                            "outer_span": round(span1, 3),
-                        },
-                        expected={"inner_span": "<= outer_span"},
-                        candidates=[f"交换 {e0.id} 与 {e1.id} 的排"],
-                    )
-                )
+        for i, (e0, i0, _d0) in enumerate(items):
+            for e1, i1, _d1 in items[i + 1 :]:
+                if not _overlap_1d(_box_interval(i0), _box_interval(i1)):
+                    continue  # side by side, not nested: order does not matter
+                checks += 1
+                span0, span1 = _box_span(i0), _box_span(i1)
+                if span0 > span1 + 0.01:  # the inner dimension is the longer one
+                    prev = worst.get(e0.id)
+                    if prev is None or span0 - span1 > prev[0]:
+                        worst[e0.id] = (span0 - span1, e1.id, span0, span1)
+    findings = [
+        _f(
+            "place_nesting",
+            d,
+            eid,
+            f"{eid}（{s0:.1f}）比外侧的 {other}（{s1:.1f}）大，小尺寸应在内",
+            measured={
+                "inner": eid,
+                "inner_span": round(s0, 3),
+                "outer": other,
+                "outer_span": round(s1, 3),
+            },
+            expected={"inner_span": "<= outer_span"},
+            candidates=[f"交换 {eid} 与 {other} 的排"],
+        )
+        for eid, (_delta, other, s0, s1) in worst.items()
+    ]
     return findings, checks
 
 
 def place_ext_line(d):
-    """尺寸界线超出约 2 mm 并与轮廓线留隙."""
+    """尺寸界线超出约 2 mm，且从轮廓线 / 轴线 / 中心线引出（起点离几何不超过档值）。"""
     dm = d.std["dim"]
+    cfg = _cfg(d)
     beyond = dm["ext_beyond"]
     lo, hi = beyond - 0.5, beyond + 1.0
-    max_gap = 1.5  # the line must start on the contour / axis (small gaps are invisible)
+    max_gap = cfg["ext_gap_max"]
     findings, checks = [], 0
     for e in d._els.values():
         info = _box_dim(e)
@@ -472,8 +540,11 @@ def place_ext_line(d):
                         f"{e.id} 的尺寸界线超出 {over:.2f}（应约 {beyond:g}）"
                         + (f"，与轮廓间隙 {gap:.2f}" if gap != float("inf") else ""),
                         measured=measured,
-                        expected={"beyond": f"{lo:g}..{hi:g}", "gap": f"<= {max_gap:g}"},
-                        candidates=[f"调整 {e.id} 的排距，使尺寸界线超出约 {beyond:g}"],
+                        expected={
+                            "beyond": f"{lo:g}..{hi:g}",
+                            "gap": f"<= {max_gap:g}",
+                        },
+                        candidates=[f"调整 {e.id} 的排距，使尺寸界线从轮廓外引出"],
                     )
                 )
     seen, uniq = set(), []
@@ -533,8 +604,8 @@ def place_text_overlap(d):
         for t in info[1]["texts"]:
             box = t.box
             for o, (osegs, oboxes) in prims.items():
-                if o == e._id:
-                    continue
+                if o == e._id:  # own primitives are judged, own text boxes are not conflicts
+                    oboxes = []
                 for a, b in osegs:
                     ov = _seg_in_box(a, b, box)
                     if ov > 0.05:
@@ -657,8 +728,11 @@ def place_balloon_cross(d):
 
 
 def place_balloon_align(d):
-    """同一侧序号成列 / 成行 (GB/T 4458.2)."""
-    sides = {}
+    """同一侧（同一视图）的序号成列 / 成行 (GB/T 4458.2). One check per side group: a group whose
+    centres spread out is reported once (two balloons alone cannot tell which one moved)."""
+    cfg = _cfg(d)
+    tol = cfg["balloon_align_tol"]
+    groups = {}
     for e in d._els.values():
         parts = _balloon_parts(e)
         if parts is None:
@@ -666,33 +740,42 @@ def place_balloon_align(d):
         side = _balloon_side(d, e, parts[1])
         if side is None:
             continue
-        sides.setdefault(side, []).append((e, parts[1]))
+        groups.setdefault((e.view, side), []).append((e, parts[1]))
     findings, checks = [], 0
-    for side, items in sides.items():
-        checks += len(items)
+    for (view, side), items in groups.items():
+        checks += 1
         if len(items) < 2:
             continue
         k = 0 if side in ("left", "right") else 1
-        want = sum(p.c[k] for _, p in items) / len(items)
-        for e, circle in items:
-            if abs(circle.c[k] - want) > 0.5:
-                findings.append(
-                    _f(
-                        "place_balloon_align",
-                        d,
-                        e.id,
-                        f"{e.id} 的序号圆心没有排成{'一列' if k == 0 else '一行'}",
-                        measured={"coord": round(circle.c[k], 3), "side": side},
-                        expected={"coord": round(want, 3)},
-                        candidates=[f"把 {e.id} 对齐到同侧序号轴线"],
-                    )
+        coords = [p.c[k] for _, p in items]
+        spread = max(coords) - min(coords)
+        if spread > tol:
+            first = sorted(items, key=lambda t: (t[1].c[k], t[0].id))[0][0]
+            findings.append(
+                _f(
+                    "place_balloon_align",
+                    d,
+                    first.id,
+                    f"{view} {side} 侧的 {len(items)} 个序号没有排成{'一列' if k == 0 else '一行'}"
+                    f"（散布 {spread:.2f}）",
+                    measured={
+                        "view": view,
+                        "side": side,
+                        "spread": round(spread, 3),
+                        "balloons": [e.id for e, _ in items],
+                    },
+                    expected={"spread": f"<= {tol:g}"},
+                    candidates=[f"把 {e.id} 对齐到同侧序号轴线" for e, _ in items],
                 )
+            )
     return findings, checks
 
 
 def place_balloon_spacing(d):
-    """序号圆圈之间留间隙、不重叠 (GB/T 4458.2: 序号排列整齐、不重叠)."""
-    sides = {}
+    """序号圆圈之间留间隙、不重叠 (GB/T 4458.2), per view and side."""
+    cfg = _cfg(d)
+    clearance = cfg["balloon_clearance"]
+    groups = {}
     for e in d._els.values():
         parts = _balloon_parts(e)
         if parts is None:
@@ -700,27 +783,27 @@ def place_balloon_spacing(d):
         side = _balloon_side(d, e, parts[1])
         if side is None:
             continue
-        sides.setdefault(side, []).append((e, parts[1]))
-    clearance = 1.0
+        groups.setdefault((e.view, side), []).append((e, parts[1]))
     findings, checks = [], 0
-    for side, items in sides.items():
+    for (_view, side), items in groups.items():
         k = 1 if side in ("left", "right") else 0
         items.sort(key=lambda t: t[1].c[k])
-        for (e0, c0), (e1, c1) in zip(items, items[1:]):
-            checks += 1
-            gap = math.dist(c0.c, c1.c) - c0.r - c1.r
-            if gap < clearance - 1e-9:
-                findings.append(
-                    _f(
-                        "place_balloon_spacing",
-                        d,
-                        e1.id,
-                        f"{e1.id} 与 {e0.id} 的序号间距 {gap:.2f} 小于 {clearance:g}",
-                        measured={"gap": round(gap, 3), "with": e0.id},
-                        expected={"gap": f">= {clearance:g}"},
-                        candidates=[f"拉开 {e1.id} 与 {e0.id} 的序号"],
+        for i, (e0, c0) in enumerate(items):
+            for e1, c1 in items[i + 1 :]:
+                checks += 1
+                gap = math.dist(c0.c, c1.c) - c0.r - c1.r
+                if gap < clearance - 1e-9:
+                    findings.append(
+                        _f(
+                            "place_balloon_spacing",
+                            d,
+                            e1.id,
+                            f"{e1.id} 与 {e0.id} 的序号间距 {gap:.2f} 小于 {clearance:g}",
+                            measured={"gap": round(gap, 3), "with": e0.id},
+                            expected={"gap": f">= {clearance:g}"},
+                            candidates=[f"拉开 {e1.id} 与 {e0.id} 的序号"],
+                        )
                     )
-                )
     return findings, checks
 
 
