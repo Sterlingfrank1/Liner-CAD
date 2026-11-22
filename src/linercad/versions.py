@@ -146,6 +146,7 @@ def snapshot(d) -> dict:
             "kind": e.kind,
             "intent": _norm(e.to_dict()["intent"]),
             "bbox": [float(v) for v in bbox] if bbox else None,
+            "view": e._intent.get("view"),
         }
     return out
 
@@ -159,12 +160,30 @@ def _moved(a, b):
     return max(abs(x - y) for x, y in zip(a, b, strict=True))
 
 
+def _delta(a, b):
+    """Per-coordinate box shift (x0, y0, x1, y1): equal values on a pure translation."""
+    return tuple(round(y - x, 6) for x, y in zip(a, b, strict=True))
+
+
+def _element_view(i, entry):
+    """The view an element belongs to; the view element V.<name> itself belongs to <name>."""
+    if entry.get("view"):
+        return entry["view"]
+    return i[2:] if isinstance(i, str) and i.startswith("V.") else None
+
+
 def compare(sa: dict, sb: dict) -> dict:
     """Semantic diff by element ID: ``added / removed / intent_changed / layout_changed`` plus
-    ``details`` (the changed intent fields as ``[a, b]`` and how far a box moved)."""
+    ``details`` (the changed intent fields as ``[a, b]`` and how far a box moved) and
+    ``view_moves``.
+
+    A whole-view translation (the layout re-centres the view group, or the user moved the view)
+    becomes one ``view_moves`` entry ``{view, dx, dy, elements}``; the elements that share it leave
+    ``layout_changed``, which keeps only elements moving differently from their view."""
     added = sorted(set(sb) - set(sa))
     removed = sorted(set(sa) - set(sb))
     intent_changed, layout_changed, details = [], [], {}
+    deltas = {}  # id -> per-coordinate shift, for elements present in both with a box in both
     for i in sorted(set(sa) & set(sb)):
         a, b = sa[i], sb[i]
         if a["intent"] != b["intent"]:
@@ -181,12 +200,49 @@ def compare(sa: dict, sb: dict) -> dict:
             details.setdefault(i, {"kind": b["kind"]})["moved"] = (
                 None if mv is None else round(mv, 3)
             )
+        if a["bbox"] is not None and b["bbox"] is not None:
+            deltas[i] = _delta(a["bbox"], b["bbox"])
+    view_moves, absorbed = [], set()
+    groups = {}
+    for i, delta in deltas.items():
+        if max(abs(x) for x in delta) <= BBOX_EPS:
+            continue
+        view = _element_view(i, sb[i])
+        if view:
+            groups.setdefault(view, []).append((i, delta))
+    for view in sorted(groups):
+        rows = groups[view]
+        counts = {}
+        for _i, delta in rows:
+            counts[delta] = counts.get(delta, 0) + 1
+        delta, n = max(counts.items(), key=lambda kv: (kv[1], kv[0]))
+        total = sum(
+            1
+            for i in set(sa) & set(sb)
+            if _element_view(i, sb[i]) == view
+            and sa[i]["bbox"] is not None
+            and sb[i]["bbox"] is not None
+        )
+        # a translation needs at least two elements moving together and must cover the view's
+        # majority: the remaining elements are the real extra layout changes
+        if n >= 2 and 2 * n >= total:
+            absorbed |= {i for i, d in rows if d == delta}
+            view_moves.append({"view": view, "dx": delta[0], "dy": delta[1], "elements": n})
+    layout_changed = [i for i in layout_changed if i not in absorbed]
+    for i in absorbed:
+        d = details.get(i)
+        if d:
+            d.pop("moved", None)
+            if set(d) <= {"kind"}:
+                details.pop(i)
     return {
         "added": added,
         "removed": removed,
         "intent_changed": intent_changed,
         "layout_changed": layout_changed,
+        "view_moves": view_moves,
         "details": details,
+        "_view_moved_ids": sorted(absorbed),  # kept out of the public summary, used by the overlay
     }
 
 
@@ -205,7 +261,11 @@ def overlay_svg(da, db, comparison: dict) -> str:
     No stylesheet inside: the Viewer's page CSP forbids inline styles and its own stylesheet has the
     same rules; the file written by ``diff`` embeds ``STANDALONE_CSS``."""
     added, removed = set(comparison["added"]), set(comparison["removed"])
-    changed = set(comparison["intent_changed"]) | set(comparison["layout_changed"])
+    changed = (
+        set(comparison["intent_changed"])
+        | set(comparison["layout_changed"])
+        | set(comparison.get("_view_moved_ids", []))
+    )
     (Wa, Ha), (Wb, Hb) = da.template["size"], db.template["size"]
     W, H = max(Wa, Wb), max(Ha, Hb)
     f = svgout._f
@@ -249,6 +309,7 @@ def compare_revisions(dir, a, b=None):
         rb = _build_at(wt[cb], b) if cb else runtime.build(dir, dxf=False)
         comparison = compare(snapshot(ra.d), snapshot(rb.d))
         svg = overlay_svg(ra.d, rb.d, comparison)
+    comparison.pop("_view_moved_ids", None)
     summary = {
         "a": {"ref": str(a), "commit": _short(dir, ca)},
         "b": {
@@ -257,7 +318,8 @@ def compare_revisions(dir, a, b=None):
         },
         **comparison,
         "counts": {
-            k: len(comparison[k]) for k in ("added", "removed", "intent_changed", "layout_changed")
+            k: len(comparison[k])
+            for k in ("added", "removed", "intent_changed", "layout_changed", "view_moves")
         },
     }
     return summary, svg

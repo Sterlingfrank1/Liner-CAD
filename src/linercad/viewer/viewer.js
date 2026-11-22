@@ -552,7 +552,7 @@ async function compare(ia, ib) {
   S.boxes = []; hovered = null;
   setVB(S.vb || S.full.slice());  // keep the view the user had
   const c = r.summary.counts;
-  $("cmp-text").textContent = `对比 ${a} → ${b}：新增 ${c.added} · 删除 ${c.removed} · 意图改动 ${c.intent_changed} · 位置改动 ${c.layout_changed}`;
+  $("cmp-text").textContent = `对比 ${a} → ${b}：新增 ${c.added} · 删除 ${c.removed} · 意图改动 ${c.intent_changed} · 位置改动 ${c.layout_changed} · 视图平移 ${c.view_moves}`;
   $("canvas-wrap").classList.add("is-compare");
   renderVersions(); inspect();
 }
@@ -573,13 +573,16 @@ function cmpPanel(box) {
     (ids.length > 60 ? ` … 等 ${ids.length} 个` : "") + "</div>";
   let h = `<div class="muted">${esc(s.a.ref)} → ${esc(s.b.ref)}　点 ID 缩放到该元素</div>`;
   h += sect("新增", s.added) + sect("删除", s.removed) + sect("意图改动", s.intent_changed) + sect("位置改动", s.layout_changed);
+  const vm = (s.view_moves || []).map((m) => "<div class=\"k\">" + esc(m.view) + "</div><div class=\"v\">" +
+    "平移 (" + fmt(m.dx) + ", " + fmt(m.dy) + ") mm · " + m.elements + " 个元素</div>");
+  if (vm.length) h += "<h3>视图平移（" + vm.length + "）</h3><div class=\"kv\">" + vm.join("") + "</div>";
   const rows = s.intent_changed.slice(0, 30).map((id) => {
     const f = (s.details[id] || {}).intent || {};
     const txt = Object.entries(f).map(([k, [x, y]]) => `${k}: ${fmt(x ?? "—", k)} → ${fmt(y ?? "—", k)}`).join("；");
     return `<div class="k">${esc(id)}</div><div class="v">${esc(txt)}</div>`;
   });
   if (rows.length) h += `<h3>意图变化</h3><div class="kv">${rows.join("")}</div>`;
-  if (!s.added.length && !s.removed.length && !s.intent_changed.length && !s.layout_changed.length) h += '<p class="muted">两个版本没有差别</p>';
+  if (!s.added.length && !s.removed.length && !s.intent_changed.length && !s.layout_changed.length && !(s.view_moves || []).length) h += '<p class="muted">两个版本没有差别</p>';
   box.innerHTML = h;
   for (const a of box.querySelectorAll("a[data-zoom]")) a.onclick = () => zoomTo(a.dataset.zoom);
 }

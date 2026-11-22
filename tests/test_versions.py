@@ -207,20 +207,22 @@ def test_compare_merges_a_whole_view_translation():
     a = {
         "E.left.1": _el("left", [0, 0, 10, 10]),
         "E.left.2": _el("left", [20, 0, 30, 10]),
+        "E.left.3": _el("left", [40, 0, 50, 10]),
         "E.front.1": _el("front", [100, 0, 110, 10]),
     }
     b = {
         "E.left.1": _el("left", [10, 5, 20, 15]),
         "E.left.2": _el("left", [30, 5, 40, 15]),
+        "E.left.3": _el("left", [50, 5, 60, 15]),
         "E.front.1": _el("front", [100, 0, 110, 10]),
     }
     out = versions.compare(a, b)
-    assert out["view_moves"] == [{"view": "left", "dx": 10.0, "dy": 5.0, "elements": 2}]
+    assert out["view_moves"] == [{"view": "left", "dx": 10.0, "dy": 5.0, "elements": 3}]
     assert out["layout_changed"] == [] and out["details"] == {}
     # an element that moved differently from its view stays in layout_changed (the real extra move)
     b["E.left.2"] = _el("left", [35, 10, 45, 20])
     out = versions.compare(a, b)
-    assert out["view_moves"] == [{"view": "left", "dx": 10.0, "dy": 5.0, "elements": 1}]
+    assert out["view_moves"] == [{"view": "left", "dx": 10.0, "dy": 5.0, "elements": 2}]
     assert out["layout_changed"] == ["E.left.2"]
 
 
@@ -253,7 +255,8 @@ def test_diff_reports_view_moves_for_the_real_drawing(moved_view_repo):
     assert "V.left" not in out["layout_changed"]  # the view itself is part of its translation
     assert len(out["layout_changed"]) <= 2  # only elements moving differently from their view stay
     svg = Path(out["svg"]).read_text(encoding="utf-8")
-    assert 'class="df-chg" data-id="V.left"' in svg  # the moved view stays visible in the overlay
+    # the absorbed view elements stay blue in the overlay, so the moved view is still visible
+    assert 'class="df-chg" data-id="E.left.outer.1"' in svg
 
 
 # ---- lcad export ---------------------------------------------------------------------------------
