@@ -102,9 +102,10 @@ def test_inspect_reports_layers_types_extents_and_a_png(tmp_path):
     maps = out["maps_to"]
     assert maps["edges"] == {"CIRCLE": 3, "LINE": 14, "LWPOLYLINE": 1}
     assert sum(maps["dims"].values()) == 8 and maps["dims"]["radius"] == 1
-    assert maps["notes"] == {"MTEXT": 1, "TEXT": 1}
+    assert maps["texts"] == {"MTEXT": 1, "TEXT": 1} and maps["notes"] == {}
     assert maps["raw"] == {"ELLIPSE": 1, "SPLINE": 1}
-    assert maps["skipped"] == {"HATCH": 1, "INSERT": 1, "POINT": 1}
+    assert maps["hatches"] == {"HATCH": 1}
+    assert maps["skipped"] == {"INSERT": 1, "POINT": 1}
     assert out["sheet"] == {"sheet": "A4", "scale": "1:1"}
     png = Path(out["png"])
     assert png.is_file() and png.suffix == ".png" and png.stat().st_size > 2000
@@ -199,8 +200,11 @@ def test_edges_by_role_and_polyline_bulges(imported):
     assert by_handle["OUTLINE[20.0, 5.0]"]["intent"]["role"] == "hidden"
     assert by_handle["THIN[62.0, 12.0]"]["intent"]["role"] == "thin"
     i = m["I.ref"]["intent"]
-    assert i["counts"]["edges"] == roles and i["counts"]["raw"] == 2 and i["counts"]["notes"] == 2
-    assert i["counts"]["skipped"] == {"HATCH": 1, "INSERT": 1, "POINT": 1}
+    assert i["counts"]["edges"] == roles and i["counts"]["raw"] == 2
+    assert (
+        i["counts"]["notes"] == 0 and i["counts"]["texts"] == 2
+    )  # TEXT/MTEXT became text elements
+    assert i["counts"]["skipped"] == {"INSERT": 1, "POINT": 1} and i["counts"]["hatches"] == 1
     assert i["units"] == "mm" and i["extents"] == [0.0, -55.0, 100.0, 60.0]
     assert i["path"] == "ref.dxf" and len(i["sha256"]) == 64
 
@@ -239,11 +243,12 @@ def test_dimensions_carry_the_dxf_values(imported, sample_doc):
 def test_notes_and_raw_curves(imported):
     d, _ = imported
     m = model(d)
-    notes = [e for e in m.values() if e["kind"] == "note"]
-    assert sorted(n["intent"]["text"] for n in notes) == [
+    texts = [e for e in m.values() if e["kind"] == "text"]
+    assert sorted(n["intent"]["text"] for n in texts) == [
         "SAMPLE PART",
-        "Technical requirements 1. Deburr all edges",
+        "Technical requirements\n1. Deburr all edges",
     ]
+    assert [e for e in m.values() if e["kind"] == "note"] == []
     raws = [e for e in m.values() if e["kind"] == "raw"]
     assert sorted(r["intent"]["dxftype"] for r in raws) == ["ELLIPSE", "SPLINE"]
     assert all(
@@ -256,7 +261,8 @@ def test_notes_and_raw_curves(imported):
     assert ell.dxf.center.x == pytest.approx(ox + 50, abs=1e-3)
     assert ell.dxf.center.y == pytest.approx(oy + 12, abs=1e-3)
     assert [e for e in doc.modelspace() if e.dxftype() == "SPLINE"]
-    assert not {e.dxftype() for e in doc.modelspace()} & {"HATCH", "INSERT", "POINT"}
+    types = {e.dxftype() for e in doc.modelspace()}
+    assert "HATCH" in types and not types & {"INSERT", "POINT"}
 
 
 def test_import_builds_without_errors(imported):
@@ -454,10 +460,13 @@ def test_unmapped_dimensions_become_notes_and_degenerate_things_are_counted(tmp_
     imp = d.import_dxf(str(p))
     c = imp.counts
     assert c["edges"] == {"thick": 1} and c["dims"] == 0 and c["dims_as_notes"] == 2
-    assert c["notes"] == 3  # the text and the two dimensions whose geometry was not drawn
+    assert c["notes"] == 2  # only the two dimensions whose geometry was not drawn
+    assert c["texts"] == 1
     assert c["skipped"] == {"LINE(degenerate)": 1, "LINE(layer off)": 1}
-    texts = sorted(n.text for n in d.q.notes())
-    assert "Φ10" in texts and "kept" in texts and any(t.endswith("°") for t in texts)
+    note_texts = sorted(n.text for n in d.q.notes())
+    plain_texts = sorted(e.text for e in d._els.values() if e.kind == "text")
+    assert "Φ10" in note_texts and any(t.endswith("°") for t in note_texts)
+    assert plain_texts == ["kept"]
 
 
 def test_reflex_angles_keep_the_dxf_number_as_text(tmp_path):

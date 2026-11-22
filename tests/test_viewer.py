@@ -601,6 +601,41 @@ def test_b6_versions_open_state_and_scroll_are_preserved():
         assert needle in js, needle
 
 
+def test_viewer_compare_panel_shows_merged_view_moves():
+    from importlib import resources
+
+    js = (resources.files("linercad.viewer") / "viewer.js").read_text(encoding="utf-8")
+    # the banner counts the merged moves and the panel renders one line per view
+    for needle in ("view_moves", "视图平移 ${c.view_moves}", "fmt(m.dx)", "m.elements"):
+        assert needle in js, needle
+
+
+def test_b7_viewer_diff_api_returns_view_moves(tmp_path):
+    from http.server import ThreadingHTTPServer
+
+    p = tmp_path / "v"
+    txn.init(p, from_="flange")
+    s = p / ".linercad" / "tmp" / "mv.py"
+    s.parent.mkdir(parents=True, exist_ok=True)
+    s.write_text('def apply(d):\n    d.view("left").move(dx=2)\n', encoding="utf-8")
+    assert txn.edit(p, s, "左视图右移 2mm")["ok"]
+    v = Viewer(p)
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(v))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        base = f"http://127.0.0.1:{httpd.server_address[1]}"
+        code, body = req(base + "/api/diff?a=e0&b=e1", None, {"X-LCAD-Token": v.token})
+        got = json.loads(body)
+        assert code == 200 and got["ok"], got
+        summary = got["summary"]
+        moves = {m["view"]: m for m in summary["view_moves"]}
+        assert set(moves) == {"front", "left"} and moves["left"]["dx"] == 1.0
+        assert summary["counts"]["view_moves"] == len(summary["view_moves"]) == 2
+        assert summary["layout_changed"] == []
+    finally:
+        httpd.shutdown()
+
+
 # ---- M3 S2: versions, compare, fit-to-content ---------------------------------------------------
 
 

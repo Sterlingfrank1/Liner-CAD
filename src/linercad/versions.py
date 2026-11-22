@@ -19,6 +19,7 @@ from pathlib import Path
 
 from . import runtime, svgout, txn
 from .errors import DirtySource, GitError, InvalidArgument, LinerError, NotFound
+from .layout import Hatch, Text, prim_segments
 from .runtime import TMP_DIR
 from .txn import EDIT_RE, git
 
@@ -137,15 +138,39 @@ def _norm(x):
     return json.loads(json.dumps(x, sort_keys=True, default=str))
 
 
+def _prim_boxes(e):
+    """Bounding box of every primitive: a composite element (e.g. a section label spanning two
+    views) can then be explained by the view translations of its parts."""
+    out = []
+    for pr in e._prims:
+        if isinstance(pr, Hatch):
+            continue  # fill only: the outline primitives carry the geometry
+        if isinstance(pr, Text):
+            box = pr.box
+        else:
+            pts = [p for seg in prim_segments(pr) for p in seg]
+            if not pts:
+                continue
+            xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+            box = (min(xs), min(ys), max(xs), max(ys))
+        out.append([round(float(v), 6) for v in box])
+    return out
+
+
 def snapshot(d) -> dict:
     """``{id: {kind, intent, bbox}}`` of a built drawing (intent and bbox are what ``diff`` compares)."""
     out = {}
     for e in d._els.values():
         bbox = e._resolved.get("bbox")
+        origin = e._resolved.get("origin")
         out[e.id] = {
             "kind": e.kind,
             "intent": _norm(e.to_dict()["intent"]),
             "bbox": [float(v) for v in bbox] if bbox else None,
+            "view": e._intent.get("view"),
+            # a view element's bbox is its content union; the origin is the translation anchor
+            "origin": [float(v) for v in origin] if origin else None,
+            "prims": _prim_boxes(e),
         }
     return out
 
@@ -159,12 +184,30 @@ def _moved(a, b):
     return max(abs(x - y) for x, y in zip(a, b, strict=True))
 
 
+def _delta(a, b):
+    """Per-coordinate box shift (x0, y0, x1, y1): equal values on a pure translation."""
+    return tuple(round(y - x, 6) for x, y in zip(a, b, strict=True))
+
+
+def _element_view(i, entry):
+    """The view an element belongs to; the view element V.<name> itself belongs to <name>."""
+    if entry.get("view"):
+        return entry["view"]
+    return i[2:] if isinstance(i, str) and i.startswith("V.") else None
+
+
 def compare(sa: dict, sb: dict) -> dict:
     """Semantic diff by element ID: ``added / removed / intent_changed / layout_changed`` plus
-    ``details`` (the changed intent fields as ``[a, b]`` and how far a box moved)."""
+    ``details`` (the changed intent fields as ``[a, b]`` and how far a box moved) and
+    ``view_moves``.
+
+    A whole-view translation (the layout re-centres the view group, or the user moved the view)
+    becomes one ``view_moves`` entry ``{view, dx, dy, elements}``; the elements that share it leave
+    ``layout_changed``, which keeps only elements moving differently from their view."""
     added = sorted(set(sb) - set(sa))
     removed = sorted(set(sa) - set(sb))
     intent_changed, layout_changed, details = [], [], {}
+    deltas = {}  # id -> per-coordinate shift, for elements present in both with a box in both
     for i in sorted(set(sa) & set(sb)):
         a, b = sa[i], sb[i]
         if a["intent"] != b["intent"]:
@@ -181,12 +224,93 @@ def compare(sa: dict, sb: dict) -> dict:
             details.setdefault(i, {"kind": b["kind"]})["moved"] = (
                 None if mv is None else round(mv, 3)
             )
+        if a["bbox"] is not None and b["bbox"] is not None:
+            deltas[i] = _delta(a["bbox"], b["bbox"])
+    view_moves, absorbed = [], set()
+    groups = {}
+    for i, delta in deltas.items():
+        if max(abs(x) for x in delta) <= BBOX_EPS:
+            continue
+        view = _element_view(i, sb[i])
+        if view:
+            groups.setdefault(view, []).append((i, delta))
+    for view in sorted(groups):
+        rows = groups[view]
+        # the view element V.<name> carries the view origin, the exact translation anchor; its bbox
+        # is only the content union (a shape change must not look like a view move)
+        vid = f"V.{view}"
+        oa = (sa.get(vid) or {}).get("origin")
+        ob = (sb.get(vid) or {}).get("origin")
+        if oa is not None and ob is not None:
+            dx, dy = round(ob[0] - oa[0], 6), round(ob[1] - oa[1], 6)
+            if abs(dx) <= BBOX_EPS and abs(dy) <= BBOX_EPS:
+                continue  # the view itself did not move: children moved on their own
+            anchor_delta = (dx, dy, dx, dy)
+            matching = {i for i, d in rows if d == anchor_delta}
+            absorbed.add(vid)  # the view element itself is part of its translation
+            absorbed |= matching
+            # the view element counts even when its content-union bbox moved differently
+            n = 1 + len(matching - {vid})
+            view_moves.append({"view": view, "dx": dx, "dy": dy, "elements": n})
+            continue
+        counts = {}
+        for _i, delta in rows:
+            counts[delta] = counts.get(delta, 0) + 1
+        top = max(counts.values())
+        tied = [delta for delta, n in counts.items() if n == top]
+        if len(tied) != 1:
+            continue  # no single common translation: report no view move
+        delta, n = tied[0], top
+        total = sum(
+            1
+            for i in set(sa) & set(sb)
+            if _element_view(i, sb[i]) == view
+            and sa[i]["bbox"] is not None
+            and sb[i]["bbox"] is not None
+        )
+        # without an anchor a translation needs at least two elements moving together and a
+        # strict majority: the remaining elements are the real extra layout changes
+        if n >= 2 and 2 * n > total:
+            absorbed |= {i for i, d in rows if d == delta}
+            view_moves.append({"view": view, "dx": delta[0], "dy": delta[1], "elements": n})
+    # a composite element (e.g. a section label whose primitives live in two views) is fully
+    # explained when every primitive follows one of the reported view translations: it is not an
+    # extra layout change even though its union bbox moved differently
+    translations = {(m["dx"], m["dy"]) for m in view_moves}
+    if translations:
+        for i in layout_changed:
+            pa = (sa.get(i) or {}).get("prims") or []
+            pb = (sb.get(i) or {}).get("prims") or []
+            if not pa or len(pa) != len(pb):
+                continue
+            explained = True
+            for box_a, box_b in zip(pa, pb, strict=True):
+                dx = round(box_b[0] - box_a[0], 6)
+                dy = round(box_b[1] - box_a[1], 6)
+                if (
+                    abs(box_b[2] - box_a[2] - dx) > BBOX_EPS
+                    or abs(box_b[3] - box_a[3] - dy) > BBOX_EPS
+                    or (dx, dy) not in translations
+                ):
+                    explained = False
+                    break
+            if explained:
+                absorbed.add(i)
+    layout_changed = [i for i in layout_changed if i not in absorbed]
+    for i in absorbed:
+        d = details.get(i)
+        if d:
+            d.pop("moved", None)
+            if set(d) <= {"kind"}:
+                details.pop(i)
     return {
         "added": added,
         "removed": removed,
         "intent_changed": intent_changed,
         "layout_changed": layout_changed,
+        "view_moves": view_moves,
         "details": details,
+        "_view_moved_ids": sorted(absorbed),  # kept out of the public summary, used by the overlay
     }
 
 
@@ -205,7 +329,11 @@ def overlay_svg(da, db, comparison: dict) -> str:
     No stylesheet inside: the Viewer's page CSP forbids inline styles and its own stylesheet has the
     same rules; the file written by ``diff`` embeds ``STANDALONE_CSS``."""
     added, removed = set(comparison["added"]), set(comparison["removed"])
-    changed = set(comparison["intent_changed"]) | set(comparison["layout_changed"])
+    changed = (
+        set(comparison["intent_changed"])
+        | set(comparison["layout_changed"])
+        | set(comparison.get("_view_moved_ids", []))
+    )
     (Wa, Ha), (Wb, Hb) = da.template["size"], db.template["size"]
     W, H = max(Wa, Wb), max(Ha, Hb)
     f = svgout._f
@@ -249,6 +377,7 @@ def compare_revisions(dir, a, b=None):
         rb = _build_at(wt[cb], b) if cb else runtime.build(dir, dxf=False)
         comparison = compare(snapshot(ra.d), snapshot(rb.d))
         svg = overlay_svg(ra.d, rb.d, comparison)
+    comparison.pop("_view_moved_ids", None)
     summary = {
         "a": {"ref": str(a), "commit": _short(dir, ca)},
         "b": {
@@ -257,7 +386,8 @@ def compare_revisions(dir, a, b=None):
         },
         **comparison,
         "counts": {
-            k: len(comparison[k]) for k in ("added", "removed", "intent_changed", "layout_changed")
+            k: len(comparison[k])
+            for k in ("added", "removed", "intent_changed", "layout_changed", "view_moves")
         },
     }
     return summary, svg

@@ -52,6 +52,12 @@ class Text:
     layer: str
     box: tuple  # (x0, y0, x1, y1)
     cjk: bool | None = None  # metric override for mixed-language blocks (technical notes)
+    exact_height: bool = False  # imported text keeps the DXF height verbatim
+    style: str | None = None
+    layer_name: str | None = None
+    align: tuple | None = None  # (halign, valign) of the source TEXT / MTEXT
+    anchor: tuple | None = None  # sheet-coordinate insertion point of the source entity
+    anchor2: tuple | None = None  # second alignment point (ALIGNED / FIT)
 
 
 @dataclass(frozen=True)
@@ -66,6 +72,12 @@ class Hatch:
     layer: str
     angle: float | None = None  # per-part override (assemblies), else the profile's
     spacing: float | None = None
+    solid: bool = False  # imported SOLID fill (no pattern lines)
+    pattern: str | None = None  # imported predefined pattern (exact round-trip)
+    scale: float | None = None  # imported pattern_scale
+    hatch_style: int = 0  # imported DXF hatch_style
+    loop_flags: tuple = ()  # imported boundary path flags per loop
+    pattern_angle: float | None = None  # source pattern_angle (exact round-trip)
 
 
 @dataclass(frozen=True)
@@ -79,13 +91,22 @@ def _mv(p, dx, dy):
 
 
 def move_prim(pr, dx, dy):
+
     if isinstance(pr, Line):
         return replace(pr, p=_mv(pr.p, dx, dy), q=_mv(pr.q, dx, dy))
     if isinstance(pr, (Circle, Arc)):
         return replace(pr, c=_mv(pr.c, dx, dy))
     if isinstance(pr, Text):
         b = pr.box
-        return replace(pr, at=_mv(pr.at, dx, dy), box=(b[0] + dx, b[1] + dy, b[2] + dx, b[3] + dy))
+        anchor = _mv(pr.anchor, dx, dy) if pr.anchor is not None else None
+        anchor2 = _mv(pr.anchor2, dx, dy) if pr.anchor2 is not None else None
+        return replace(
+            pr,
+            at=_mv(pr.at, dx, dy),
+            box=(b[0] + dx, b[1] + dy, b[2] + dx, b[3] + dy),
+            anchor=anchor,
+            anchor2=anchor2,
+        )
     if isinstance(pr, (Solid, Poly)):
         return replace(pr, pts=tuple(_mv(p, dx, dy) for p in pr.pts))
     if isinstance(pr, Hatch):
@@ -315,7 +336,21 @@ def arrow(tip, d, std, layer="dim"):
     return Solid((tuple(tip), (bx + nx, by + ny), (bx - nx, by - ny)), layer)
 
 
-def make_text(s, at, h, std, rot=0, layer="dim", cjk=None):
+def make_text(
+    s,
+    at,
+    h,
+    std,
+    rot=0,
+    layer="dim",
+    cjk=None,
+    exact_height=False,
+    style=None,
+    layer_name=None,
+    align=None,
+    anchor=None,
+    anchor2=None,
+):
     w, hh = text_size(s, h, std, cjk)
     if abs(rot % 180 - 90) < 1e-9:
         box = (at[0] - hh / 2, at[1] - w / 2, at[0] + hh / 2, at[1] + w / 2)
@@ -325,7 +360,21 @@ def make_text(s, at, h, std, rot=0, layer="dim", cjk=None):
         c, s_ = abs(math.cos(math.radians(rot))), abs(math.sin(math.radians(rot)))
         bw, bh = (w * c + hh * s_) / 2, (w * s_ + hh * c) / 2
         box = (at[0] - bw, at[1] - bh, at[0] + bw, at[1] + bh)
-    return Text(s, tuple(at), h, rot, layer, box, cjk)
+    return Text(
+        s,
+        tuple(at),
+        h,
+        rot,
+        layer,
+        box,
+        cjk,
+        exact_height,
+        style,
+        layer_name,
+        align,
+        anchor,
+        anchor2,
+    )
 
 
 def center_piece(a, b, std):
@@ -613,8 +662,10 @@ class _ViewLayout:
             self.put(e, [p for p in prims if p is not None])
         for e in self.els("hatch"):
             loops = []
+            loop_flags = []
             for lp in e._intent["loops"]:
-                if "points" in lp:
+                if isinstance(lp, dict) and "points" in lp:
+                    loop_flags.append(int(lp.get("flags", 1)))
                     loops.append(tuple(self.P(p) for p in lp["points"]))
                     continue
                 ref = self.d._els.get(lp["ref"])
@@ -629,7 +680,26 @@ class _ViewLayout:
                     else:
                         loops.append(tuple(self.P(p) for p in lpts))
             it = e._intent
-            hp = Hatch(tuple(loops), "hatch", it.get("angle"), it.get("spacing"))
+            hs = self.std["hatch"]
+            imported = it.get("pattern") is not None
+            spacing = it.get("spacing")
+            if imported and spacing is None:
+                spacing = hs["spacing"] * float(it.get("scale") or 1.0)
+            render_angle = it.get("angle")
+            if imported and render_angle is not None:
+                render_angle = float(render_angle) + float(hs["angle"])  # ANSI31 base 45°
+            hp = Hatch(
+                tuple(loops),
+                "hatch",
+                render_angle,
+                spacing,
+                solid=bool(it.get("solid")),
+                pattern=it.get("pattern"),
+                scale=it.get("scale"),
+                hatch_style=int(it.get("hatch_style", 0) or 0),
+                loop_flags=tuple(loop_flags),
+                pattern_angle=it.get("pattern_angle"),
+            )
             self.put(e, [hp], obstacle=False)
             if e._intent.get("outline"):
                 ol = []
@@ -1734,6 +1804,81 @@ class _ViewLayout:
         self._repair_pmi_leaders()
         self._repair_dim_overlaps()
 
+    def plain_texts(self):
+        """Imported plain text elements (DXF TEXT / MTEXT): no leader, fixed position / height /
+        rotation / alignment / style from the source; MTEXT line breaks stacked per line with the
+        source line-spacing factor (DXF base 5/3)."""
+        from .text import has_cjk
+
+        for e in self.els("text"):
+            i = e._intent
+            h = i["height"] * self.s
+            rot = i.get("rotation", 0.0)
+            halign = i.get("halign", 0)
+            valign = i.get("valign", 0)
+            lines = str(i["text"]).split("\n")
+            factor = i.get("line_spacing") or 1.0
+            step = h * (5.0 / 3.0) * factor
+            c, s_ = math.cos(math.radians(rot)), math.sin(math.radians(rot))
+            x0, y0 = self.P(i["at"])
+            insert = self.P(i.get("insert", i["at"]))
+            cjk = has_cjk(i["text"]) or None
+            sizes = [text_size(line, h, self.std, cjk) for line in lines]
+            n = len(lines)
+            if valign == 3:  # MTEXT top: first line's top edge at the insertion point
+                dy0 = -sizes[0][1] / 2.0
+            elif valign == 2:  # MTEXT middle: block centred at the insertion point
+                dy0 = (n - 1) * step / 2.0
+            elif valign == 1:  # MTEXT bottom: last line's bottom edge at the insertion point
+                dy0 = (n - 1) * step + sizes[-1][1] / 2.0
+            else:  # TEXT baseline
+                dy0 = sizes[0][1] / 2.0
+            prims = []
+            for k, (line, (w, _hh)) in enumerate(zip(lines, sizes)):
+                if halign == 0:
+                    dx = w / 2.0
+                elif halign in (3, 5):  # ALIGNED / FIT: anchor is the second alignment point
+                    dx = -w / 2.0
+                elif halign == 2:
+                    dx = -w / 2.0
+                else:  # center / middle
+                    dx = 0.0
+                ly = dy0 - k * step
+                px = x0 + dx * c - ly * s_
+                py = y0 + dx * s_ + ly * c
+                if valign == 3:
+                    up = -k
+                elif valign == 2:
+                    up = (n - 1) / 2.0 - k
+                elif valign == 1:
+                    up = (n - 1) - k
+                else:
+                    up = 0.0
+                line_anchor = (
+                    insert[0] - up * step * s_,
+                    insert[1] + up * step * c,
+                )
+                second = i.get("align_point")
+                line_anchor2 = self.P(second) if second is not None else None
+                prims.append(
+                    make_text(
+                        line,
+                        (px, py),
+                        h,
+                        self.std,
+                        rot,
+                        layer="text",
+                        cjk=cjk,
+                        exact_height=True,
+                        style=i.get("style"),
+                        layer_name=i.get("layer"),
+                        align=(halign, valign),
+                        anchor=line_anchor,
+                        anchor2=line_anchor2,
+                    )
+                )
+            self.put(e, prims)
+
     def section_labels(self):
         sec = self.std["section"]
         h = sec["label_height"]
@@ -1778,6 +1923,7 @@ class _ViewLayout:
     def run(self):
         self.geometry()
         self.section_symbols()
+        self.plain_texts()
         self.annotations()
         self.section_labels()
         self.balloons()

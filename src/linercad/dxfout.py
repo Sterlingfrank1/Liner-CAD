@@ -93,6 +93,21 @@ def _islands(hatch, text_boxes):
     return out
 
 
+def _alignment(align) -> TextEntityAlignment:
+    """(halign, valign) of the source entity -> ezdxf TEXT alignment."""
+    halign, valign = align
+    if halign == 3:
+        return TextEntityAlignment.ALIGNED
+    if halign == 5:
+        return TextEntityAlignment.FIT
+    if halign == 4:
+        return TextEntityAlignment.MIDDLE
+    col = {0: "LEFT", 1: "CENTER", 2: "RIGHT"}.get(halign, "LEFT")
+    row = {0: "", 1: "BOTTOM_", 2: "MIDDLE_", 3: "TOP_"}.get(valign, "")
+    name = (row + col) if row else ("CENTER" if col == "CENTER" else col)
+    return getattr(TextEntityAlignment, name, TextEntityAlignment.MIDDLE_CENTER)
+
+
 def _write(msp, pr, std, text_boxes):
     lay = {"layer": _layer(std, pr.layer)}
     if isinstance(pr, Line):
@@ -110,6 +125,27 @@ def _write(msp, pr, std, text_boxes):
     if isinstance(pr, Poly):
         return msp.add_lwpolyline(list(pr.pts), dxfattribs=lay)
     if isinstance(pr, Text):
+        if pr.exact_height and pr.anchor is not None and pr.align is not None:
+            # imported TEXT / MTEXT: keep the DXF height, style, source layer and alignment verbatim
+            doc = msp.doc
+            style = pr.style or "LC"
+            if not doc.styles.has_entry(style):
+                doc.styles.add(style, font=std["text"]["font"])
+            layer = pr.layer_name or _layer(std, pr.layer)
+            if not doc.layers.has_entry(layer):
+                doc.layers.add(layer, color=7)
+            t = msp.add_text(
+                pr.text,
+                height=pr.height,
+                rotation=pr.rot,
+                dxfattribs={"layer": layer, "style": style, "width": std["text"]["width_factor"]},
+            )
+            align = _alignment(pr.align)
+            if align in (TextEntityAlignment.ALIGNED, TextEntityAlignment.FIT) and pr.anchor2:
+                t.set_placement(pr.anchor, pr.anchor2, align=align)
+            else:
+                t.set_placement(pr.anchor, align=align)
+            return t
         t = msp.add_text(
             pr.text,
             height=dxf_height(pr.text, pr.height, std, pr.cjk),
@@ -121,17 +157,42 @@ def _write(msp, pr, std, text_boxes):
     if isinstance(pr, Hatch):
         hs = std["hatch"]
         h = msp.add_hatch(dxfattribs=lay)
-        h.dxf.hatch_style = 0
-        sp = pr.spacing or hs["spacing"]
-        ang = hs["angle"] if pr.angle is None else pr.angle
-        h.set_pattern_fill(hs["pattern"], scale=sp / 3.175, angle=ang - 45)
-        for lp in pr.loops:
+        flags = tuple(getattr(pr, "loop_flags", ()) or ())
+        if getattr(pr, "solid", False):
+            h.set_solid_fill(color=7)
+            for idx, lp in enumerate(pr.loops):
+                if lp and lp[0] == "circle":
+                    h.paths.add_edge_path().add_arc(lp[1], lp[2], 0, 360)
+                else:
+                    h.paths.add_polyline_path(
+                        list(lp), is_closed=True, flags=flags[idx] if idx < len(flags) else 1
+                    )
+            h.dxf.hatch_style = int(getattr(pr, "hatch_style", 0) or 0)
+            return h
+        if getattr(pr, "pattern", None):
+            source_angle = getattr(pr, "pattern_angle", None)
+            if source_angle is None:
+                source_angle = pr.angle
+            h.set_pattern_fill(
+                pr.pattern,
+                scale=float(getattr(pr, "scale", None) or 1.0),
+                angle=float(source_angle or 0.0),
+            )
+        else:
+            sp = pr.spacing or hs["spacing"]
+            ang = hs["angle"] if pr.angle is None else pr.angle
+            h.set_pattern_fill(hs["pattern"], scale=sp / 3.175, angle=ang - 45)
+        for idx, lp in enumerate(pr.loops):
             if lp and lp[0] == "circle":
                 h.paths.add_edge_path().add_arc(lp[1], lp[2], 0, 360)
             else:
-                h.paths.add_polyline_path(list(lp), is_closed=True)
-        for isl in _islands(pr, text_boxes):
-            h.paths.add_polyline_path(isl, is_closed=True)
+                h.paths.add_polyline_path(
+                    list(lp), is_closed=True, flags=flags[idx] if idx < len(flags) else 1
+                )
+        h.dxf.hatch_style = int(getattr(pr, "hatch_style", 0) or 0)
+        if not getattr(pr, "loop_flags", ()):  # imported hatches already carry their boundaries
+            for isl in _islands(pr, text_boxes):
+                h.paths.add_polyline_path(isl, is_closed=True)
         return h
     raise TypeError(pr)
 
