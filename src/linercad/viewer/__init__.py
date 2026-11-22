@@ -128,6 +128,7 @@ class Viewer:
             else:
                 self.res, self.svg, self.error = res, svgout.svg(res.d), None
                 self.preview = None
+                self.param_errors = {}
             self.version += 1
             self._write_snapshot()
             return True
@@ -163,6 +164,8 @@ class Viewer:
                 "warnings": warns,
                 "build_error": self.error,
                 "preview": bool(self.preview),
+                "preview_seq": self.preview_seq,
+                "param_errors": bool(self.param_errors),
             }
 
     def _current(self):
@@ -178,11 +181,7 @@ class Viewer:
             r = self._current()
             if r is None:
                 return {"ok": False, "error": self.error}
-            issues = {}
-            for f in r.findings:
-                issues.setdefault(f.get("id"), []).append(
-                    {k: f.get(k) for k in ("rule", "pack", "severity", "message", "std")}
-                )
+            issues = self._issues_by_element(r)
             out = []
             for e in r.d._els.values():
                 if not e._prims:
@@ -213,12 +212,12 @@ class Viewer:
             return {
                 "ok": True,
                 "version": self.version,
+                "resolved": self._resolved(r),
+                "unplaced": self._unplaced(r),
                 "content_bbox": _content_bbox(r.d),
                 "title_bbox": _title_bbox(r.d),
                 "elements": out,
-                "issues": [
-                    {k: f.get(k) for k in ("rule", "id", "severity", "message")} for f in r.findings
-                ],
+                "issues": [_finding(f) for f in r.findings],
             }
 
     def params(self):
@@ -280,10 +279,7 @@ class Viewer:
             "version": edit,
             "commit": h,
             "selection": self.selection,
-            "issues": [
-                {k: f.get(k) for k in ("rule", "id", "severity", "message")}
-                for f in (r.findings if r else [])
-            ],
+            "issues": [_finding(f) for f in (r.findings if r else [])],
             "viewport": self.viewport,
             "params": dict(self.preview["values"]) if self.preview else {},
             "param_errors": self.param_errors,
@@ -299,6 +295,23 @@ class Viewer:
     def do_preview(self, values, seq=None):
         t0 = time.perf_counter()
         with self.lock:
+            if not values:  # a withdrawal always wins, even with a stale client seq (page reload)
+                if seq is not None:
+                    self.preview_seq = max(self.preview_seq, seq) + 1
+                self.preview = None
+                self.param_errors = {}
+                self.version += 1
+                self._write_snapshot()
+                findings = [_finding(f) for f in (self.res.findings if self.res else [])]
+                return {
+                    "ok": True,
+                    "version": self.version,
+                    "findings": findings,
+                    "affected": [],
+                    "resolved": self._resolved(self.res) if self.res else {},
+                    "element_issues": self._issues_by_element(self.res) if self.res else {},
+                    "unplaced": self._unplaced(self.res) if self.res else [],
+                }
             if seq is not None:
                 if seq < self.preview_seq:  # an older drag arrived late
                     return {
@@ -307,17 +320,18 @@ class Viewer:
                         "error": {"code": "superseded", "message": ""},
                     }
                 self.preview_seq = seq
-            if not values:
-                self.preview = None
-                self.version += 1
-                self._write_snapshot()
-                return {"ok": True, "version": self.version}
             try:
                 res = build(self.dir, params=values)
             except LinerError as e:
-                self.param_errors = {"values": dict(values), "error": e.to_dict()}
+                info = e.to_dict()
+                affected = self._affected_ids(info.get("id"))
+                self.param_errors = {
+                    "values": dict(values),
+                    "error": info,
+                    "affected": affected,
+                }
                 self._write_snapshot()
-                return {"ok": False, "error": e.to_dict()}
+                return {"ok": False, "error": info, "affected": affected}
             self.param_errors = {}
             svg = svgout.svg(res.d)
             ms = round((time.perf_counter() - t0) * 1000, 1)
@@ -325,7 +339,73 @@ class Viewer:
             self.version += 1
             self._write_snapshot()
             stale = [{k: s.get(k) for k in ("edit", "op", "id", "reason")} for s in res.stale]
-            return {"ok": True, "version": self.version, "timing_ms": ms, "stale_ops": stale}
+            return {
+                "ok": True,
+                "version": self.version,
+                "timing_ms": ms,
+                "findings": [_finding(f) for f in res.findings],
+                "affected": [],
+                "resolved": self._resolved(res),
+                "element_issues": self._issues_by_element(res),
+                "unplaced": self._unplaced(res),
+                "stale_ops": stale,
+            }
+
+    def _affected_ids(self, name):
+        """Drawn elements that cover parameter name: a param-rule error has no element finding,
+        so the canvas marks the elements that display / depend on that parameter."""
+        r = self.res
+        if r is None or not name:
+            return []
+        return [e.id for e in r.d._els.values() if e._prims and name in (e._covers or [])]
+
+    def _finding_targets(self, f, r):
+        """Drawn element ids a finding stands for. A finding whose id is not drawn itself (a view
+        such as V.top, or a parameter) is mapped to the elements that can be marked on the canvas."""
+        eid = f.get("id")
+        el = r.d._els.get(eid)
+        if el is not None and el._prims:
+            return [eid]
+        if isinstance(eid, str) and eid.startswith("V."):
+            view = eid[2:]
+            return [e.id for e in r.d._els.values() if e._prims and e._intent.get("view") == view]
+        if isinstance(eid, str) and eid.startswith("P."):
+            name = eid[2:]
+            return [e.id for e in r.d._els.values() if e._prims and name in (e._covers or [])]
+        return []
+
+    def _resolved(self, r):
+        """element id → severity for findings whose own id is not a drawn element (canvas marks)."""
+        out = {}
+        if r is None:
+            return out
+        for f in r.findings:
+            for eid in self._finding_targets(f, r):
+                if eid == f.get("id"):
+                    continue
+                sev = f.get("severity") or "warn"
+                if out.get(eid) != "error":
+                    out[eid] = "error" if sev == "error" else "warn"
+        return out
+
+    def _issues_by_element(self, r):
+        """element id → [finding] for the inspector: a view / parameter level finding is listed
+        under the elements it is resolved to, so selecting one shows the E1 fields too."""
+        out = {}
+        if r is None:
+            return out
+        for f in r.findings:
+            item = _finding(f)
+            for eid in self._finding_targets(f, r) or [f.get("id")]:
+                out.setdefault(eid, []).append(item)
+        return out
+
+    def _unplaced(self, r):
+        """findings the canvas cannot mark (no drawn element: e.g. a parameter nothing displays);
+        the inspector still lists them with the E1 fields."""
+        if r is None:
+            return []
+        return [_finding(f) for f in r.findings if not self._finding_targets(f, r)]
 
     def writeback(self, name, value):
         from .. import txn
@@ -486,6 +566,31 @@ def _brief_intent(e):
         "expr",
     )
     return {k: v for k, v in e.to_dict()["intent"].items() if k in keep}
+
+
+#: fields of one check finding as the Viewer, the inspector and snapshot.json show them. E1 added
+#: clause / measured / expected / candidates next to the old rule / id / severity / message.
+FINDING_KEYS = (
+    "rule",
+    "id",
+    "severity",
+    "message",
+    "clause",
+    "measured",
+    "expected",
+    "candidates",
+    "pack",
+    "std",
+)
+
+
+def _finding(f) -> dict:
+    """One finding with the fields of the E1 finding protocol (missing containers become empty)."""
+    out = {k: f.get(k) for k in FINDING_KEYS}
+    out["measured"] = dict(out["measured"] or {})
+    out["expected"] = dict(out["expected"] or {})
+    out["candidates"] = list(out["candidates"] or [])
+    return out
 
 
 def _write_json(path: Path, doc):

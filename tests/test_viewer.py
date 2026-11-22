@@ -18,6 +18,12 @@ from linercad.viewer import Viewer, make_handler, rewrite_param
 
 EXAMPLES = ["shaft", "flange", "pulley", "end_cover"]
 
+# B3 acceptance scenario: drag D until the preview build has a violation. Main's layout work (D1 moved
+# the flange radial leaders / section label) can move this value: keep it in one place, and assert the
+# semantics (a finding with the E1 fields on a drawn element) rather than one layout coordinate.
+PREVIEW_VIOLATION = {"D": 150}
+PREVIEW_VIOLATION_ID = "S.A"
+
 
 @pytest.fixture(scope="module")
 def built(tmp_path_factory):
@@ -242,6 +248,216 @@ def test_context_at_sel_warns_on_an_old_selection(shaft):
     txn.edit(shaft, script, "挪")
     ctx = commands.context(shaft, ["@sel"])
     assert "e0" in ctx["warning"] and ctx["items"][0]["element"]["id"] == "D.L"
+
+
+@pytest.fixture
+def flange_dir(tmp_path):
+    p = tmp_path / "fl"
+    txn.init(p, from_="flange")
+    return p
+
+
+# ---- B3: preview findings on the canvas, the four E1 fields in the inspector / snapshot ---------
+
+
+def test_preview_returns_e1_finding_fields(flange_dir):
+    v = Viewer(flange_dir)
+    r = v.do_preview(
+        PREVIEW_VIOLATION
+    )  # the flange drags D out until the section label hits the frame
+    assert r["ok"] and r["findings"], r
+    for f in r["findings"]:  # every preview violation carries the E1 fields
+        assert {"rule", "id", "severity", "message"} <= set(f)
+        assert {"clause", "measured", "expected", "candidates"} <= set(f), f
+    hit = [f for f in r["findings"] if f["id"] == PREVIEW_VIOLATION_ID]
+    assert hit, r["findings"]
+    f = hit[0]
+    assert f["severity"] == "warn" and f["rule"] == "overlap"
+    assert "GB/T 4458.4-2003" in f["clause"] and "尺寸" in f["clause"]  # E1 clause statement
+    assert isinstance(f["measured"], dict) and f["measured"]  # E1 measured values
+    assert f["expected"]["overlap"] == 0.0  # E1 expectation
+    assert f["candidates"] == [] and isinstance(f["candidates"], list)  # E1 candidates
+    assert f["pack"] == "layout" and f["std"] == "GB/T 4458.4-2003"
+    assert r["resolved"] == {}  # every finding points at a drawn element directly
+    assert r["element_issues"][PREVIEW_VIOLATION_ID][0]["clause"] == f["clause"]  # inspector data
+
+
+def test_preview_findings_reach_model_and_snapshot(flange_dir):
+    v = Viewer(flange_dir)
+    r = v.do_preview(PREVIEW_VIOLATION)
+    assert v.params()["params"][0]["value"] == PREVIEW_VIOLATION["D"]  # a reload can restore it
+    ids = {f["id"] for f in r["findings"]}
+    model = v.model()
+    drawn = {e["id"] for e in model["elements"]}
+    assert (
+        ids and ids <= drawn
+    )  # every violation points at a drawn element: the canvas can colour it
+    by_id = {e["id"]: e for e in model["elements"]}
+    issue = next(i for i in by_id[PREVIEW_VIOLATION_ID]["issues"] if i["rule"] == "overlap")
+    assert {"clause", "measured", "expected", "candidates"} <= set(issue)
+    assert "GB/T 4458.4-2003" in issue["clause"]
+    global_issue = next(
+        i for i in model["issues"] if i["rule"] == "overlap" and i["id"] == PREVIEW_VIOLATION_ID
+    )
+    assert {"clause", "measured", "expected", "candidates"} <= set(global_issue)
+    snap = json.loads((flange_dir / ".linercad/snapshot.json").read_text(encoding="utf-8"))
+    s = next(
+        i for i in snap["issues"] if i["rule"] == "overlap" and i["id"] == PREVIEW_VIOLATION_ID
+    )
+    assert s["clause"] == issue["clause"] and s["measured"] == issue["measured"]
+    assert s["expected"] == issue["expected"] and s["candidates"] == issue["candidates"]
+    # releasing the slider / undoing the preview clears the findings again
+    assert v.do_preview({})["ok"]
+    assert v.state()["preview"] is False
+    assert v.model()["issues"] == []
+    snap = json.loads((flange_dir / ".linercad/snapshot.json").read_text(encoding="utf-8"))
+    assert snap["issues"] == []
+
+
+def test_preview_param_rule_error_lists_affected_elements_only(flange_dir):
+    v = Viewer(flange_dir)
+    r = v.do_preview({"Dh": 120})  # violates Dh < pcd - dh
+    assert not r["ok"] and r["error"]["code"] == "param" and r["error"]["id"] == "Dh"
+    assert "D.Dh" in r["affected"]  # the dimension that covers the parameter
+    assert {"message", "values", "hint", "candidates"} <= set(r["error"])
+    # ParamError has no E1 finding fields: do not fabricate them
+    assert not {"clause", "measured", "expected"} & set(r["error"])
+    snap = json.loads((flange_dir / ".linercad/snapshot.json").read_text(encoding="utf-8"))
+    assert snap["param_errors"]["error"]["id"] == "Dh" and snap["param_errors"]["affected"] == [
+        "D.Dh"
+    ]
+    # the page keeps the failed preview's marks until the next user action: state tells it so
+    state = v.state()
+    assert state["param_errors"] is True and isinstance(state["preview_seq"], int)
+    # a rebuild (refresh) must not leave the failed preview in snapshot.json
+    assert v.refresh(force=True)
+    assert v.state()["param_errors"] is False
+    snap = json.loads((flange_dir / ".linercad/snapshot.json").read_text(encoding="utf-8"))
+    assert snap["param_errors"] == {}
+    # withdrawing the preview must also clear the param error from snapshot.json (B3 review)
+    assert v.do_preview({"Dh": 120})["ok"] is False
+    assert v.do_preview({})["ok"]
+    snap = json.loads((flange_dir / ".linercad/snapshot.json").read_text(encoding="utf-8"))
+    assert snap["param_errors"] == {}
+
+
+def test_non_drawn_finding_ids_are_resolved_to_view_elements(flange_dir):
+    v = Viewer(flange_dir)
+    assert v._finding_targets({"id": "V.left"}, v.res)  # a view has no prims: mark its elements
+    assert v._finding_targets({"id": "V.nope"}, v.res) == []
+    # a view-level finding (view_align) as the checks produce it: the canvas targets the view's elements
+    v.res.findings.append(
+        {"rule": "view_align", "id": "V.left", "severity": "warn", "message": "m"}
+    )
+    model = v.model()
+    resolved = model["resolved"]
+    left_ids = {e["id"] for e in model["elements"] if e["view"] == "left"}
+    assert left_ids and left_ids <= set(resolved)  # the canvas can mark the view's elements
+    assert all(resolved[i] in ("warn", "error") for i in left_ids)
+    assert "V.left" not in resolved  # the view id itself is not drawn
+    # selecting a target element must list the view-level finding and its E1 fields as well
+    by_id = {e["id"]: e for e in model["elements"]}
+    shown = next(s for s in left_ids if by_id[s]["issues"])
+    issue = by_id[shown]["issues"][0]
+    assert issue["id"] == "V.left" and {"clause", "measured", "expected", "candidates"} <= set(
+        issue
+    )
+
+
+def test_viewer_consumes_preview_findings_on_the_canvas():
+    from importlib import resources
+
+    pkg = resources.files("linercad.viewer")
+    js = (pkg / "viewer.js").read_text(encoding="utf-8")
+    css = (pkg / "viewer.css").read_text(encoding="utf-8")
+    for needle in (
+        "applyFindings",
+        "previewIds",
+        "st-violation",
+        "r.findings",
+        "i.clause",
+        "i.measured",
+        "i.expected",
+        "i.candidates",
+        "resolved",
+        "element_issues",
+        "previewActive",
+        "unplaced",
+        "statusOrig",
+        "st.preview_seq",
+        "预览值已从服务端恢复",
+        "releasePreview",
+        "++S.previewSeq",
+        "无",
+        "条款",
+        "实测",
+        "要求",
+        "候选",
+    ):
+        assert needle in js, needle
+    assert ".st-violation" in css and "var(--err)" in css
+
+
+def test_withdrawn_preview_cannot_be_restored_by_a_stale_request(flange_dir):
+    v = Viewer(flange_dir)
+    assert v.do_preview(PREVIEW_VIOLATION, seq=5)["ok"]
+    # a freshly reloaded page starts its seq at 1 while the server still knows seq 5: withdrawal wins
+    assert v.do_preview({}, seq=1)["ok"] and v.preview is None
+    late = v.do_preview(
+        PREVIEW_VIOLATION, seq=5
+    )  # the old page's in-flight preview arrives after it
+    assert late["ok"] is False and late.get("superseded") and v.preview is None
+    state = v.state()
+    assert (
+        state["preview"] is False and state["preview_seq"] == 6
+    )  # client adopts the server baseline
+
+
+def test_unplaced_finding_is_listed_with_the_e1_fields(tmp_path):
+    p = tmp_path / "d"
+    txn.init(p)
+    (p / "drawing.py").write_text(
+        "from linercad import Drawing, Param\n"
+        "d = Drawing(sheet='A3', std='GB', scale='1:1')\n"
+        "P = d.params(L=Param(50, min=20, max=100, step=1, label='总长'))\n"
+        "f = d.view('front')\n"
+        "f.turned('b', [(0, 10), (P.L, 10)])\n"
+        "f.dim.dia('d1', (5, 10), (5, -10), value=20)\n"
+        "d.title(name='t')\n",
+        encoding="utf-8",
+    )
+    v = Viewer(p)
+    model = v.model()
+    hit = [f for f in model["unplaced"] if f["rule"] == "param_cover"]
+    assert (
+        hit and hit[0]["id"] == "P.L"
+    )  # a parameter is not a drawn element: the inspector lists it
+    assert {"clause", "measured", "expected", "candidates"} <= set(hit[0])
+    assert model["resolved"] == {}
+
+
+def test_preview_api_returns_findings_with_fields(tmp_path):
+    from http.server import ThreadingHTTPServer
+
+    p = tmp_path / "fl"
+    txn.init(p, from_="flange")
+    v = Viewer(p)
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(v))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        base = f"http://127.0.0.1:{httpd.server_address[1]}"
+        tok = {"X-LCAD-Token": v.token}
+        code, body = req(base + "/api/preview", {"values": PREVIEW_VIOLATION, "seq": 1}, tok)
+        got = json.loads(body)
+        assert code == 200 and got["ok"], got
+        hit = next(f for f in got["findings"] if f["id"] == PREVIEW_VIOLATION_ID)
+        assert "GB/T 4458.4-2003" in hit["clause"] and hit["expected"]["overlap"] == 0.0
+        assert got["affected"] == []
+        code, body = req(base + "/api/preview", {"values": {}, "seq": 2}, tok)
+        got = json.loads(body)
+        assert code == 200 and got["findings"] == []
+    finally:
+        httpd.shutdown()
 
 
 # ---- M3 S2: versions, compare, fit-to-content ---------------------------------------------------
