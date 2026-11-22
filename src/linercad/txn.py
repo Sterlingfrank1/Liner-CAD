@@ -415,18 +415,20 @@ def edit(dir, script, msg, dry_run=False):
 
 
 def _dry_run_previews(dir, res, edit_id):
-    """Render the would-be result into .linercad/tmp only: a PNG to look at plus a DXF to inspect."""
+    """Write the would-be result into .linercad/tmp only: DXF, model.json and a rendered PNG."""
     from . import dxfout
     from .render import render_png
 
     out = Path(dir) / TMP_DIR
     out.mkdir(parents=True, exist_ok=True)
     dxf = dxfout.save_doc(res.doc, out / f"dry-run-{edit_id}.dxf")
+    model = dxfout.write_model(res.d, out / f"dry-run-{edit_id}.json", res.findings, edit_id)
     w, h = res.d.template["size"]
     png = render_png(res.doc, (w, h), out / f"dry-run-{edit_id}.png")
     return {
+        "dxf": dxf.relative_to(dir).as_posix(),
+        "model": model.relative_to(dir).as_posix(),
         "preview": png.relative_to(dir).as_posix(),
-        "preview_dxf": dxf.relative_to(dir).as_posix(),
     }
 
 
@@ -473,6 +475,7 @@ def edit_full(dir, script, msg, dry_run=False):
             "warnings": _warnings(r2.findings, base.findings),
             **previews,
             "hint": "试改结果：没有写入 drawing.actions.jsonl、没有改源文件、没有提交；"
+            "dxf/model/preview 都是 .linercad/tmp 里的试改产物；"
             + (
                 '确认后加 -m "<用户原话>" 并去掉 --dry-run 重跑同一脚本即可提交'
                 if not msg

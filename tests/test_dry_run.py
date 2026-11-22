@@ -66,8 +66,9 @@ def test_dry_run_writes_nothing_and_reports_change_findings_preview(shaft):
     assert out["preview"].endswith(".png")
     png = shaft / out["preview"]
     assert png.is_file() and png.stat().st_size > 0  # rendered preview for the agent to look at
-    dxf = shaft / out["preview_dxf"]
-    assert dxf.is_file() and dxf.stat().st_size > 0
+    for key in ("dxf", "model"):  # the same artifact keys as a real edit, just under .linercad/tmp
+        p = shaft / out[key]
+        assert p.is_file() and p.stat().st_size > 0, key
     assert out["warnings"], out
     for finding in out["warnings"]:
         assert all(k in finding for k in E1), finding
@@ -81,6 +82,7 @@ def test_dry_run_then_real_edit_report_is_consistent(shaft):
     code, real = cli("-C", str(shaft), "edit", str(script), "-m", "试改")
     assert code == 0 and real["ok"] and real["commit"]
     assert dry["edit"] == real["edit"]
+    assert set(real) <= set(dry)  # same report structure; dry-run adds dry_run/preview/hint
     for key in ("changed", "errors", "ops"):
         assert dry[key] == real[key], key
     assert [(w["rule"], w["id"], w["message"]) for w in dry["warnings"]] == [
@@ -174,3 +176,9 @@ def test_dry_run_does_not_prune_the_script_it_was_asked_to_replay(shaft):
     assert script.is_file()  # dry-run must not prune the script it just replayed
     code, real = cli("-C", str(shaft), "edit", str(script), "-m", "试改")
     assert code == 0 and real["ok"] and real["commit"]
+
+
+def test_edit_help_mentions_dry_run():
+    from linercad.cli import COMMANDS
+
+    assert "--dry-run" in COMMANDS["edit"] and "可省略 -m" in COMMANDS["edit"]
