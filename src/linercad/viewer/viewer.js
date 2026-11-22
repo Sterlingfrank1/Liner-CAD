@@ -5,7 +5,7 @@ const $ = (id) => document.getElementById(id);
 const S = { version: -1, model: null, byId: {}, sel: [], svg: null, vb: null, full: null, params: [],
   values: {}, dragging: false, previewTimer: null, previewSeq: 0, fitted: false,
   versions: [], pick: [], cmp: null, busy: false,
-  previewIds: new Set(), previewFindings: [], paramError: null, resolved: {} };  // B3: preview violations on the canvas
+  previewIds: new Set(), previewFindings: [], paramError: null, resolved: {}, previewActive: false };  // B3
 
 async function api(path, body) {
   const opt = body === undefined ? { headers: { "X-LCAD-Token": TOKEN } } : { method: "POST", body: JSON.stringify(body),
@@ -26,6 +26,7 @@ async function poll() {
 }
 
 function setStatus(st) {
+  S.previewActive = !!st.preview;
   const bar = $("status");
   bar.classList.toggle("has-error", !!st.build_error || st.errors > 0);
   bar.classList.toggle("has-warn", !st.build_error && !st.errors && st.warnings > 0);
@@ -104,9 +105,9 @@ function issueHtml(i) {
 }
 
 // findings of the preview response: per-element issues + the red ids the canvas colours
-function applyFindings(findings, isPreview, resolved) {
-  const byId = {};
-  for (const f of findings || []) (byId[f.id] ||= []).push(f);
+function applyFindings(findings, isPreview, resolved, elementIssues) {
+  const byId = elementIssues || {};
+  if (!elementIssues) for (const f of findings || []) (byId[f.id] ||= []).push(f);
   for (const e of Object.values(S.byId)) {
     e.issues = byId[e.id] || [];
     if (e.issues.some((i) => i.severity === "error")) e.status = "error";
@@ -177,7 +178,7 @@ window.addEventListener("mouseup", (ev) => {
 window.addEventListener("keydown", (ev) => {
   if (ev.key === "Escape") {
     if (S.cmp) exitCompare();
-    else if (S.previewIds.size || S.paramError) releasePreview();  // B3: Esc withdraws the preview
+    else if (S.previewActive || S.previewIds.size || S.paramError) releasePreview();  // B3: Esc
     else { S.sel = []; sendSel(); }
   }
   const idle = document.activeElement === document.body;
@@ -380,7 +381,7 @@ function schedulePreview() {
       return;
     }
     for (const row of rows) row.clearBad();
-    applyFindings(r.findings || [], Object.keys(values).length > 0, r.resolved);  // B3: the canvas turns red
+    applyFindings(r.findings || [], Object.keys(values).length > 0, r.resolved, r.element_issues);
     S.paramError = null;
     msg.className = "msg";
     msg.textContent = Object.keys(values).length ? `预览 ${r.timing_ms} ms` +
@@ -396,11 +397,14 @@ async function writeback(name, value) {
   else { msg.className = "msg bad"; msg.textContent = r.error.message + (r.error.hint ? "\n" + r.error.hint : ""); }
 }
 async function releasePreview() {
-  // withdraw the preview: values back to the committed ones, red marks and the panels clear
+  // withdraw the preview: values back to the committed ones, red marks and the panels clear.
+  // Bump the sequence first so a preview request still in flight cannot bring the old preview back.
   S.values = {};
-  const r = await api("/api/preview", { values: {} });
+  S.previewActive = false;
+  const seq = ++S.previewSeq;
+  const r = await api("/api/preview", { values: {}, seq });
   clearPreviewFindings();
-  if (r && r.findings) applyFindings(r.findings, false, r.resolved);
+  if (r && r.findings) applyFindings(r.findings, false, r.resolved, r.element_issues);
   S.version = -2;
   await loadParams();
 }

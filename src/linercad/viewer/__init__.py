@@ -178,9 +178,7 @@ class Viewer:
             r = self._current()
             if r is None:
                 return {"ok": False, "error": self.error}
-            issues = {}
-            for f in r.findings:
-                issues.setdefault(f.get("id"), []).append(_finding(f))
+            issues = self._issues_by_element(r)
             out = []
             for e in r.d._els.values():
                 if not e._prims:
@@ -313,6 +311,7 @@ class Viewer:
                     "findings": findings,
                     "affected": [],
                     "resolved": self._resolved(self.res) if self.res else {},
+                    "element_issues": self._issues_by_element(self.res) if self.res else {},
                 }
             try:
                 res = build(self.dir, params=values)
@@ -340,6 +339,7 @@ class Viewer:
                 "findings": [_finding(f) for f in res.findings],
                 "affected": [],
                 "resolved": self._resolved(res),
+                "element_issues": self._issues_by_element(res),
                 "stale_ops": stale,
             }
 
@@ -378,6 +378,18 @@ class Viewer:
                 sev = f.get("severity") or "warn"
                 if out.get(eid) != "error":
                     out[eid] = "error" if sev == "error" else "warn"
+        return out
+
+    def _issues_by_element(self, r):
+        """element id → [finding] for the inspector: a view / parameter level finding is listed
+        under the elements it is resolved to, so selecting one shows the E1 fields too."""
+        out = {}
+        if r is None:
+            return out
+        for f in r.findings:
+            item = _finding(f)
+            for eid in self._finding_targets(f, r) or [f.get("id")]:
+                out.setdefault(eid, []).append(item)
         return out
 
     def writeback(self, name, value):

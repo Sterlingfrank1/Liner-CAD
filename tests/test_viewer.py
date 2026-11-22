@@ -270,6 +270,7 @@ def test_preview_returns_e1_finding_fields(flange_dir):
     assert f["candidates"] == [] and isinstance(f["candidates"], list)  # E1 candidates
     assert f["pack"] == "layout" and f["std"] == "GB/T 4458.4-2003"
     assert r["resolved"] == {}  # every D=140 finding points at a drawn element directly
+    assert r["element_issues"]["G.pos"][0]["clause"] == f["clause"]  # inspector data for the target
 
 
 def test_preview_findings_reach_model_and_snapshot(flange_dir):
@@ -331,6 +332,13 @@ def test_non_drawn_finding_ids_are_resolved_to_view_elements(flange_dir):
     assert left_ids and left_ids <= set(resolved)  # the canvas can mark the view's elements
     assert all(resolved[i] in ("warn", "error") for i in left_ids)
     assert "V.left" not in resolved  # the view id itself is not drawn
+    # selecting a target element must list the view-level finding and its E1 fields as well
+    by_id = {e["id"]: e for e in model["elements"]}
+    shown = next(s for s in left_ids if by_id[s]["issues"])
+    issue = by_id[shown]["issues"][0]
+    assert issue["id"] == "V.left" and {"clause", "measured", "expected", "candidates"} <= set(
+        issue
+    )
 
 
 def test_viewer_consumes_preview_findings_on_the_canvas():
@@ -349,7 +357,10 @@ def test_viewer_consumes_preview_findings_on_the_canvas():
         "i.expected",
         "i.candidates",
         "resolved",
+        "element_issues",
+        "previewActive",
         "releasePreview",
+        "++S.previewSeq",
         "无",
         "条款",
         "实测",
@@ -358,6 +369,15 @@ def test_viewer_consumes_preview_findings_on_the_canvas():
     ):
         assert needle in js, needle
     assert ".st-violation" in css and "var(--err)" in css
+
+
+def test_withdrawn_preview_cannot_be_restored_by_a_stale_request(flange_dir):
+    v = Viewer(flange_dir)
+    assert v.do_preview({"D": 140}, seq=2)["ok"]
+    assert v.do_preview({}, seq=3)["ok"] and v.preview is None
+    late = v.do_preview({"D": 140}, seq=2)  # an older drag arrives after the withdrawal
+    assert late["ok"] is False and late.get("superseded") and v.preview is None
+    assert v.state()["preview"] is False
 
 
 def test_preview_api_returns_findings_with_fields(tmp_path):
