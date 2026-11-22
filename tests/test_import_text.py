@@ -205,8 +205,50 @@ def test_build_keeps_height_style_layer_and_position(tmp_path):
     assert abs(first.dxf.rotation - 30.0) <= 0.01
     assert first.dxf.style == "Standard"
     assert first.dxf.layer == "TEXT"
+    # the model keeps the source insertion point; the sheet position is that point + the view origin
+    m = json.loads((d / ".linercad/build/model.json").read_text(encoding="utf-8"))
+    els = {e["id"]: e for e in m["elements"]}
+    view = els["V.front"]
+    ox, oy = (view.get("placement") or {}).get("resolved", {}).get("origin", [0.0, 0.0])
+    want = els[
+        next(
+            i
+            for i in els
+            if i.startswith("T.")
+            and els[i]["kind"] == "text"
+            and els[i]["intent"]["text"].startswith("技术要求")
+        )
+    ]["intent"]
+    assert abs(want["at"][0] - 20.0) <= 0.01 and abs(want["at"][1] - 30.0) <= 0.01
     p = first.dxf.insert
-    assert abs(p[0] - 20.0) <= 0.01 and abs(p[1] - 30.0) <= 0.01
+    assert abs(p[0] - (want["at"][0] + ox)) <= 0.01
+    assert abs(p[1] - (want["at"][1] + oy)) <= 0.01
+
+
+def test_moving_an_imported_text_moves_the_rebuilt_dxf(tmp_path):
+    src = make_text_dxf(tmp_path / "text.dxf")
+    d = tmp_path / "part"
+    code, out = lcad(tmp_path, "init", str(d), "--from-dxf", str(src))
+    assert code == 0, out
+    model = json.loads((d / ".linercad/build/model.json").read_text(encoding="utf-8"))
+    target = next(e["id"] for e in model["elements"] if e["kind"] == "text")
+    before = ezdxf.readfile(d / ".linercad/build/drawing.dxf")
+    b = next(
+        e.dxf.insert for e in before.modelspace().query("TEXT") if e.dxf.text.startswith("技术要求")
+    )
+    script = d / ".linercad/tmp/move_text.py"
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text(
+        f'def apply(d):\n    d["{target}"].move(dx=30.0, dy=15.0)\n', encoding="utf-8"
+    )
+    code, out = lcad(d, "edit", str(script), "-m", "移动导入文字")
+    assert code == 0, out
+    after = ezdxf.readfile(d / ".linercad/build/drawing.dxf")
+    a = next(
+        e.dxf.insert for e in after.modelspace().query("TEXT") if e.dxf.text.startswith("技术要求")
+    )
+    assert abs((a[0] - b[0]) - 30.0) <= 0.01  # the move reached the rebuilt DXF
+    assert abs(a[1] - b[1]) > 0.01  # and the vertical part is not dropped either
 
 
 def test_c1_edit_round_edits_a_text_when_there_is_no_note(tmp_path):
@@ -216,7 +258,7 @@ def test_c1_edit_round_edits_a_text_when_there_is_no_note(tmp_path):
     entry = metrics.evaluate_file(src)
     round_ = entry["metrics"]["edit_round"]
     assert round_["ok"] is True, round_
-    assert round_["changed_note"].startswith("T.")
+    assert round_["changed_element"].startswith("T.")
 
 
 def test_edit_an_imported_text_and_rebuild(tmp_path):

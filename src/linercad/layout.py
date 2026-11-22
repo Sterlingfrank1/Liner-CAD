@@ -57,6 +57,7 @@ class Text:
     layer_name: str | None = None
     align: tuple | None = None  # (halign, valign) of the source TEXT / MTEXT
     anchor: tuple | None = None  # sheet-coordinate insertion point of the source entity
+    anchor2: tuple | None = None  # second alignment point (ALIGNED / FIT)
 
 
 @dataclass(frozen=True)
@@ -84,13 +85,22 @@ def _mv(p, dx, dy):
 
 
 def move_prim(pr, dx, dy):
+
     if isinstance(pr, Line):
         return replace(pr, p=_mv(pr.p, dx, dy), q=_mv(pr.q, dx, dy))
     if isinstance(pr, (Circle, Arc)):
         return replace(pr, c=_mv(pr.c, dx, dy))
     if isinstance(pr, Text):
         b = pr.box
-        return replace(pr, at=_mv(pr.at, dx, dy), box=(b[0] + dx, b[1] + dy, b[2] + dx, b[3] + dy))
+        anchor = _mv(pr.anchor, dx, dy) if pr.anchor is not None else None
+        anchor2 = _mv(pr.anchor2, dx, dy) if pr.anchor2 is not None else None
+        return replace(
+            pr,
+            at=_mv(pr.at, dx, dy),
+            box=(b[0] + dx, b[1] + dy, b[2] + dx, b[3] + dy),
+            anchor=anchor,
+            anchor2=anchor2,
+        )
     if isinstance(pr, (Solid, Poly)):
         return replace(pr, pts=tuple(_mv(p, dx, dy) for p in pr.pts))
     if isinstance(pr, Hatch):
@@ -318,6 +328,7 @@ def make_text(
     layer_name=None,
     align=None,
     anchor=None,
+    anchor2=None,
 ):
     w, hh = text_size(s, h, std, cjk)
     if abs(rot % 180 - 90) < 1e-9:
@@ -329,7 +340,19 @@ def make_text(
         bw, bh = (w * c + hh * s_) / 2, (w * s_ + hh * c) / 2
         box = (at[0] - bw, at[1] - bh, at[0] + bw, at[1] + bh)
     return Text(
-        s, tuple(at), h, rot, layer, box, cjk, exact_height, style, layer_name, align, anchor
+        s,
+        tuple(at),
+        h,
+        rot,
+        layer,
+        box,
+        cjk,
+        exact_height,
+        style,
+        layer_name,
+        align,
+        anchor,
+        anchor2,
     )
 
 
@@ -1371,10 +1394,20 @@ class _ViewLayout:
                 ly = dy0 - k * step
                 px = x0 + dx * c - ly * s_
                 py = y0 + dx * s_ + ly * c
+                if valign == 3:
+                    up = -k
+                elif valign == 2:
+                    up = (n - 1) / 2.0 - k
+                elif valign == 1:
+                    up = (n - 1) - k
+                else:
+                    up = 0.0
                 line_anchor = (
-                    insert[0] + k * step * s_,
-                    insert[1] - k * step * c,
+                    insert[0] - up * step * s_,
+                    insert[1] + up * step * c,
                 )
+                second = i.get("align_point")
+                line_anchor2 = self.P(second) if second is not None else None
                 prims.append(
                     make_text(
                         line,
@@ -1389,6 +1422,7 @@ class _ViewLayout:
                         layer_name=i.get("layer"),
                         align=(halign, valign),
                         anchor=line_anchor,
+                        anchor2=line_anchor2,
                     )
                 )
             self.put(e, prims)

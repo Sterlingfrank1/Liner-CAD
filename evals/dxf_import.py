@@ -597,17 +597,32 @@ def edit_round(path: Path) -> dict:
             )
         body.append(f'    d["{note}"].set(text="C1 \u6539\u4e00\u6bb5\u6587\u5b57")')
         script.write_text("\n".join(body) + "\n", encoding="utf-8")
+        before = {e["id"]: e for e in model["elements"]}
         code, out = _cli(part, "edit", str(script), "-m", "C1 edit round")
         ops = out.get("ops") or []
         moved = [op for op in ops if op.get("op") == "move"]
         changed = [op for op in ops if op.get("op") == "set" and op.get("id") == note]
         ok_edit = code == 0
         ok_build = ok_edit and (part / ".linercad" / "build" / "drawing.dxf").is_file()
+        moved_ok = text_ok = False
+        if ok_build and moved and changed:
+            try:
+                after = {
+                    e["id"]: e
+                    for e in json.loads(model_path.read_text(encoding="utf-8"))["elements"]
+                }
+                mid = moved[0]["id"]
+                moved_ok = mid in after and after[mid] != before.get(mid)
+                text_ok = after.get(note, {}).get("intent", {}).get("text") == "C1 改一段文字"
+            except (OSError, ValueError):
+                moved_ok = text_ok = False
         return {
-            "ok": bool(ok_edit and ok_build and moved and changed),
-            "moved_dim": moved[0]["id"] if moved else None,
+            "ok": bool(ok_edit and ok_build and moved and changed and moved_ok and text_ok),
+            "moved_element": moved[0]["id"] if moved else None,
             "move_args": moved[0].get("args") if moved else None,
-            "changed_note": note if changed else None,
+            "changed_element": note if changed else None,
+            "moved_ok": moved_ok,
+            "text_ok": text_ok,
             "edit_code": code,
             "build_ok": bool(ok_build),
             "errors": out.get("errors"),

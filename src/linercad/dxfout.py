@@ -140,7 +140,11 @@ def _write(msp, pr, std, text_boxes):
                 rotation=pr.rot,
                 dxfattribs={"layer": layer, "style": style, "width": std["text"]["width_factor"]},
             )
-            t.set_placement(pr.anchor, align=_alignment(pr.align))
+            align = _alignment(pr.align)
+            if align in (TextEntityAlignment.ALIGNED, TextEntityAlignment.FIT) and pr.anchor2:
+                t.set_placement(pr.anchor, pr.anchor2, align=align)
+            else:
+                t.set_placement(pr.anchor, align=align)
             return t
         t = msp.add_text(
             pr.text,

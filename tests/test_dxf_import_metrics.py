@@ -309,9 +309,9 @@ def test_edit_round_verifies_both_operations(report):
     round_ = report["files"][0]["metrics"]["edit_round"]
     assert round_["ok"] is True, round_
     assert round_["build_ok"] is True
-    assert round_["moved_dim"].startswith("D.")
+    assert round_["moved_element"].startswith("D.")
     assert round_["move_args"] and set(round_["move_args"]) & {"dx", "dy"}
-    assert round_["changed_note"].startswith("N.")
+    assert round_["changed_element"].startswith("N.")
 
 
 def test_move_candidates_prefer_the_side_normal():

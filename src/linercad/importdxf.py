@@ -422,8 +422,10 @@ class PlainText(Element):
                 self._intent[key] = v
 
     def _apply_move(self, dx, dy):
-        at = self._intent["at"]
-        self._intent["at"] = [at[0] + dx, at[1] + dy]
+        for key in ("at", "insert", "align_point"):
+            p = self._intent.get(key)
+            if p is not None:
+                self._intent[key] = [p[0] + dx, p[1] + dy]
 
 
 class Import(Element):
@@ -619,6 +621,11 @@ def _text(ctx, e) -> bool:
             else:
                 p = a2
         intent.update(align=align, line_spacing=1.0)
+    ext = e.dxf.get("extrusion", (0, 0, 1))
+    flipped = ext[2] < 0
+    if flipped:
+        p = (-p[0], p[1])
+        rot = 180.0 - rot
     intent.update(
         at=[_r6(p[0] * k), _r6(p[1] * k)],
         height=_r6(h * k),
