@@ -17,7 +17,7 @@ def main(argv=None) -> int:
     p.add_argument("--port", type=int, default=0)
     p.add_argument("--idle-timeout", type=float, default=None)
     args = p.parse_args(argv)
-    serve(args.dir, args.port, False, idle_timeout=args.idle_timeout)
+    serve(args.dir, args.port, False, idle_timeout=args.idle_timeout, background=True)
     return 0
 
 

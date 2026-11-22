@@ -167,9 +167,9 @@ def _run(args, parser) -> int:
     # H3: the first successful build / edit starts the background Viewer and opens it once; an
     # already running Viewer is only refreshed (the page polls). --no-view / LCAD_NO_VIEW / CI off.
     if args.cmd in ("build", "edit") and out.get("ok"):
-        from .viewer import autostart
-
         try:
+            from .viewer import autostart
+
             state = autostart(d, disabled=bool(getattr(args, "no_view", False)))
         except Exception as e:  # noqa: BLE001 - a Viewer problem must not fail the transaction
             state = {"url": None, "opened": False, "error": f"{type(e).__name__}: {e}"}

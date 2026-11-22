@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import sys
 import time
 from pathlib import Path
 
@@ -147,13 +146,10 @@ def test_serve_reuses_an_already_running_viewer(repo, monkeypatch):
         first = viewer.autostart(repo, open_browser=False)
         assert first.get("url"), first
         pid = json.loads(state.read_text(encoding="utf-8"))["pid"]
-        code = f"from linercad.viewer import serve; serve({str(repo)!r})"
-        run = subprocess.run(
-            [sys.executable, "-c", code], capture_output=True, text=True, timeout=30
-        )
-        assert run.returncode == 0, run.stderr
-        payload = json.loads([ln for ln in run.stdout.splitlines() if ln.strip()][-1])
-        assert payload.get("existing") is True and payload["url"] == first["url"]
+        opened = []
+        monkeypatch.setattr("webbrowser.open", lambda url: opened.append(url) or True)
+        viewer.serve(repo)  # `lcad view` while it already runs: report it, open it, no 2nd server
+        assert opened == [first["url"]]  # the explicit command reopens the browser
         assert json.loads(state.read_text(encoding="utf-8"))["pid"] == pid  # not overwritten
     finally:
         _stop(state)
@@ -181,8 +177,11 @@ def test_concurrent_autostart_starts_one_viewer(repo, monkeypatch):
         for th in threads:
             th.join(30)
         assert not errors, errors
-        urls = {r["url"] for r in results if r and r.get("url")}
-        assert len(urls) == 1  # the lock makes one viewer, the others reuse it
-        assert json.loads(state.read_text(encoding="utf-8"))["pid"] > 0
+        assert all(not th.is_alive() for th in threads), "an autostart call hung"
+        assert len(results) == 3 and all(r and r.get("url") for r in results), results
+        assert len({r["url"] for r in results}) == 1  # one viewer, the others reuse it
+        doc = json.loads(state.read_text(encoding="utf-8"))
+        assert doc["pid"] > 0 and viewer._pid_alive(doc["pid"])
+        assert len(viewer._CHILDREN) == 1, "the lock must allow exactly one spawned viewer"
     finally:
         _stop(state)
