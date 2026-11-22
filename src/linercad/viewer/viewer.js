@@ -5,7 +5,7 @@ const $ = (id) => document.getElementById(id);
 const S = { version: -1, model: null, byId: {}, sel: [], svg: null, vb: null, full: null, params: [],
   values: {}, dragging: false, previewTimer: null, previewSeq: 0, fitted: false,
   versions: [], pick: [], cmp: null, busy: false,
-  previewIds: new Set(), previewFindings: [], paramError: null, resolved: {}, previewActive: false, unplaced: [], statusOrig: {} };  // B3
+  previewIds: new Set(), previewFindings: [], paramError: null, resolved: {}, previewActive: false, unplaced: [], statusOrig: {}, savedScroll: 0 };  // B3/B6
 
 async function api(path, body) {
   const opt = body === undefined ? { headers: { "X-LCAD-Token": TOKEN } } : { method: "POST", body: JSON.stringify(body),
@@ -93,8 +93,9 @@ async function reload(st) {
   S.sel = S.sel.filter((id) => S.byId[id]);
   markSel(); inspect(); loadVersions();
   $("versions").open = verOpen;
-  $("params").scrollTop = scrollTop;
-  preserveScroll();
+  if (scrollTop > 0) S.savedScroll = scrollTop;
+  // the panel only reaches its full height after the rows exist: apply the saved scroll now
+  restoreScroll();
 }
 
 // the drawing's content (views, dimensions, notes) and the title block plus a margin, as an SVG
@@ -585,14 +586,27 @@ function zoomTo(id) {
 const VER_OPEN_KEY = "lcad-viewer:versions-open";
 const PARAMS_SCROLL_KEY = "lcad-viewer:params-scroll";
 function preserveScroll() {
-  try { sessionStorage.setItem(PARAMS_SCROLL_KEY, String($("params").scrollTop)); } catch (e) {}
+  const top = $("params").scrollTop;
+  if (top <= 0) return;  // do not overwrite the remembered position with a transient 0
+  S.savedScroll = top;
+  try { sessionStorage.setItem(PARAMS_SCROLL_KEY, String(top)); } catch (e) {}
+}
+// the panel reaches its full height only after the rows arrive: retry until the target fits
+function restoreScroll(tries) {
+  const target = S.savedScroll || 0;
+  if (!target) return;
+  const p = $("params");
+  p.scrollTop = target;
+  if (p.scrollTop < target - 1 && (tries || 0) < 20) {
+    setTimeout(() => restoreScroll((tries || 0) + 1), 50);
+  }
 }
 (function restorePanelState() {
   try {
     const open = sessionStorage.getItem(VER_OPEN_KEY);
     if (open !== null) $("versions").open = open === "1";
-    const scroll = +(sessionStorage.getItem(PARAMS_SCROLL_KEY) || 0);
-    if (scroll > 0) $("params").scrollTop = scroll;
+    S.savedScroll = +(sessionStorage.getItem(PARAMS_SCROLL_KEY) || 0);
+    if (S.savedScroll > 0) restoreScroll();
   } catch (e) {}
   $("versions").addEventListener("toggle", () => {
     try { sessionStorage.setItem(VER_OPEN_KEY, $("versions").open ? "1" : "0"); } catch (e) {}
@@ -601,6 +615,7 @@ function preserveScroll() {
     clearTimeout(S.scrollTimer);
     S.scrollTimer = setTimeout(preserveScroll, 200);
   });
+
 })();
 
 // B5: click the one-line message to expand the full commit message above the status bar
