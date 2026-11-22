@@ -232,6 +232,15 @@ class Viewer:
                 p["default"] = p["value"]
                 if self.preview and n in self.preview["values"]:
                     p["value"] = self.preview["values"][n]
+                lo, hi = p.get("min"), p.get("max")
+                base = p["default"]
+                if lo is None:
+                    lo = round(base * 0.5, 6)
+                if hi is None:
+                    hi = round(base * 1.5, 6)
+                if not hi > lo:  # a default of 0 must still give a usable slider
+                    lo, hi = round(base - 1, 6), round(base + 1, 6)
+                p["range"] = {"min": lo, "max": hi}
                 out.append(p)
             return {"ok": True, "params": out}
 

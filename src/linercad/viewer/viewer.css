@@ -38,6 +38,11 @@ h3 { font-size: 12px; margin: 10px 0 4px; color: var(--muted); }
 .param .top { display: flex; justify-content: space-between; gap: 6px; }
 .param .val { font-variant-numeric: tabular-nums; }
 .param input[type=range] { width: 100%; }
+/* B1: the slider's range and ticks */
+.param .p-scale { display: flex; align-items: center; gap: 6px; margin-top: -2px; }
+.param .p-min, .param .p-max { color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.param .p-ticks { position: relative; flex: 1; height: 7px; }
+.param .p-tick { position: absolute; bottom: 4px; width: 1px; height: 4px; background: #c4c4bf; transform: translateX(-.5px); }
 .param.changed .val { color: var(--sel); font-weight: 600; }
 .param.bad .val, .param.bad .err { color: var(--err); }
 .param .err { font-size: 11px; }

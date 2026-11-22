@@ -359,12 +359,19 @@ async function loadParams() {
   $("param-msg").textContent = Object.keys(S.values).length ? "预览值已从服务端恢复（页面 reload）" : "";
 }
 function paramRow(p) {
-  const v0 = p.default, lo = p.min ?? +(v0 * 0.5).toFixed(3), hi = p.max ?? +(v0 * 1.5 || 10).toFixed(3);
+  const v0 = p.default;
+  const range = p.range || { min: p.min ?? +(v0 * 0.5).toFixed(3), max: p.max ?? +(v0 * 1.5 || 10).toFixed(3) };
+  const lo = range.min, hi = range.max;
   const step = p.step ?? (Math.abs(v0) >= 10 ? 1 : 0.1);
+  const fnum = (x) => (Number.isInteger(x) ? String(x) : String(+x.toFixed(3)));
+  // B1: min / max labels at both ends and four tick marks on the slider track
+  const ticks = Array.from({ length: 6 }, (_, i) =>
+    `<i class="p-tick" style="left:${(100 * i) / 5}%"></i>`).join("");
   const row = document.createElement("div"); row.className = "param"; row.dataset.name = p.name;
   row.innerHTML = `<div class="top"><span title="${esc(p.rule || "")}">${esc(p.label || p.name)} <span class="muted">${esc(p.name)}</span></span>
     <span class="val">${esc(p.value)} ${esc(p.unit || "")}</span></div>
     <input type="range" min="${lo}" max="${hi}" step="${step}" value="${p.value}">
+    <div class="p-scale"><span class="p-min">${fnum(lo)}</span><span class="p-ticks">${ticks}</span><span class="p-max">${fnum(hi)}</span></div>
     <div class="err"></div><button type="button" hidden>写回源码</button>`;
   const inp = row.querySelector("input"), btn = row.querySelector("button"), err = row.querySelector(".err");
   // [写回源码] only for a changed value whose preview the rules accepted: not while the preview is
