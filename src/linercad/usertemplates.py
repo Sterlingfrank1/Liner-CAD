@@ -61,7 +61,13 @@ def names() -> list[str]:
     root = home()
     if not root.is_dir():
         return []
-    return sorted(p.name for p in root.iterdir() if exists(p.name))
+    out = []
+    for p in root.iterdir():
+        if not NAME_RE.fullmatch(p.name):
+            continue  # .tmp-* / .old-* / .DS_Store: never let junk entries break list / init
+        if exists(p.name):
+            out.append(p.name)
+    return sorted(out)
 
 
 def _manifest_of(folder: Path) -> dict | None:
@@ -70,6 +76,13 @@ def _manifest_of(folder: Path) -> dict | None:
     except (OSError, ValueError):
         return None
     return doc if isinstance(doc, dict) else None
+
+
+def remove(name) -> None:
+    """Drop one template (used when save-time validation finds it is not self-contained)."""
+    target = path(name) if NAME_RE.fullmatch(str(name)) else None
+    if target is not None:
+        shutil.rmtree(target, ignore_errors=True)
 
 
 def info(name) -> dict:
@@ -224,8 +237,7 @@ def apply_sets(text: str, sets: dict, template_name=None) -> str:
                 except LinerError:
                     pass
             if not candidates:
-                found = re.search(r"([A-Za-z_]\w*)=Param", e.message)
-                candidates = [found.group(1)] if found else []
+                candidates = re.findall(r"([A-Za-z_]\w*)\s*=\s*Param\s*\(", text)
             raise InvalidArgument(
                 f"--set {name}={value:g} 不能应用：{e.message}",
                 candidates=[c for c in candidates if c],

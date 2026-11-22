@@ -179,3 +179,62 @@ def test_cli_help_mentions_template_commands_and_set():
 
     assert "save" in COMMANDS["template"] and "list" in COMMANDS["template"]
     assert "--set" in COMMANDS["init"]
+
+
+def test_save_template_rejects_a_drawing_that_needs_the_revision_layer(tmp_path):
+    p = tmp_path / "rev"
+    txn.init(p)  # starter drawing, e0
+    src = p / "drawing.py"
+    src.write_text(
+        src.read_text(encoding="utf-8") + '\nfront.thread("thr", "M20x1.5", 0, 20, axis=0)\n',
+        encoding="utf-8",
+    )
+    assert txn.build_commit(p, "加螺纹")["errors"] == 1  # committed but a check error
+    script = p / ".linercad" / "tmp" / "fix.py"
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text(
+        'def apply(d):\n    d.view("front").dim.thread("t", "F.front.thr")\n',
+        encoding="utf-8",
+    )
+    assert txn.edit(p, script, "补螺纹尺寸")["ok"]  # current drawing is 0 error again
+    with pytest.raises(LinerError) as err:
+        commands.save_template(p, "needs-rev")
+    assert "单独构建" in err.value.message
+    assert commands.template_list()["templates"] == []
+
+
+def test_save_template_rejects_a_drawing_that_references_ref_dxf(tmp_path):
+    root = __import__("pathlib").Path(__file__).parent
+    p = tmp_path / "dxf"
+    txn.init(p, from_dxf=str(root / "data" / "dxf" / "sample_part.dxf"))
+    with pytest.raises(LinerError) as err:
+        commands.save_template(p, "dxf-tpl")
+    assert "单独构建失败" in err.value.message and "ref.dxf" in err.value.message
+    assert commands.template_list()["templates"] == []
+
+
+def test_template_list_ignores_junk_in_the_template_root(tmp_path, drawing):
+    home = __import__("pathlib").Path(os.environ["LCAD_TEMPLATES"])
+    home.mkdir(parents=True, exist_ok=True)
+    (home / ".real.tmp-123").mkdir()
+    (home / ".real.old-1").mkdir()
+    (home / "bad name").mkdir()
+    (home / ".DS_Store").write_text("x", encoding="utf-8")
+    commands.save_template(drawing, "real")
+    names = [t["name"] for t in commands.template_list()["templates"]]
+    assert names == ["real"]
+
+
+def test_skill_lists_saved_user_templates(drawing):
+    commands.save_template(drawing, "listed-tpl", "会被 skill 列出")
+    api = commands.skill("api")["text"]
+    main = commands.skill()["text"]
+    for text in (api, main):
+        assert "当前用户模板" in text and "listed-tpl" in text
+    assert "匹配即从模板起步" in api
+
+
+def test_init_set_on_a_builtin_example_lists_its_params(tmp_path):
+    code, out = _cli("init", str(tmp_path / "ex"), "--from", "shaft", "--set", "NOPE=1")
+    assert code == 1 and "NOPE" in out["error"]["message"]
+    assert {"L", "l1"} & set(out["error"]["candidates"])
