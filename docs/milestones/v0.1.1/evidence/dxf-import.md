@@ -101,7 +101,7 @@ importdxf 现在把 HATCH 分类为 hatches 桶并导入为剖面线元素（kin
 
 ## C4 后（源图框/标题栏并入模板语义）：只有一个图框
 
-策略：导入时识别源图框语义——图框/标题栏图层（解码后含「图框」「标题栏」「TITLE」「FRAME」等）上的普通几何（classify=edges 的普通边）不再创建为 E 元素，而是**吸收进新图幅的模板图框语义**（模板 frame 仍只 1 个）；标题栏块 INSERT 与其 ATTRIB 仍按边界跳过（不导入模板文字/属性）。`lcad inspect` 新增 `frame` / `title` 报告（识别到的图框图层与实体统计、将吸收的数量、标题栏块名）。
+策略：导入时识别源图框语义——图框/标题栏图层（完整层名白名单/中文精确集合：图框、图框层、标题、标题层、标题栏、标题栏层、FRAME、TITLE、BORDER、SHEET_FRAME 等）上的普通几何（classify=edges 且非退化的边）不再创建为 E 元素，而是**吸收进新图幅的模板图框语义**（模板 frame 仍只 1 个）；标题栏块 INSERT 与其 ATTRIB 仍按边界跳过（不导入模板文字/属性）。`lcad inspect` 新增 `frame` / `title` 报告（识别到的图框图层与实体统计、将吸收的数量、标题栏块名）。
 
 | 指标 | C3 后 | C4 后 | 说明 |
 |---|---|---|---|
@@ -112,7 +112,7 @@ importdxf 现在把 HATCH 分类为 hatches 桶并导入为剖面线元素（kin
 | layer content / names | 25/28、25 | **25/28、21** | content 不变；names 只数模型元素实际携带的源层名（21），吸收图框层单列 absorbed_layers |
 | text / hatch / dims / title / sheet / inspect / edit | 67/67、4/4、25/26+1、0/64、4/4、4/4、4/4 | **逐项不变** | — |
 
-说明：C1 尺子把「吸收进模板图框语义」的源图框边显式记为 `frame_edges_absorbed`，同时 entity retained 计数不变（源图框边转入模板语义）；`single_frame_ok` 要求 model_frames=1、frame_edges_retained=0 且每条被识别源图框边都有吸收归属。识别口径=完整图框/标题栏层名（避开 FRAME_MEMBER 之类误伤），隐藏层不吸收，raw（SPLINE/ELLIPSE 等）不吸收仍按 raw 导入。局限：画在未命名/普通层上的源图框无法靠层名识别（不在 C4 自动识别范围，文档记录）。`names_preserved` 只统计模型元素实际携带的源层名（21），吸收图框层单列 `absorbed_layers`，不再伪装成 element 名。标题块模板文字/ATTRIB 仍是 0/64、0/60 的既知边界（C4 不改标题栏语义）。
+说明：C1 尺子把「吸收进模板图框语义」的源图框边显式记为 `frame_edges_absorbed`，同时 entity retained 计数不变（源图框边转入模板语义）；`single_frame_ok` 要求 model_frames=1、frame_edges_retained=0 且每条被识别源图框边都有吸收归属。识别口径=完整图框/标题栏层名（避开 FRAME_MEMBER 之类误伤），隐藏层不吸收，raw（SPLINE/ELLIPSE 等）不吸收仍按 raw 导入。局限：画在未命名/普通层上的源图框无法靠层名识别（不在 C4 自动识别范围，文档记录）；图框层上的 raw（SPLINE/ELLIPSE）仍按 raw 导入，C1 以 frame_raw_retained 计入并否决单帧。`names_preserved` 只统计模型元素实际携带的源层名（21），吸收图框层单列 `absorbed_layers`，不再伪装成 element 名。标题块模板文字/ATTRIB 仍是 0/64、0/60 的既知边界（C4 不改标题栏语义）。
 
 ## 口径用途（C2 / C3 / C4 的尺子）
 

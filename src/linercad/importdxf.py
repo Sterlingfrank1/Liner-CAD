@@ -149,6 +149,27 @@ def _clean_name(name) -> str:
     return up
 
 
+def edge_has_geometry(e) -> bool:
+    """Would _edges() keep this entity as a real segment (zero-length etc. are rejected)?"""
+    t = e.dxftype()
+    if t == "LINE":
+        p, q = e.dxf.start, e.dxf.end
+        return (float(p[0]) - float(q[0])) ** 2 + (float(p[1]) - float(q[1])) ** 2 > 1e-12
+    if t in ("ARC", "CIRCLE"):
+        return float(e.dxf.radius) > 1e-9
+    if t == "LWPOLYLINE":
+        pts = [(float(p[0]), float(p[1])) for p in e.get_points("xy")]
+        return len(pts) >= 2 and any(
+            (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 > 1e-12 for a, b in zip(pts, pts[1:])
+        )
+    if t == "POLYLINE":
+        pts = [(float(v.dxf.location[0]), float(v.dxf.location[1])) for v in e.vertices]
+        return len(pts) >= 2 and any(
+            (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 > 1e-12 for a, b in zip(pts, pts[1:])
+        )
+    return True
+
+
 def is_frame_layer(name) -> bool:
     """Does this layer belong to the source sheet frame / title block?
 
@@ -171,17 +192,16 @@ def is_frame_layer(name) -> bool:
 
 
 def is_frame_block(name) -> bool:
-    """Title/frame block names only (FRAME_MEMBER / DETAIL_PART are not title blocks)."""
+    """Title/frame block names only (FRAME_MEMBER / DETAIL_PART / 图框_MEMBER are not)."""
     up = _clean_name(name)
     if not up:
         return False
-    if "图框" in up or "标题栏" in up:
+    if up in {"图框", "图框块", "标题", "标题块", "标题栏", "标题栏块"}:
         return True
-    if "MXB" in up or "TITLE" in up or "FRAME" in up:
-        parts = [p for p in up.replace("-", "_").replace(" ", "_").split("_") if p]
-        tail = ("BLOCK", "BORDER", "FRAME", "TITLE", "RECORD", "MXB", "SHEET")
-        return bool(parts) and parts[-1] in tail
-    return False
+    parts = [p for p in up.replace("-", "_").replace(" ", "_").split("_") if p]
+    head = {"TITLE", "FRAME", "MXB", "TYDH"}
+    tail = {"BLOCK", "BORDER", "FRAME", "TITLE", "RECORD", "MXB", "SHEET"}
+    return any(p in head for p in parts) and parts[-1] in tail
 
 
 def frame_semantics(doc) -> dict:
@@ -193,7 +213,7 @@ def frame_semantics(doc) -> dict:
         if is_frame_layer(e.dxf.layer):
             if e.dxf.layer not in layers:
                 layers.append(e.dxf.layer)
-            if e.dxftype() == "INSERT" and e.dxf.name not in blocks:
+            if e.dxftype() == "INSERT" and is_frame_block(e.dxf.name) and e.dxf.name not in blocks:
                 blocks.append(e.dxf.name)
             counts[e.dxftype()] = counts.get(e.dxftype(), 0) + 1
     for e in doc.modelspace().query("INSERT"):
@@ -1269,7 +1289,7 @@ def import_dxf(d, path, view="front"):
                 if not _visible(doc, e):
                     skipped[f"{label}(layer off)"] = skipped.get(f"{label}(layer off)", 0) + 1
                     continue
-                if bucket == "edges" and is_frame_layer(e.dxf.layer):
+                if bucket == "edges" and is_frame_layer(e.dxf.layer) and edge_has_geometry(e):
                     # C4: the source frame is absorbed into the template frame semantics; it must
                     # not be imported as a second, overlapping frame.
                     ctx.frame_absorbed[label] = ctx.frame_absorbed.get(label, 0) + 1
@@ -1409,7 +1429,12 @@ def _frame_absorbed(doc) -> dict:
     out = {}
     for e in doc.modelspace():
         bucket, label = classify(e)
-        if bucket == "edges" and is_frame_layer(e.dxf.layer) and _visible(doc, e):
+        if (
+            bucket == "edges"
+            and is_frame_layer(e.dxf.layer)
+            and edge_has_geometry(e)
+            and _visible(doc, e)
+        ):
             out[label] = out.get(label, 0) + 1
     return out
 

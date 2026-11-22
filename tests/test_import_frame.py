@@ -154,6 +154,9 @@ def test_raw_frame_geometry_is_not_counted_as_absorbed(tmp_path):
     entry = metrics.evaluate_file(src)
     assert entry["import"]["counts"]["frame"]["absorbed"] == {}
     assert entry["metrics"]["entity_retention"]["by_type"]["ELLIPSE"]["rate"] == 1.0
+    # a retained raw frame element still means the sheet is not "one frame"
+    assert entry["metrics"]["frame_title"]["frame_raw_retained"] == 1
+    assert entry["metrics"]["frame_title"]["single_frame_ok"] is False
 
 
 def test_inspect_counts_attached_title_attribs(tmp_path):
@@ -199,6 +202,45 @@ def test_foreign_block_attrib_is_not_reported_as_title(tmp_path):
     assert out["title"]["blocks"] == []
     assert out["title"]["attribs"] == 0
     assert out["frame"]["absorbed"] == {}
+
+
+def test_zero_length_frame_edge_is_not_counted_as_absorbed(tmp_path):
+    doc = _doc()
+    msp = doc.modelspace()
+    msp.add_line((0, 0), (0, 0), dxfattribs={"layer": "FRAME"})
+    src = tmp_path / "zero.dxf"
+    doc.saveas(src)
+    entry = metrics.evaluate_file(src)
+    assert entry["import"]["counts"]["frame"]["absorbed"] == {}
+    f = entry["metrics"]["frame_title"]
+    assert f["frame_edges"] == 0 and f["frame_edges_absorbed"] == 0
+    assert f["single_frame_ok"] is True
+
+
+def test_detail_part_block_on_the_frame_layer_is_not_a_title_block(tmp_path):
+    doc = _doc()
+    msp = doc.modelspace()
+    blk = doc.blocks.new("DETAIL_PART")
+    blk.add_attdef("SCALE", insert=(0, 0), height=2.5)
+    ref = msp.add_blockref("DETAIL_PART", (0, 0), dxfattribs={"layer": "FRAME"})
+    ref.add_attrib("SCALE", "1:2", (1, 1), dxfattribs={"layer": "FRAME"})
+    src = tmp_path / "detail_on_frame.dxf"
+    doc.saveas(src)
+    out = importdxf.inspect(src)
+    assert out["title"]["blocks"] == []
+    assert out["title"]["attribs"] == 0
+
+
+def test_c1_title_block_detection_is_strict(tmp_path):
+    doc = _doc()
+    msp = doc.modelspace()
+    blk = doc.blocks.new("FRAME_MEMBER")
+    blk.add_text("not a title", height=2.5)
+    msp.add_blockref("FRAME_MEMBER", (0, 0), dxfattribs={"layer": "TITLE_BAR"})
+    src = tmp_path / "ordinary_title.dxf"
+    doc.saveas(src)
+    f = metrics.evaluate_file(src)["metrics"]["frame_title"]
+    assert f["frame_inserts"] == 0 and f["title_attrib_fields"] == 0
 
 
 def test_build_has_one_frame_and_no_source_frame_copy(tmp_path):

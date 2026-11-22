@@ -104,13 +104,17 @@ def _decode(name) -> str:
 
 
 def _title_name(name) -> bool:
-    up = _decode(name).upper()
-    return any(w in up for w in TITLE_BLOCK_WORDS)
+    # C4: strict block-name rule shared with the importer
+    return importdxf.is_frame_block(name)
 
 
 def _title_layer(name) -> bool:
     # C4: one detection rule shared with the importer (exact frame/title layer names only)
     return importdxf.is_frame_layer(name)
+
+
+def _title_insert(e) -> bool:
+    return e.dxftype() == "INSERT" and (_title_name(e.dxf.name) or _title_layer(e.dxf.layer))
 
 
 def _title_field(tag) -> bool:
@@ -160,7 +164,7 @@ def _created_of_kind(created, kinds) -> list:
 
 
 def _all_attribs(doc, inserts) -> list:
-    out = [e for e in _msp(doc) if e.dxftype() == "ATTRIB"]
+    out = [e for e in _msp(doc) if e.dxftype() == "ATTRIB" and _title_layer(e.dxf.layer)]
     for br in inserts:
         out.extend(getattr(br, "attribs", ()))
     return out
@@ -443,7 +447,7 @@ def _sheet_fits(width, height, sheet, scale, std="GB") -> bool:
 def frame_title(doc, d, created) -> dict:
     ents = _msp(doc)
     handlers = _imported_handles(created)
-    inserts = [e for e in ents if e.dxftype() == "INSERT" and _title_name(e.dxf.name)]
+    inserts = [e for e in ents if _title_insert(e)]
     attribs = _all_attribs(doc, inserts)
     # title texts: modelspace texts on title / frame layers PLUS the template texts inside the
     # title block definitions (4 samples x 16 template texts were previously not in the denominator)
@@ -461,11 +465,23 @@ def frame_title(doc, d, created) -> dict:
     as_note_list, _unmatched = _matched(remaining, notes)
     # the drawing frame itself is ordinary geometry on a title / frame layer: count the edges
     frame_edges = [
-        e for e in ents if importdxf.classify(e)[0] == "edges" and _title_layer(e.dxf.layer)
+        e
+        for e in ents
+        if importdxf.classify(e)[0] == "edges"
+        and _title_layer(e.dxf.layer)
+        and importdxf.edge_has_geometry(e)
     ]
     frame_edges_retained = sum(1 for e in frame_edges if _handle(e) in handlers)
     absorbed = importdxf._frame_absorbed(doc)
     frame_edges_absorbed = sum(absorbed.values())
+    frame_raw = [
+        e
+        for e in ents
+        if importdxf.classify(e)[0] == "raw"
+        and _title_layer(e.dxf.layer)
+        and importdxf._visible(doc, e)
+    ]
+    frame_raw_retained = sum(1 for e in frame_raw if _handle(e) in handlers)
     inserts_retained = sum(1 for e in inserts if _handle(e) in handlers)
     attrib_retained = sum(1 for e in attribs if _handle(e) in handlers)  # handle-matched only
     k, _unit = importdxf.unit_factor(doc)
@@ -482,7 +498,10 @@ def frame_title(doc, d, created) -> dict:
     # geometry is duplicated edges, which C4 has to reconcile into "exactly one frame"
     model_frames = sum(1 for el in getattr(d, "_els", {}).values() if el.kind == "frame")
     single_frame_ok = (
-        model_frames == 1 and frame_edges_retained == 0 and frame_edges_absorbed == len(frame_edges)
+        model_frames == 1
+        and frame_edges_retained == 0
+        and frame_edges_absorbed == len(frame_edges)
+        and frame_raw_retained == 0
     )
     return {
         "sheet_guess": {
@@ -496,6 +515,7 @@ def frame_title(doc, d, created) -> dict:
         "frame_edges": len(frame_edges),
         "frame_edges_retained": frame_edges_retained,
         "frame_edges_absorbed": frame_edges_absorbed,
+        "frame_raw_retained": frame_raw_retained,
         "model_frames": model_frames,
         "single_frame_ok": single_frame_ok,
         "title_attrib_fields": len(attribs),
