@@ -5,7 +5,7 @@ const $ = (id) => document.getElementById(id);
 const S = { version: -1, model: null, byId: {}, sel: [], svg: null, vb: null, full: null, params: [],
   values: {}, dragging: false, previewTimer: null, previewSeq: 0, fitted: false,
   versions: [], pick: [], cmp: null, busy: false,
-  previewIds: new Set(), previewFindings: [], paramError: null, resolved: {}, previewActive: false };  // B3
+  previewIds: new Set(), previewFindings: [], paramError: null, resolved: {}, previewActive: false, unplaced: [] };  // B3
 
 async function api(path, body) {
   const opt = body === undefined ? { headers: { "X-LCAD-Token": TOKEN } } : { method: "POST", body: JSON.stringify(body),
@@ -44,6 +44,7 @@ async function reload(st) {
     S.model = m; S.byId = {};
     for (const e of m.elements) S.byId[e.id] = e;
     S.resolved = m.resolved || {};
+    S.unplaced = m.unplaced || [];
     if (st.preview) {  // a page reload while a preview is active: keep the red marks (B3)
       S.previewFindings = m.issues || [];
       S.previewIds = new Set((m.issues || []).map((f) => f.id).concat(Object.keys(S.resolved)));
@@ -117,6 +118,7 @@ function applyFindings(findings, isPreview, resolved, elementIssues) {
   S.previewIds = new Set(isPreview ? findings.map((f) => f.id).concat(Object.keys(resolved || {})) : []);
   if (resolved !== undefined) S.resolved = resolved || {};
   colour();
+  inspect();
 }
 
 function colour() {
@@ -266,9 +268,15 @@ function previewPanel() {
         "<a class=\"ref\" data-ref=\"" + esc(id) + "\">" + esc(id) + "</a>").join(" ") + "</div>" : "") +
       "</div>";
   }
+  if (S.unplaced.length) {
+    h += "<h3>未定位违规（" + S.unplaced.length + "）</h3><p class=\"muted\">finding 的 ID 不是可画元素（如参数），列在这里而不是画布</p>";
+    for (const f of S.unplaced) h += issueHtml(f);
+  }
   if (S.previewFindings.length) {
-    h += "<h3>预览违规（" + S.previewFindings.length + "）</h3>";
-    for (const f of S.previewFindings) h += issueHtml(f) +
+    const unplaced = new Set(S.unplaced.map((f) => f.rule + "|" + f.id));
+    const shown = S.previewFindings.filter((f) => !unplaced.has(f.rule + "|" + f.id));
+    h += "<h3>预览违规（" + shown.length + "）</h3>";
+    for (const f of shown) h += issueHtml(f) +
       "<div class=\"row\"><a class=\"ref\" data-ref=\"" + esc(f.id) + "\">" + esc(f.id) + "</a></div>";
   }
   return h;
@@ -352,7 +360,8 @@ function paramRow(p) {
     if (v === v0) delete S.values[p.name]; else S.values[p.name] = v;
     row.classList.toggle("changed", v !== v0);
     row.classList.add("pending"); row.clearBad();
-    S.dragging = true; schedulePreview();
+    S.dragging = true; S.previewActive = true;  // B3: Esc can withdraw while the request is in flight
+    schedulePreview();
   });
   btn.onclick = () => writeback(p.name, +inp.value);
   return row;
@@ -374,6 +383,8 @@ function schedulePreview() {
         hint: r.error.hint || "", candidates: r.error.candidates || [], affected: r.affected || [] };
       S.previewFindings = [];
       S.previewIds = new Set(r.affected || []);  // B3: red on the elements that cover the parameter
+      S.previewActive = true;
+      S.unplaced = [];
       colour(); inspect();
       const bad = new Set(Object.keys(values));  // the changed rows, and the row whose rule failed
       if (r.error.id) bad.add(r.error.id);
@@ -382,6 +393,8 @@ function schedulePreview() {
     }
     for (const row of rows) row.clearBad();
     applyFindings(r.findings || [], Object.keys(values).length > 0, r.resolved, r.element_issues);
+    S.previewActive = true;
+    S.unplaced = r.unplaced || [];
     S.paramError = null;
     msg.className = "msg";
     msg.textContent = Object.keys(values).length ? `预览 ${r.timing_ms} ms` +
@@ -401,10 +414,12 @@ async function releasePreview() {
   // Bump the sequence first so a preview request still in flight cannot bring the old preview back.
   S.values = {};
   S.previewActive = false;
+  S.unplaced = [];
   const seq = ++S.previewSeq;
   const r = await api("/api/preview", { values: {}, seq });
   clearPreviewFindings();
   if (r && r.findings) applyFindings(r.findings, false, r.resolved, r.element_issues);
+  colour(); inspect();
   S.version = -2;
   await loadParams();
 }

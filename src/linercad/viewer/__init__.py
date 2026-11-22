@@ -210,6 +210,7 @@ class Viewer:
                 "ok": True,
                 "version": self.version,
                 "resolved": self._resolved(r),
+                "unplaced": self._unplaced(r),
                 "content_bbox": _content_bbox(r.d),
                 "title_bbox": _title_bbox(r.d),
                 "elements": out,
@@ -291,15 +292,9 @@ class Viewer:
     def do_preview(self, values, seq=None):
         t0 = time.perf_counter()
         with self.lock:
-            if seq is not None:
-                if seq < self.preview_seq:  # an older drag arrived late
-                    return {
-                        "ok": False,
-                        "superseded": True,
-                        "error": {"code": "superseded", "message": ""},
-                    }
-                self.preview_seq = seq
-            if not values:
+            if not values:  # a withdrawal always wins, even with a stale client seq (page reload)
+                if seq is not None:
+                    self.preview_seq = max(self.preview_seq, seq) + 1
                 self.preview = None
                 self.param_errors = {}
                 self.version += 1
@@ -312,7 +307,16 @@ class Viewer:
                     "affected": [],
                     "resolved": self._resolved(self.res) if self.res else {},
                     "element_issues": self._issues_by_element(self.res) if self.res else {},
+                    "unplaced": self._unplaced(self.res) if self.res else [],
                 }
+            if seq is not None:
+                if seq < self.preview_seq:  # an older drag arrived late
+                    return {
+                        "ok": False,
+                        "superseded": True,
+                        "error": {"code": "superseded", "message": ""},
+                    }
+                self.preview_seq = seq
             try:
                 res = build(self.dir, params=values)
             except LinerError as e:
@@ -340,6 +344,7 @@ class Viewer:
                 "affected": [],
                 "resolved": self._resolved(res),
                 "element_issues": self._issues_by_element(res),
+                "unplaced": self._unplaced(res),
                 "stale_ops": stale,
             }
 
@@ -391,6 +396,13 @@ class Viewer:
             for eid in self._finding_targets(f, r) or [f.get("id")]:
                 out.setdefault(eid, []).append(item)
         return out
+
+    def _unplaced(self, r):
+        """findings the canvas cannot mark (no drawn element: e.g. a parameter nothing displays);
+        the inspector still lists them with the E1 fields."""
+        if r is None:
+            return []
+        return [_finding(f) for f in r.findings if not self._finding_targets(f, r)]
 
     def writeback(self, name, value):
         from .. import txn

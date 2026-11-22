@@ -359,6 +359,7 @@ def test_viewer_consumes_preview_findings_on_the_canvas():
         "resolved",
         "element_issues",
         "previewActive",
+        "unplaced",
         "releasePreview",
         "++S.previewSeq",
         "无",
@@ -373,11 +374,35 @@ def test_viewer_consumes_preview_findings_on_the_canvas():
 
 def test_withdrawn_preview_cannot_be_restored_by_a_stale_request(flange_dir):
     v = Viewer(flange_dir)
-    assert v.do_preview({"D": 140}, seq=2)["ok"]
-    assert v.do_preview({}, seq=3)["ok"] and v.preview is None
-    late = v.do_preview({"D": 140}, seq=2)  # an older drag arrives after the withdrawal
+    assert v.do_preview({"D": 140}, seq=5)["ok"]
+    # a freshly reloaded page starts its seq at 1 while the server still knows seq 5: withdrawal wins
+    assert v.do_preview({}, seq=1)["ok"] and v.preview is None
+    late = v.do_preview({"D": 140}, seq=5)  # the old page's in-flight preview arrives after it
     assert late["ok"] is False and late.get("superseded") and v.preview is None
     assert v.state()["preview"] is False
+
+
+def test_unplaced_finding_is_listed_with_the_e1_fields(tmp_path):
+    p = tmp_path / "d"
+    txn.init(p)
+    (p / "drawing.py").write_text(
+        "from linercad import Drawing, Param\n"
+        "d = Drawing(sheet='A3', std='GB', scale='1:1')\n"
+        "P = d.params(L=Param(50, min=20, max=100, step=1, label='总长'))\n"
+        "f = d.view('front')\n"
+        "f.turned('b', [(0, 10), (P.L, 10)])\n"
+        "f.dim.dia('d1', (5, 10), (5, -10), value=20)\n"
+        "d.title(name='t')\n",
+        encoding="utf-8",
+    )
+    v = Viewer(p)
+    model = v.model()
+    hit = [f for f in model["unplaced"] if f["rule"] == "param_cover"]
+    assert (
+        hit and hit[0]["id"] == "P.L"
+    )  # a parameter is not a drawn element: the inspector lists it
+    assert {"clause", "measured", "expected", "candidates"} <= set(hit[0])
+    assert model["resolved"] == {}
 
 
 def test_preview_api_returns_findings_with_fields(tmp_path):

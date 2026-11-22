@@ -41,10 +41,10 @@ uv run lcad -C <临时目录>\flange view --port 0 --no-open   # 打开输出的
 
 ## 4. 代码改动
 
-- `src/linercad/viewer/__init__.py`：`FINDING_KEYS` / `_finding()`；`model()`、`_write_snapshot()`、`do_preview()` 输出 E1 字段；预览成功返回 `findings` 与 `resolved`（finding id 本身不是可画元素时映射到的元素，如 `V.top` → 该视图的元素）；参数规则失败返回 `affected` 与 ParamError 原有字段（次要路径，不改 E1 字段语义）；撤回预览同时清空 snapshot.json 的 `param_errors`。
-- `viewer/viewer.js`：`applyFindings()` 消费 preview 的 findings / element_issues → 每个元素的 issues + `previewIds`；`colour()` 给违规元素加 `st-violation`（红色，优先于选中 / hover 色）；检查器新增「预览违规」面板与四字段（条款 / 实测 / 要求 / 候选，空容器显示「无」）、ParamError 面板（值 / 提示 / 候选）；页面 reload 且预览仍在时从 model 复原（含 `resolved` / `element_issues`）；预览结束 / **Esc** / 撤回预览清空并重绘（撤回先递增 previewSeq，在途预览请求不能把旧预览写回）。
+- `src/linercad/viewer/__init__.py`：`FINDING_KEYS` / `_finding()`；`model()`、`_write_snapshot()`、`do_preview()` 输出 E1 字段；预览成功返回 `findings`、`resolved`（finding id 本身不是可画元素时映射到的元素，如 `V.top` → 该视图的元素）与 `unplaced`（找不到可画元素的 finding，如未被任何尺寸覆盖的参数 `P.L`；检查器照常列四字段）；`element_issues` 让检查器选中目标元素时也能看到被解析过去的 view 级 finding；参数规则失败返回 `affected` 与 ParamError 原有字段（次要路径，不改 E1 字段语义）；撤回预览先于 seq 判重并递增服务端 preview_seq（页面 reload 后旧的 seq 也能撤回、在途旧预览不能把红色写回），同时清空 snapshot.json 的 `param_errors`。
+- `viewer/viewer.js`：`applyFindings()` 消费 preview 的 findings / element_issues → 每个元素的 issues + `previewIds`，并即时重绘检查器；`colour()` 给违规元素加 `st-violation`（红色，优先于选中 / hover 色）；检查器新增「预览违规」「未定位违规」面板与四字段（条款 / 实测 / 要求 / 候选，空容器显示「无」）、ParamError 面板（值 / 提示 / 候选）；拖动一开始就置 previewActive，页面 reload 且预览仍在时从 model 复原（含 `resolved` / `element_issues` / `unplaced`）；预览结束 / **Esc** / 撤回预览清空并重绘（撤回先递增 previewSeq，在途预览请求不能把旧预览写回）。
 - `viewer/viewer.css`：`g.st-violation` 与选中 / hover 组合的红色规则。
-- `tests/test_viewer.py`：G2 先失败（5 failed）再实现；新增 8 个测试（preview findings 四字段与 element_issues、model / snapshot 同步、撤回后清空、ParamError affected 且不造字段、view-level finding 映射到视图元素且检查器可见、撤回后在途旧请求 superseded、viewer.js / css 消费、HTTP 预览接口），并保留原有 issue 颜色与服务守卫测试。浏览器侧的 Esc / 撤回状态转换另用 ego-browser 实测（本次两张截图即由真实页面操作得到）。
+- `tests/test_viewer.py`：G2 先失败（5 failed）再实现；新增 10 个测试（preview findings 四字段与 element_issues、model / snapshot 同步、撤回后清空、ParamError affected 且不造字段、view-level finding 映射到视图元素且检查器可见、未定位参数 finding 进 unplaced 且四字段齐全、撤回后在途旧请求 superseded（含页面 reload 后旧 seq 撤回）、viewer.js / css 消费、HTTP 预览接口），并保留原有 issue 颜色与服务守卫测试。浏览器侧的 Esc / 撤回状态转换另用 ego-browser 实测（本次两张截图即由真实页面操作得到）。
 - 未改 `commands.py` / `examples/` / check 规则。
 
 ## 5. 验证
