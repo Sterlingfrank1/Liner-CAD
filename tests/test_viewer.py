@@ -766,3 +766,12 @@ def test_viewer_page_has_the_compare_and_preview_hooks():
         assert needle in js, needle
     for c in ("df-a", "df-b", "df-add", "df-del", "df-chg", "is-preview"):
         assert c in css, c
+
+
+def test_context_accepts_copied_references(shaft):
+    Viewer(shaft).select(["D.L", "D.d2"])
+    # an Agent may paste the copied line pieces straight back into the command
+    ctx = commands.context(shaft, ["@D.d2（Φ30k6，主视图）", "@D.L（200，主视图）"])
+    assert [x["element"]["id"] for x in ctx["items"]] == ["D.d2", "D.L"]
+    ctx = commands.context(shaft, ["@D.d2"])
+    assert ctx["items"][0]["element"]["id"] == "D.d2"

@@ -134,11 +134,26 @@ def _fresh_selection(dir, seldoc):
     return ids, {"version": selver, "time": seldoc.get("time"), "ids": ids, "fresh": True}
 
 
+def _clean_ids(items):
+    """Element ids of copied references: @D.d2（Φ30k6，主视图） → D.d2 (the Agent may paste as-is)."""
+    out = []
+    for item in items:
+        s = str(item).strip()
+        if s.startswith("@"):
+            s = s[1:]
+        s = s.split("（", 1)[0].strip()
+        if s:
+            out.append(s)
+    return out
+
+
 def context(dir, ids=()):
     dir = Path(dir)
     seldoc = None
     selection = None
-    if ids and ids[0] == "@sel":
+    want_sel = bool(ids) and str(ids[0]).strip() == "@sel"
+    ids = _clean_ids(ids[1:]) if want_sel else _clean_ids(ids)
+    if want_sel:
         sel = dir / ".linercad" / "selection.json"
         hint = "请在 Viewer 里点选元素后重试，或直接把 @ID 贴进对话；不要猜"
         if not sel.exists():
@@ -147,7 +162,7 @@ def context(dir, ids=()):
             )
         seldoc = json.loads(sel.read_text(encoding="utf-8"))
         selected, selection = _fresh_selection(dir, seldoc)
-        ids = selected + list(ids[1:])
+        ids = selected + ids
     try:
         res = build(dir)
     except (
