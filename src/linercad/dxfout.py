@@ -157,7 +157,7 @@ def _write(msp, pr, std, text_boxes):
     if isinstance(pr, Hatch):
         hs = std["hatch"]
         h = msp.add_hatch(dxfattribs=lay)
-        h.dxf.hatch_style = 0
+        h.dxf.hatch_style = int(getattr(pr, "hatch_style", 0) or 0)
         if getattr(pr, "solid", False):
             h.set_solid_fill(color=7)
             for lp in pr.loops:
@@ -166,9 +166,16 @@ def _write(msp, pr, std, text_boxes):
                 else:
                     h.paths.add_polyline_path(list(lp), is_closed=True)
             return h
-        sp = pr.spacing or hs["spacing"]
-        ang = hs["angle"] if pr.angle is None else pr.angle
-        h.set_pattern_fill(hs["pattern"], scale=sp / 3.175, angle=ang - 45)
+        if getattr(pr, "pattern", None):
+            h.set_pattern_fill(
+                pr.pattern,
+                scale=float(getattr(pr, "scale", None) or 1.0),
+                angle=float(pr.angle or 0.0),
+            )
+        else:
+            sp = pr.spacing or hs["spacing"]
+            ang = hs["angle"] if pr.angle is None else pr.angle
+            h.set_pattern_fill(hs["pattern"], scale=sp / 3.175, angle=ang - 45)
         for lp in pr.loops:
             if lp and lp[0] == "circle":
                 h.paths.add_edge_path().add_arc(lp[1], lp[2], 0, 360)

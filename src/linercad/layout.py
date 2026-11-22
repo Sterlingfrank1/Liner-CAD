@@ -73,6 +73,9 @@ class Hatch:
     angle: float | None = None  # per-part override (assemblies), else the profile's
     spacing: float | None = None
     solid: bool = False  # imported SOLID fill (no pattern lines)
+    pattern: str | None = None  # imported predefined pattern (exact round-trip)
+    scale: float | None = None  # imported pattern_scale
+    hatch_style: int = 0  # imported DXF hatch_style
 
 
 @dataclass(frozen=True)
@@ -618,12 +621,20 @@ class _ViewLayout:
                     else:
                         loops.append(tuple(self.P(p) for p in lpts))
             it = e._intent
+            hs = self.std["hatch"]
+            imported = it.get("pattern") is not None
+            spacing = it.get("spacing")
+            if imported and spacing is None:
+                spacing = hs["spacing"] * float(it.get("scale") or 1.0)
             hp = Hatch(
                 tuple(loops),
                 "hatch",
                 it.get("angle"),
-                it.get("spacing"),
+                spacing,
                 solid=bool(it.get("solid")),
+                pattern=it.get("pattern"),
+                scale=it.get("scale"),
+                hatch_style=int(it.get("hatch_style", 0) or 0),
             )
             self.put(e, [hp], obstacle=False)
             if e._intent.get("outline"):

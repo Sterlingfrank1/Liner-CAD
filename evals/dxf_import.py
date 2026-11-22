@@ -294,7 +294,7 @@ def _would_import(doc, e) -> bool:
     if bucket in ("notes", "texts"):
         return bool(_source_text(e))
     if bucket == "hatches":
-        return importdxf.hatch_representable(e)[0]
+        return importdxf.hatch_would_import(e)
     if bucket == "raw":
         return _raw_would_import(e)
     return _dim_would_import(e)

@@ -673,24 +673,39 @@ def _mtext_align(attachment: int) -> tuple:
 
 
 def hatch_representable(e):
-    """(ok, reason): can this HATCH be mapped to the repository section-lining vocabulary?"""
-    if getattr(e, "gradient", None) is not None:  # gradient fills have no section-lining equivalent
+    """(ok, reason): can this HATCH map onto the repository hatch vocabulary (ANSI31 / SOLID)?"""
+    if getattr(e, "gradient", None) is not None:
         return False, "gradient"
     if int(e.dxf.get("solid_fill", 0) or 0):
         return True, None
     name = str(e.dxf.get("pattern_name") or "")
     if not name:
         return True, None  # no pattern lines at all: treat it as a solid fill
+    if name.upper() != "ANSI31":
+        return False, f"pattern {name} (no equivalent in the repository vocabulary)"
     ptype = int(e.dxf.get("pattern_type", 1) or 1)
     if ptype != 1:
         return False, f"pattern {name} (type {ptype})"
     return True, None
 
 
-def _arc_points(c, r, a0, a1, step=15.0):
+def _dist(a, b):
+    return math.hypot(a[0] - b[0], a[1] - b[1])
+
+
+def _arc_step(r, tol=0.01):
+    """Angle step whose chord sagitta stays below tol, capped at 5 degrees."""
+    if r <= tol:
+        return 5.0
+    step = math.degrees(2.0 * math.acos(max(-1.0, 1.0 - tol / r)))
+    return max(0.5, min(5.0, step))
+
+
+def _arc_points(c, r, a0, a1, tol=0.01):
     span = (a1 - a0) % 360.0
     if span < 1e-9:
         span = 360.0
+    step = _arc_step(r, tol)
     n = max(2, int(math.ceil(span / step)))
     return [
         (
@@ -701,12 +716,24 @@ def _arc_points(c, r, a0, a1, step=15.0):
     ]
 
 
+def _loop_area(pts):
+    return abs(
+        sum(
+            pts[k][0] * pts[(k + 1) % len(pts)][1] - pts[(k + 1) % len(pts)][0] * pts[k][1]
+            for k in range(len(pts))
+        )
+        / 2.0
+    )
+
+
 def _close_loop(points):
     pts = [(float(x), float(y)) for x, y in points]
-    while len(pts) > 1 and math.dist(pts[0], pts[-1]) <= 1e-6:
+    if len(pts) > 1 and _dist(pts[0], pts[-1]) <= 1e-6:
         pts.pop()
     if len(pts) < 3:
         return None, "degenerate boundary"
+    if _loop_area(pts) <= 1e-6:
+        return None, "zero-area boundary"
     return pts, None
 
 
@@ -714,22 +741,23 @@ def _loop_from_path(path):
     btype = getattr(path.type, "name", str(path.type))
     if btype == "POLYLINE":
         verts = list(path.vertices)
-        n = len(verts)
-        if n < 3:
+        if len(verts) < 3:
             return None, "degenerate boundary"
         pts = []
-        for i, (x, y, b) in enumerate(verts):
-            nx, ny, _nb = verts[(i + 1) % n]
+        n = len(verts)
+        for k, (x, y, b) in enumerate(verts):
+            nx, ny, _nb = verts[(k + 1) % n]
             if abs(float(b or 0.0)) < 1e-9:
                 pts.append((x, y))
                 continue
             center, sa, ea, r = bulge_to_arc((x, y), (nx, ny), float(b))
-            arc = _arc_points((center.x, center.y), r, math.degrees(sa), math.degrees(ea))
-            pts.extend(arc[:-1])
+            pts.extend(
+                _arc_points((center.x, center.y), r, math.degrees(sa), math.degrees(ea))[:-1]
+            )
         return _close_loop(pts)
     if btype == "EDGE":
         pts = []
-        for edge in path.edges:
+        for k, edge in enumerate(path.edges, 1):
             name = getattr(edge.type, "name", str(edge.type))
             if name == "LINE":
                 seg = [
@@ -744,16 +772,30 @@ def _loop_from_path(path):
                     float(edge.end_angle),
                 )
             elif name == "ELLIPSE":
-                return None, "ELLIPSE edge"
+                return None, "ELLIPSE edge (no equivalent)"
             elif name == "SPLINE":
-                return None, "SPLINE edge"
+                return None, "SPLINE edge (no equivalent)"
             else:
-                return None, f"{name} edge"
-            if pts and math.dist(pts[-1], seg[0]) <= 1e-6:
+                return None, f"{name} edge (no equivalent)"
+            if pts and _dist(pts[-1], seg[0]) > 0.01:
+                return None, f"open boundary at edge {k}"
+            if pts and _dist(pts[-1], seg[0]) <= 1e-6:
                 seg = seg[1:]
             pts.extend(seg)
         return _close_loop(pts)
     return None, f"boundary path {btype}"
+
+
+def hatch_would_import(e) -> bool:
+    """Would the importer actually keep this HATCH (same checks as _hatch, without creating)?"""
+    ok, _reason = hatch_representable(e)
+    if not ok:
+        return False
+    for path in e.paths:
+        pts, bad = _loop_from_path(path)
+        if not bad:
+            return True
+    return False
 
 
 def _hatch(ctx, e) -> bool:
@@ -763,6 +805,7 @@ def _hatch(ctx, e) -> bool:
             {"handle": str(e.dxf.handle), "layer": str(e.dxf.layer), "reason": reason}
         )
         return False
+    style = int(e.dxf.get("hatch_style", 0) or 0)
     loops = []
     dropped = []
     for k, path in enumerate(e.paths, 1):
@@ -787,6 +830,14 @@ def _hatch(ctx, e) -> bool:
             }
         )
         return False
+    if style not in (0, 1):
+        ctx.hatch_warnings.append(
+            {
+                "handle": str(e.dxf.handle),
+                "layer": str(e.dxf.layer),
+                "reason": f"hatch_style {style} approximated as even-odd islands",
+            }
+        )
     name = str(e.dxf.get("pattern_name") or "")
     solid = bool(int(e.dxf.get("solid_fill", 0) or 0)) or not name
     intent = {
@@ -796,6 +847,7 @@ def _hatch(ctx, e) -> bool:
         "pattern": name or None,
         "scale": float(e.dxf.get("pattern_scale", 1.0) or 1.0),
         "angle": float(e.dxf.get("pattern_angle", 0.0) or 0.0),
+        "hatch_style": style,
         "dxf": {"layer": str(e.dxf.layer), "handle": str(e.dxf.handle)},
         "dropped_paths": dropped,
     }

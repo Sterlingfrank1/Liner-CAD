@@ -77,10 +77,10 @@ MTEXT 保留换行）。C1 尺子的读数变化（同一 4 样例、同一命�
 ## C3 后（HATCH 导入为剖面线元素）：C1 指标变化
 
 importdxf 现在把 HATCH 分类为 hatches 桶并导入为剖面线元素（kind=hatch）：
-- 图案填充：pattern / angle / scale 写入元素意图，渲染与回写映射到本仓剖面线语汇（GB/T 4457.5，ANSI31 / 45° / spacing 3.0 为基；间距 = std spacing × pattern_scale，角度取源 pattern_angle）。
+- 图案填充：只映射本仓剖面线语汇可表示的图案（ANSI31）与 SOLID；pattern / angle / scale 写入意图并在 build 回写时原样保留（pattern_name/pattern_angle/pattern_scale 与源一致），不再被 std 45°/spacing 变换改写；其它预定义图案（如 ANSI37）按不可表示报告。
 - 实体填充：solid=True；layout/dxfout/svgout 按实体填充处理（dxfout set_solid_fill）。
-- 边界：多边形路径（含 bulge 圆弧）直接展平；edge 路径的 LINE/ARC 逐段展平（15° 折线，arc 点落在真实弧上，容差 0.01mm）；多个路径 → 多个 loop（islands 保留）。
-- 不能表示：渐变填充、非预定义图案类型、ELLIPSE/SPLINE 边界、空/退化路径——按源 dxf handle + 图层 + 原因记录，不静默。
+- 边界：多边形路径（含 bulge 圆弧）与 edge 路径的 LINE/ARC 逐段展平；弧采样按 sagitta ≤ 0.01mm 自适应（半径 20 与 1000 均满足），闭合/首尾连接按 0.01mm 校验，面积为零/开口/缺口路径按路径丢弃并报告；多个路径 → 多个 loop（islands 保留），源 hatch_style 保留（非 normal 时报告近似为 even-odd）。
+- 不能表示：渐变填充、无可映射图案（如 ANSI37）、非预定义图案类型、ELLIPSE/SPLINE 边界、开口/零面积/空路径——按源 dxf handle + 图层 + 原因记录，不静默；部分路径不可表示但其余边界有效时，整张 hatch 保留并把路径明细写进 counts.hatch_warnings 与 intent.dropped_paths。
 
 | 指标 | C2 后（C3 前） | C3 后 | 说明 |
 |---|---|---|---|

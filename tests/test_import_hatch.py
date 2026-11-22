@@ -39,10 +39,10 @@ def make_edge_path_dxf(path):
     h = msp.add_hatch(dxfattribs={"layer": "HATCH"})
     h.set_pattern_fill("ANSI31", scale=0.5, angle=0.0)
     p = h.paths.add_edge_path()
-    p.add_line((0, 0), (40, 0))
-    p.add_line((40, 0), (40, 20))
-    p.add_arc((0, 0), 20, 0, 90)  # quarter arc boundary
-    p.add_line((0, 20), (0, 0))
+    p.add_arc((0, 0), 20, 0, 90)  # quarter arc boundary, (20,0) -> (0,20)
+    p.add_line((0, 20), (40, 20))
+    p.add_line((40, 20), (40, 0))
+    p.add_line((40, 0), (20, 0))
     doc.saveas(path)
     return path
 
@@ -174,6 +174,83 @@ def test_unrepresentable_hatches_are_reported(tmp_path):
     assert any("gradient" in str(k).lower() for k in imp.counts["skipped"]), imp.counts["skipped"]
     reasons = imp.counts.get("hatch_skipped", [])
     assert reasons and any("gradient" in r["reason"].lower() for r in reasons)
+
+
+def _lcad(dir, *args):
+    import json
+    import subprocess
+
+    r = subprocess.run(
+        [sys.executable, "-m", "linercad", "-C", str(dir), *args], capture_output=True
+    )
+    return r.returncode, json.loads(r.stdout.decode("utf-8"))
+
+
+def test_pattern_angle_and_scale_survive_the_build(tmp_path):
+    src = make_pattern_dxf(tmp_path / "p.dxf")
+    d = tmp_path / "part"
+    code, out = _lcad(tmp_path, "init", str(d), "--from-dxf", str(src))
+    assert code == 0, out
+    doc = ezdxf.readfile(d / ".linercad/build/drawing.dxf")
+    hatch = next(e for e in doc.modelspace().query("HATCH"))
+    assert hatch.dxf.pattern_name == "ANSI31"
+    assert abs(hatch.dxf.pattern_angle - 45.0) <= 1e-6
+    assert abs(hatch.dxf.pattern_scale - 2.0) <= 1e-6
+    assert len(list(hatch.paths)) == 1
+
+
+def test_solid_fill_survives_the_build(tmp_path):
+    src = make_solid_dxf(tmp_path / "s.dxf")
+    d = tmp_path / "part"
+    code, out = _lcad(tmp_path, "init", str(d), "--from-dxf", str(src))
+    assert code == 0, out
+    doc = ezdxf.readfile(d / ".linercad/build/drawing.dxf")
+    hatch = next(e for e in doc.modelspace().query("HATCH"))
+    assert hatch.dxf.solid_fill == 1  # ezdxf may still carry the placeholder name SOLID
+
+
+def test_arc_sampling_meets_the_001_mm_tolerance():
+    for r in (20.0, 1000.0):
+        pts = importdxf._arc_points((0.0, 0.0), r, 0.0, 90.0)
+        for a, b in zip(pts, pts[1:]):
+            mx, my = (a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0
+            sagitta = r - (mx * mx + my * my) ** 0.5
+            assert sagitta <= 0.01 + 1e-9, (r, sagitta)
+
+
+def test_predefined_pattern_without_equivalent_is_reported(tmp_path):
+    doc = _doc()
+    msp = doc.modelspace()
+    h = msp.add_hatch(dxfattribs={"layer": "HATCH"})
+    h.set_pattern_fill("ANSI37", scale=1.0, angle=0.0)
+    h.paths.add_polyline_path([(0, 0), (10, 0), (10, 10), (0, 0)])
+    src = tmp_path / "ansi37.dxf"
+    doc.saveas(src)
+    _d, imp, hatches = imported(src)
+    assert hatches == []
+    skipped = imp.counts["hatch_skipped"]
+    assert skipped and skipped[0]["handle"] and skipped[0]["layer"]
+    assert "ANSI37" in skipped[0]["reason"]
+    assert any("ANSI37" in key for key in imp.counts["skipped"])
+
+
+def test_open_and_zero_area_boundaries_are_reported(tmp_path):
+    doc = _doc()
+    msp = doc.modelspace()
+    h = msp.add_hatch(dxfattribs={"layer": "HATCH"})
+    h.set_pattern_fill("ANSI31", scale=1.0, angle=45.0)
+    p = h.paths.add_edge_path()
+    p.add_line((0, 0), (10, 0))
+    p.add_line((10.1, 0), (10.1, 10))  # 0.1 mm gap: open boundary
+    p.add_line((10.1, 10), (0, 10))
+    p.add_line((0, 10), (0, 0))
+    h.paths.add_polyline_path([(0, 0), (5, 0), (10, 0), (0, 0)])  # zero area
+    src = tmp_path / "open.dxf"
+    doc.saveas(src)
+    _d, imp, hatches = imported(src)
+    assert hatches == []
+    reasons = " ".join(r["reason"] for r in imp.counts["hatch_skipped"])
+    assert "open boundary" in reasons and "zero-area" in reasons
 
 
 def test_c1_metric_records_the_hatch(tmp_path):
