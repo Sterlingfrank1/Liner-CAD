@@ -460,6 +460,127 @@ def test_preview_api_returns_findings_with_fields(tmp_path):
         httpd.shutdown()
 
 
+# ---- B1–B6: Viewer UI polish (slider scale, inspector empty state, preview marking, status bar,
+# version list persistence) shared PR, one section per card ---------------------------------------
+
+
+def test_b1_params_api_reports_slider_ranges(flange_dir, tmp_path):
+    v = Viewer(flange_dir)
+    ps = v.params()["params"]
+    assert ps and all("range" in p for p in ps)  # every slider says which range it spans
+    d = next(p for p in ps if p["name"] == "D")
+    assert d["range"] == {"min": 80, "max": 200} and d["step"] == 1
+    # a Param without min/max falls back to 0.5–1.5 × its default (v0.1.0 review #1)
+    p = tmp_path / "d"
+    txn.init(p)
+    (p / "drawing.py").write_text(
+        "from linercad import Drawing, Param\n"
+        "d = Drawing(sheet='A3', std='GB', scale='1:1')\n"
+        "P = d.params(L=Param(10))\n"
+        "f = d.view('front')\n"
+        "f.turned('b', [(0, 5), (P.L, 5)])\n"
+        "f.dim.linear('L', (0, 5), (P.L, 5), value=P.L, side='bottom')\n"
+        "d.title(name='t')\n",
+        encoding="utf-8",
+    )
+    q = Viewer(p).params()["params"][0]
+    assert q["name"] == "L" and q["range"] == {"min": 5.0, "max": 15.0}
+
+
+def test_b1_slider_scale_rendered():
+    from importlib import resources
+
+    pkg = resources.files("linercad.viewer")
+    js = (pkg / "viewer.js").read_text(encoding="utf-8")
+    css = (pkg / "viewer.css").read_text(encoding="utf-8")
+    for needle in ("p-scale", "p-min", "p-max", "p-ticks", "tick"):
+        assert needle in js, needle
+    for cls in (".p-scale", ".p-min", ".p-max", ".p-tick"):
+        assert cls in css, cls
+
+
+def test_b2_model_summary_counts(flange_dir):
+    v = Viewer(flange_dir)
+    m = v.model()
+    assert m["summary"]["elements"] == len(m["elements"]) > 0
+    assert m["summary"]["errors"] == 0 and m["summary"]["warnings"] == 0
+    v.do_preview(PREVIEW_VIOLATION)  # a preview with warnings: the inspector summary follows it
+    m = v.model()
+    assert m["summary"]["warnings"] >= 1
+    assert m["summary"]["errors"] == sum(
+        1 for f in m["issues"] if f["severity"] == "error"
+    )
+
+
+def test_b2_inspector_empty_state_shows_usage_and_summary():
+    from importlib import resources
+
+    js = (resources.files("linercad.viewer") / "viewer.js").read_text(encoding="utf-8")
+    for needle in ("Ctrl 多选", "@ID", "insp-empty", "insp-summary", "元素"):
+        assert needle in js, needle
+
+
+def test_b4_state_switches_with_the_preview(flange_dir):
+    v = Viewer(flange_dir)
+    assert v.state()["preview"] is False
+    v.do_preview(PREVIEW_VIOLATION)
+    assert v.state()["preview"] is True
+    v.do_preview({})
+    assert v.state()["preview"] is False
+
+
+def test_b4_preview_marking_text_exists():
+    from importlib import resources
+
+    js = (resources.files("linercad.viewer") / "viewer.js").read_text(encoding="utf-8")
+    html = (resources.files("linercad.viewer") / "index.html").read_text(encoding="utf-8")
+    assert "preview-badge" in html and "未写回" in html
+    for needle in ("拖动中", "写回源码", "preview-badge"):
+        assert needle in js, needle
+
+
+def test_b5_state_exposes_status_bar_parts(flange_dir):
+    v = Viewer(flange_dir)
+    st = v.state()
+    assert {"message", "errors", "warnings"} <= set(st)
+    assert st["errors"] == 0 and st["warnings"] == 0 and isinstance(st["message"], str)
+    # an error finding (undefined datum reference) must be counted for the coloured status bar
+    script = flange_dir / ".linercad" / "tmp" / "err.py"
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text(
+        'def apply(d):\n    d.view("front").gtol("zz", "perpendicularity", 0.03, datums=["Z"], ref="D.D")\n',
+        encoding="utf-8",
+    )
+    assert txn.edit(flange_dir, script, "加一个未定义基准的形位公差")["ok"]
+    v = Viewer(flange_dir)
+    assert v.state()["errors"] >= 1
+    v.do_preview(PREVIEW_VIOLATION)  # warnings are counted too
+    assert v.state()["warnings"] >= 1
+
+
+def test_b5_status_bar_rendering():
+    from importlib import resources
+
+    pkg = resources.files("linercad.viewer")
+    js = (pkg / "viewer.js").read_text(encoding="utf-8")
+    css = (pkg / "viewer.css").read_text(encoding="utf-8")
+    html = (pkg / "index.html").read_text(encoding="utf-8")
+    for needle in ("st-errors", "st-warnings", "st-msg", "expanded"):
+        assert needle in js, needle
+    for needle in ("st-errors", "st-warnings", "st-msg"):
+        assert needle in html, needle
+    assert "st-error" in css and "st-warn" in css
+    assert "text-overflow" in css  # a long commit message is clipped, click to expand
+
+
+def test_b6_versions_open_state_and_scroll_are_preserved():
+    from importlib import resources
+
+    js = (resources.files("linercad.viewer") / "viewer.js").read_text(encoding="utf-8")
+    for needle in ("verOpen", "sessionStorage", "preserveScroll", "versions"):
+        assert needle in js, needle
+
+
 # ---- M3 S2: versions, compare, fit-to-content ---------------------------------------------------
 
 
