@@ -9,15 +9,15 @@
   - 只保存**构建层**：`drawing.py` + 可选 `model.py` + `templates/`（企业档 overlay）；清单 `template.json` 含 名称 / 描述 / 参数（value、min、max、step、unit、tol、rule）/ 创建时间 / 文件列表 / 来源。
   - **修订层存在时提示**：`drawing.actions.jsonl` 非空时输出 warning「修订层有 N 条操作：模板只保存构建层 drawing.py，修订层不保存；需要保留请先并入 drawing.py」。
   - 有未提交源文件时 warning「按当前文件保存」。
-  - 名字校验：字母/数字开头，只含字母数字 `_.-`，不得与内置范例名冲突；已存在需 `--force`。
+  - 名字校验：字母/数字开头，只含字母数字 `_.-`，不得与内置范例名冲突；已存在需 `--force`（旧模板在 staged 校验通过前不动）。
 - **存放位置（用户级，不进图纸 git；DESIGN §3.1 的 .linercad 语义）：** ```LCAD_TEMPLATES``` 覆盖；默认 Windows `%APPDATA%/linercad/templates`，其他系统 `$XDG_DATA_HOME/linercad/templates` 或 `~/.local/share/linercad/templates`。每个模板一个目录（drawing.py / 可选 model.py / templates/ / template.json），原子写入（临时目录 + rename）。
 - **`lcad template list`**：输出 `{home, templates:[清单…]}`，空目录也 `ok:true`。
 - **`lcad init <目录> --from <用户模板> [--set K=V …]`**：复制模板源文件（含 model.py / templates/）→ 按 `K=V` 重写 `name=Param(<数字字面量>, …)` 默认值 → 正常 build / e0 commit；`--set` 找不到参数或值非数字时在写目录前失败并回滚（不留半成品）。用户模板自带图幅，`--sheet` 会被拒绝而不是静默忽略。内置范例 `--from` 行为不变，且 `--set` 对范例同样可用。
-- **skill**：`skill/pages/api.md` 新增「用户模板」一节（save / list / init --set 示例、存放位置与环境变量、只存构建层与修订层提示、**匹配即从模板起步**规则）；`SKILL.md` 路由表增加一行指向该节。
+- **skill**：`skill/pages/api.md` 新增「用户模板」一节（save / list / init --set 示例、存放位置与环境变量、只存构建层与修订层提示、**匹配即从模板起步**规则）；`SKILL.md` 路由表增加一行指向该节。`lcad skill`（主文件与 api 页）还会**动态追加「当前用户模板」节**，列出已保存模板的名称、描述、参数值与范围（无模板时提示 save）。
 
 ## 测试（G2 先失败：14 failed）
 
-`tests/test_templates.py`：save 清单/参数范围、list、check error 拒绝（conv_dim）、修订层 warning、内置名/重名/--force、init --from --set 一步出图（参数生效 + 0 error）、未知模板候选、未知参数回滚、model.py 复制、list CLI、--sheet 拒绝；`tests/test_skill.py`：api.md 含模板命令/--set/LCAD_TEMPLATES/修订层/「从模板起步」规则。共 17 passed。
+`tests/test_templates.py`（24 个）：save 清单/参数范围、list、check error 拒绝（conv_dim）、修订层 warning、内置名/重名/--force、init --from --set 一步出图（参数生效 + 0 error）、未知模板候选、未知参数回滚、model.py 复制、list CLI、--sheet 拒绝、非 git 目录、模板单跑校验（修订层补尺寸 / 缺 ref.dxf）、新进程校验、--force 失败保留旧模板、junk 条目、skill 动态列出模板、开区间参数显示；`tests/test_skill.py`：api.md 含模板命令/--set/LCAD_TEMPLATES/修订层/「从模板起步」规则。H2 定向共 25 passed（G2 首笔 14 failed）。
 
 ## 牛鼻刀基线（换规格提速实测）
 

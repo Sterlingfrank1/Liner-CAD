@@ -238,3 +238,55 @@ def test_init_set_on_a_builtin_example_lists_its_params(tmp_path):
     code, out = _cli("init", str(tmp_path / "ex"), "--from", "shaft", "--set", "NOPE=1")
     assert code == 1 and "NOPE" in out["error"]["message"]
     assert {"L", "l1"} & set(out["error"]["candidates"])
+
+
+def test_force_save_keeps_the_old_template_when_validation_fails(drawing, monkeypatch):
+    from linercad.errors import InvalidArgument
+
+    commands.save_template(drawing, "keep-me", "旧的有效模板")
+    monkeypatch.setattr(
+        commands,
+        "_validate_template_dir",
+        lambda staged, manifest=None: (_ for _ in ()).throw(InvalidArgument("模拟校验失败")),
+    )
+    with pytest.raises(LinerError):
+        commands.save_template(drawing, "keep-me", "新模板但校验失败", force=True)
+    assert [t["name"] for t in commands.template_list()["templates"]] == ["keep-me"]
+    code, out = _cli("init", str(drawing.parent / "keep-init"), "--from", "keep-me")
+    assert code == 0 and out["ok"]  # the old template is still usable
+
+
+def test_template_validation_runs_in_a_fresh_process(tmp_path):
+    from linercad.errors import InvalidArgument
+
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    (staged / "drawing.py").write_text(
+        "import missing_helper\nfrom linercad import Drawing\nd = Drawing()\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(InvalidArgument) as err:
+        commands._validate_template_dir(staged)
+    assert "单独构建失败" in err.value.message
+
+
+def test_template_skill_shows_open_ended_ranges(tmp_path):
+    p = tmp_path / "p"
+    p.mkdir()
+    (p / "drawing.py").write_text(
+        "from linercad import Drawing, Param\n"
+        'd = Drawing(sheet="A3", std="GB", scale="1:1")\n'
+        "P = d.params(\n"
+        '    X=Param(5, max=20, label="上限参数"),\n'
+        '    Y=Param(10, min=3, label="下限参数"),\n'
+        ")\n"
+        'front = d.view("front")\n'
+        'front.rect((0, 0), 10, 10, name="r")\n'
+        'front.dim.linear("x", (0, 0), (10, 0), value=P.X, side="bottom")\n'
+        'front.dim.linear("y", (0, 0), (0, 10), value=P.Y, side="left")\n'
+        'd.title(name="未命名零件")\n',
+        encoding="utf-8",
+    )
+    commands.save_template(p, "ranges")
+    text = commands.skill("api")["text"]
+    assert "X=5（≤20）" in text and "Y=10（≥3）" in text

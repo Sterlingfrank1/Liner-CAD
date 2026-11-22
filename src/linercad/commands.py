@@ -394,6 +394,17 @@ def _skill_files():
     return out
 
 
+def _param_range_text(p):
+    lo, hi = p.get("min"), p.get("max")
+    if lo is not None and hi is not None:
+        return f"（{lo}..{hi}）"
+    if lo is not None:
+        return f"（≥{lo}）"
+    if hi is not None:
+        return f"（≤{hi}）"
+    return ""
+
+
 def _template_section():
     """Live user-template list appended to the skill (H2): the card wants skill to list them."""
     from . import usertemplates
@@ -410,8 +421,7 @@ def _template_section():
     else:
         for t in items:
             params = "、".join(
-                f"{p.get('name')}={p.get('value')}"
-                + (f"（{p.get('min')}..{p.get('max')}）" if p.get("min") is not None else "")
+                f"{p.get('name')}={p.get('value')}{_param_range_text(p)}"
                 for p in t.get("params", [])
             )
             desc = t.get("description") or "（无描述）"
@@ -522,20 +532,48 @@ def template_import(dir, file, name):
 # ---- user parameterised templates (H2) -------------------------------------------------------------
 
 
-def _template_build_errors(name):
-    """Build the saved template alone (no revision layer) and return its error findings."""
-    import tempfile
+def _validate_template_dir(staged, manifest=None):
+    """Build the staged template in a *fresh* interpreter (no cached local helpers); raise if bad."""
+    import subprocess
+    import sys
 
-    from . import usertemplates
-
-    with tempfile.TemporaryDirectory(prefix="lcad-tpl-check-") as td:
-        tmp = Path(td)
-        for rel, data in usertemplates.init_files(name):
-            p = tmp / rel
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_bytes(data)
-        res = build(tmp)
-        return [f for f in res.findings if f.get("severity") == "error"]
+    env = dict(os.environ)
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["LCAD_NO_VIEW"] = "1"
+    try:
+        r = subprocess.run(
+            [sys.executable, "-m", "linercad", "check"],
+            cwd=staged,
+            capture_output=True,
+            env=env,
+            timeout=120,
+        )
+        out = json.loads(r.stdout.decode("utf-8"))
+    except Exception as e:  # noqa: BLE001 - any failure means the template is not self-contained
+        detail = getattr(e, "message", str(e))
+        raise InvalidArgument(
+            f"模板单独构建失败（新进程）：{detail}",
+            hint="模板只打包 drawing.py / model.py / templates/；把本地 helper 一起打包，或去掉依赖",
+        ) from e
+    if not out.get("ok"):
+        raise InvalidArgument(
+            f"模板单独构建失败（新进程）：{(out.get('error') or {}).get('message', '构建失败')}",
+            hint="模板只打包 drawing.py / model.py / templates/；把本地 helper 一起打包，或去掉依赖",
+        )
+    errors = out.get("errors") or 0
+    if errors:
+        packs = out.get("packs") or {}
+        ids = [
+            f.get("id")
+            for pack in packs.values()
+            for f in pack
+            if f.get("severity") == "error" and f.get("id")
+        ][:10]
+        raise InvalidArgument(
+            f"模板只保存构建层，单独构建有 {errors} 个 error，不能作为模板",
+            candidates=ids,
+            hint="修订层补的尺寸 / accept 不随模板保存；先把修订层改动并入 drawing.py 再 save",
+        )
 
 
 def save_template(dir, name, description="", force=False):
@@ -561,28 +599,16 @@ def save_template(dir, name, description="", force=False):
                 f"修订层有 {len(ops)} 条操作：模板只保存构建层 drawing.py，修订层不保存；"
                 "需要保留请先把这些修改并入 drawing.py 再 save"
             )
-    dirty = txn.dirty_sources(dir)
+    try:
+        dirty = txn.dirty_sources(dir)
+    except LinerError:  # a drawing without git (possible in tests / hand-made dirs) has no diff
+        dirty = []
     if dirty:
         warnings.append("有未提交的源文件改动：按当前文件保存")
-    manifest = usertemplates.save(dir, name, description, force, build_result=res)
-    # a template only carries the build layer: if the drawing needs the revision layer (or an
-    # unpacked ref.dxf / local helper) the freshly saved template must not pretend to work alone
-    try:
-        live_errors = _template_build_errors(manifest["name"])
-    except LinerError as e:
-        usertemplates.remove(manifest["name"])
-        raise InvalidArgument(
-            f"模板单独构建失败：{e.message}",
-            hint="模板只保存 drawing.py / model.py / templates/；把缺的文件一起打包（如 ref.dxf），或先把修订层并入 drawing.py",
-        ) from e
-    if live_errors:
-        ids = [f.get("id") for f in live_errors if f.get("id")][:10]
-        usertemplates.remove(manifest["name"])
-        raise InvalidArgument(
-            f"模板只保存构建层，单独构建有 {len(live_errors)} 个 error，不能作为模板",
-            candidates=ids,
-            hint="修订层补的尺寸 / accept 不随模板保存；先把修订层改动并入 drawing.py 再 save",
-        )
+    # staged validation runs in a fresh interpreter before any existing template is replaced
+    manifest = usertemplates.save(
+        dir, name, description, force, build_result=res, validate=_validate_template_dir
+    )
     out = {
         "ok": True,
         "template": manifest,

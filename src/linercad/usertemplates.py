@@ -131,7 +131,7 @@ def _params_of(res) -> list[dict]:
     return out
 
 
-def save(source_dir, name, description="", force=False, build_result=None) -> dict:
+def save(source_dir, name, description="", force=False, build_result=None, validate=None) -> dict:
     """Copy the build layer of source_dir into the user template root.
 
     Only drawing.py / model.py / templates/ are copied: the revision layer
@@ -181,6 +181,9 @@ def save(source_dir, name, description="", force=False, build_result=None) -> di
         (tmp / MANIFEST).write_text(
             json.dumps(manifest, ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
         )
+        if validate is not None:
+            # validate the staged copy (fresh process) before touching an existing template
+            validate(tmp, manifest)
         backup = None
         if target.exists():
             # move the old template aside first; restore it if publishing the new one fails
