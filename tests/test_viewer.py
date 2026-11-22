@@ -18,6 +18,12 @@ from linercad.viewer import Viewer, make_handler, rewrite_param
 
 EXAMPLES = ["shaft", "flange", "pulley", "end_cover"]
 
+# B3 acceptance scenario: drag D until the preview build has a violation. Main's layout work (D1 moved
+# the flange radial leaders / section label) can move this value: keep it in one place, and assert the
+# semantics (a finding with the E1 fields on a drawn element) rather than one layout coordinate.
+PREVIEW_VIOLATION = {"D": 150}
+PREVIEW_VIOLATION_ID = "S.A"
+
 
 @pytest.fixture(scope="module")
 def built(tmp_path_factory):
@@ -257,25 +263,29 @@ def flange_dir(tmp_path):
 def test_preview_returns_e1_finding_fields(flange_dir):
     v = Viewer(flange_dir)
     r = v.do_preview(
-        {"D": 140}
-    )  # the flange drags D out until the position frame overlaps a dimension
+        PREVIEW_VIOLATION
+    )  # the flange drags D out until the section label hits the frame
     assert r["ok"] and r["findings"], r
-    hit = [f for f in r["findings"] if f["rule"] == "overlap" and f["id"] == "G.pos"]
+    for f in r["findings"]:  # every preview violation carries the E1 fields
+        assert {"rule", "id", "severity", "message"} <= set(f)
+        assert {"clause", "measured", "expected", "candidates"} <= set(f), f
+    hit = [f for f in r["findings"] if f["id"] == PREVIEW_VIOLATION_ID]
     assert hit, r["findings"]
     f = hit[0]
-    assert f["severity"] == "warn"
+    assert f["severity"] == "warn" and f["rule"] == "overlap"
     assert "GB/T 4458.4-2003" in f["clause"] and "尺寸" in f["clause"]  # E1 clause statement
-    assert f["measured"]["with"] == ["D.pcd"] and f["measured"]["overlap"] > 0  # E1 measured values
+    assert isinstance(f["measured"], dict) and f["measured"]  # E1 measured values
     assert f["expected"]["overlap"] == 0.0  # E1 expectation
     assert f["candidates"] == [] and isinstance(f["candidates"], list)  # E1 candidates
     assert f["pack"] == "layout" and f["std"] == "GB/T 4458.4-2003"
-    assert r["resolved"] == {}  # every D=140 finding points at a drawn element directly
-    assert r["element_issues"]["G.pos"][0]["clause"] == f["clause"]  # inspector data for the target
+    assert r["resolved"] == {}  # every finding points at a drawn element directly
+    assert r["element_issues"][PREVIEW_VIOLATION_ID][0]["clause"] == f["clause"]  # inspector data
 
 
 def test_preview_findings_reach_model_and_snapshot(flange_dir):
     v = Viewer(flange_dir)
-    r = v.do_preview({"D": 140})
+    r = v.do_preview(PREVIEW_VIOLATION)
+    assert v.params()["params"][0]["value"] == PREVIEW_VIOLATION["D"]  # a reload can restore it
     ids = {f["id"] for f in r["findings"]}
     model = v.model()
     drawn = {e["id"] for e in model["elements"]}
@@ -283,13 +293,17 @@ def test_preview_findings_reach_model_and_snapshot(flange_dir):
         ids and ids <= drawn
     )  # every violation points at a drawn element: the canvas can colour it
     by_id = {e["id"]: e for e in model["elements"]}
-    issue = next(i for i in by_id["G.pos"]["issues"] if i["rule"] == "overlap")
+    issue = next(i for i in by_id[PREVIEW_VIOLATION_ID]["issues"] if i["rule"] == "overlap")
     assert {"clause", "measured", "expected", "candidates"} <= set(issue)
     assert "GB/T 4458.4-2003" in issue["clause"]
-    global_issue = next(i for i in model["issues"] if i["rule"] == "overlap" and i["id"] == "G.pos")
+    global_issue = next(
+        i for i in model["issues"] if i["rule"] == "overlap" and i["id"] == PREVIEW_VIOLATION_ID
+    )
     assert {"clause", "measured", "expected", "candidates"} <= set(global_issue)
     snap = json.loads((flange_dir / ".linercad/snapshot.json").read_text(encoding="utf-8"))
-    s = next(i for i in snap["issues"] if i["rule"] == "overlap" and i["id"] == "G.pos")
+    s = next(
+        i for i in snap["issues"] if i["rule"] == "overlap" and i["id"] == PREVIEW_VIOLATION_ID
+    )
     assert s["clause"] == issue["clause"] and s["measured"] == issue["measured"]
     assert s["expected"] == issue["expected"] and s["candidates"] == issue["candidates"]
     # releasing the slider / undoing the preview clears the findings again
@@ -312,7 +326,16 @@ def test_preview_param_rule_error_lists_affected_elements_only(flange_dir):
     assert snap["param_errors"]["error"]["id"] == "Dh" and snap["param_errors"]["affected"] == [
         "D.Dh"
     ]
+    # the page keeps the failed preview's marks until the next user action: state tells it so
+    state = v.state()
+    assert state["param_errors"] is True and isinstance(state["preview_seq"], int)
+    # a rebuild (refresh) must not leave the failed preview in snapshot.json
+    assert v.refresh(force=True)
+    assert v.state()["param_errors"] is False
+    snap = json.loads((flange_dir / ".linercad/snapshot.json").read_text(encoding="utf-8"))
+    assert snap["param_errors"] == {}
     # withdrawing the preview must also clear the param error from snapshot.json (B3 review)
+    assert v.do_preview({"Dh": 120})["ok"] is False
     assert v.do_preview({})["ok"]
     snap = json.loads((flange_dir / ".linercad/snapshot.json").read_text(encoding="utf-8"))
     assert snap["param_errors"] == {}
@@ -360,6 +383,9 @@ def test_viewer_consumes_preview_findings_on_the_canvas():
         "element_issues",
         "previewActive",
         "unplaced",
+        "statusOrig",
+        "st.preview_seq",
+        "预览值已从服务端恢复",
         "releasePreview",
         "++S.previewSeq",
         "无",
@@ -374,12 +400,17 @@ def test_viewer_consumes_preview_findings_on_the_canvas():
 
 def test_withdrawn_preview_cannot_be_restored_by_a_stale_request(flange_dir):
     v = Viewer(flange_dir)
-    assert v.do_preview({"D": 140}, seq=5)["ok"]
+    assert v.do_preview(PREVIEW_VIOLATION, seq=5)["ok"]
     # a freshly reloaded page starts its seq at 1 while the server still knows seq 5: withdrawal wins
     assert v.do_preview({}, seq=1)["ok"] and v.preview is None
-    late = v.do_preview({"D": 140}, seq=5)  # the old page's in-flight preview arrives after it
+    late = v.do_preview(
+        PREVIEW_VIOLATION, seq=5
+    )  # the old page's in-flight preview arrives after it
     assert late["ok"] is False and late.get("superseded") and v.preview is None
-    assert v.state()["preview"] is False
+    state = v.state()
+    assert (
+        state["preview"] is False and state["preview_seq"] == 6
+    )  # client adopts the server baseline
 
 
 def test_unplaced_finding_is_listed_with_the_e1_fields(tmp_path):
@@ -416,10 +447,10 @@ def test_preview_api_returns_findings_with_fields(tmp_path):
     try:
         base = f"http://127.0.0.1:{httpd.server_address[1]}"
         tok = {"X-LCAD-Token": v.token}
-        code, body = req(base + "/api/preview", {"values": {"D": 140}, "seq": 1}, tok)
+        code, body = req(base + "/api/preview", {"values": PREVIEW_VIOLATION, "seq": 1}, tok)
         got = json.loads(body)
         assert code == 200 and got["ok"], got
-        hit = next(f for f in got["findings"] if f["rule"] == "overlap" and f["id"] == "G.pos")
+        hit = next(f for f in got["findings"] if f["id"] == PREVIEW_VIOLATION_ID)
         assert "GB/T 4458.4-2003" in hit["clause"] and hit["expected"]["overlap"] == 0.0
         assert got["affected"] == []
         code, body = req(base + "/api/preview", {"values": {}, "seq": 2}, tok)

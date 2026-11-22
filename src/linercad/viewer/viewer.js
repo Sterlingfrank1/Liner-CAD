@@ -5,7 +5,7 @@ const $ = (id) => document.getElementById(id);
 const S = { version: -1, model: null, byId: {}, sel: [], svg: null, vb: null, full: null, params: [],
   values: {}, dragging: false, previewTimer: null, previewSeq: 0, fitted: false,
   versions: [], pick: [], cmp: null, busy: false,
-  previewIds: new Set(), previewFindings: [], paramError: null, resolved: {}, previewActive: false, unplaced: [] };  // B3
+  previewIds: new Set(), previewFindings: [], paramError: null, resolved: {}, previewActive: false, unplaced: [], statusOrig: {} };  // B3
 
 async function api(path, body) {
   const opt = body === undefined ? { headers: { "X-LCAD-Token": TOKEN } } : { method: "POST", body: JSON.stringify(body),
@@ -18,7 +18,7 @@ async function api(path, body) {
 async function poll() {
   try {
     const st = await api("/api/state");
-    if (!st.preview && clearPreviewFindings()) { colour(); inspect(); }
+    if (!st.preview && !st.param_errors && clearPreviewFindings()) { colour(); inspect(); }
     setStatus(st);
     if (st.version !== S.version) { S.version = st.version; await reload(st); }
   } catch (e) { $("st-text").textContent = "与服务断开：" + e; }
@@ -27,6 +27,7 @@ async function poll() {
 
 function setStatus(st) {
   S.previewActive = !!st.preview;
+  if (typeof st.preview_seq === "number") S.previewSeq = Math.max(S.previewSeq, st.preview_seq);
   const bar = $("status");
   bar.classList.toggle("has-error", !!st.build_error || st.errors > 0);
   bar.classList.toggle("has-warn", !st.build_error && !st.errors && st.warnings > 0);
@@ -111,8 +112,17 @@ function applyFindings(findings, isPreview, resolved, elementIssues) {
   if (!elementIssues) for (const f of findings || []) (byId[f.id] ||= []).push(f);
   for (const e of Object.values(S.byId)) {
     e.issues = byId[e.id] || [];
-    if (e.issues.some((i) => i.severity === "error")) e.status = "error";
-    else if (e.issues.length) e.status = "warn";
+    if (isPreview) {
+      if (!(e.id in S.statusOrig)) S.statusOrig[e.id] = e.status;
+      if (e.issues.some((i) => i.severity === "error")) e.status = "error";
+      else if (e.issues.length) e.status = "warn";
+    } else {
+      const orig = S.statusOrig[e.id];
+      delete S.statusOrig[e.id];
+      if (e.issues.some((i) => i.severity === "error")) e.status = "error";
+      else if (e.issues.length) e.status = "warn";
+      else if (orig !== undefined) e.status = orig;
+    }
   }
   S.previewFindings = isPreview ? findings : [];
   S.previewIds = new Set(isPreview ? findings.map((f) => f.id).concat(Object.keys(resolved || {})) : []);
@@ -339,7 +349,14 @@ async function loadParams() {
     for (const p of ps) div.appendChild(paramRow(p));
     list.appendChild(div);
   }
-  $("btn-reset").disabled = true; $("param-msg").textContent = "";
+  S.values = {};
+  for (const p of r.params) if (p.value !== p.default) S.values[p.name] = p.value;
+  for (const row of list.querySelectorAll(".param")) {
+    const p = r.params.find((q) => q.name === row.dataset.name);
+    row.classList.toggle("changed", !!p && p.value !== p.default);
+  }
+  $("btn-reset").disabled = !Object.keys(S.values).length;
+  $("param-msg").textContent = Object.keys(S.values).length ? "预览值已从服务端恢复（页面 reload）" : "";
 }
 function paramRow(p) {
   const v0 = p.default, lo = p.min ?? +(v0 * 0.5).toFixed(3), hi = p.max ?? +(v0 * 1.5 || 10).toFixed(3);

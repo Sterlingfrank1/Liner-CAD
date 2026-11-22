@@ -128,6 +128,7 @@ class Viewer:
             else:
                 self.res, self.svg, self.error = res, svgout.svg(res.d), None
                 self.preview = None
+                self.param_errors = {}
             self.version += 1
             self._write_snapshot()
             return True
@@ -163,6 +164,8 @@ class Viewer:
                 "warnings": warns,
                 "build_error": self.error,
                 "preview": bool(self.preview),
+                "preview_seq": self.preview_seq,
+                "param_errors": bool(self.param_errors),
             }
 
     def _current(self):
