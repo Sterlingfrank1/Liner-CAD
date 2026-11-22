@@ -764,8 +764,13 @@ def reference_pass(cases=None):
     per_case = {}
     opportunities = {}
     clean = {}
+    skipped = []
     for case in cases:
-        res = _build_case(case)
+        try:
+            res = _build_case(case)
+        except Exception as e:  # noqa: BLE001 - needs an optional dependency: skip the case
+            skipped.append({"id": case["id"], "reason": f"{type(e).__name__}: {e}"})
+            continue
         found = _findings(res.d)
         cid = case["id"]
         per_case[cid] = [(f["rule"], f["id"]) for f in found]
@@ -847,6 +852,7 @@ def run_report(cases=None) -> dict:
     }
     debt = json.loads(KNOWN_DEBT.read_text(encoding="utf-8")) if KNOWN_DEBT.exists() else {}
     report["known_debt"] = {"total": debt.get("total", 0), "cases": len(debt.get("cases", {}))}
+    report["totals"]["skipped_cases"] = len(ref.get("skipped", []))
     return report
 
 

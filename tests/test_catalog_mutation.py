@@ -33,6 +33,8 @@ READ_CLAUSES = {
 
 @pytest.fixture(scope="module")
 def report():
+    # the reference pass builds the L1/L2 cases, some of which take their geometry from build123d
+    pytest.importorskip("build123d")
     return mutate.run_report()
 
 
