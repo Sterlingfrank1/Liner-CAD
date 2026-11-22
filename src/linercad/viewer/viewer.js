@@ -21,7 +21,7 @@ async function poll() {
     if (!st.preview && !st.param_errors && clearPreviewFindings()) { colour(); inspect(); }
     setStatus(st);
     if (st.version !== S.version) { S.version = st.version; await reload(st); }
-  } catch (e) { $("st-text").textContent = "与服务断开：" + e; }
+  } catch (e) { $("st-edit").textContent = "与服务断开：" + e; }
   setTimeout(poll, 1000);
 }
 
@@ -43,9 +43,20 @@ function setStatus(st) {
   bar.classList.toggle("is-preview", !!st.preview);
   $("canvas-wrap").classList.toggle("is-preview", !!st.preview);  // marked on the canvas too
   updatePreviewBadge();
-  $("st-text").title = st.status || "";
-  $("st-text").textContent = (st.status || "") + (st.preview ? " · 预览中（未写回）" : "") +
-    (st.build_error ? " · 构建失败：" + st.build_error.message : "");
+  // B5: edit id, coloured counts and a one-line message that expands on click
+  $("st-edit").textContent = st.edit || "";
+  const errs = st.errors || 0, warns = st.warnings || 0;
+  const el = $("st-errors"), wl = $("st-warnings"), ml = $("st-msg");
+  el.textContent = errs + " error";
+  el.className = "cnt " + (errs ? "st-error" : "st-ok");
+  wl.textContent = warns + " warn";
+  wl.className = "cnt " + (warns ? "st-warn" : "st-ok");
+  ml.textContent = st.message ? "“" + st.message + "”" : "";
+  ml.title = st.message || "";
+  $("st-full").textContent = st.message || "";
+  if (st.build_error) {
+    $("st-full").textContent = "构建失败：" + st.build_error.message;
+  }
 }
 
 async function reload(st) {
@@ -563,5 +574,12 @@ function zoomTo(id) {
   const m = Math.max(0.6 * Math.max(b.width, b.height), 12);
   setVB([b.x - m, b.y - m, b.width + 2 * m, b.height + 2 * m]); viewChanged();
 }
+
+// B5: click the one-line message to expand the full commit message above the status bar
+$("st-msg").onclick = () => {
+  const full = $("st-full");
+  full.hidden = !full.hidden;
+  $("st-msg").classList.toggle("expanded", !full.hidden);
+};
 
 poll();

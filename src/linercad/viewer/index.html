@@ -36,7 +36,16 @@
     <h2>检查器</h2>
     <div id="insp-body"><p class="muted">点选图上的元素</p></div>
   </section>
-  <footer id="status"><span id="st-text">加载中…</span><span id="st-extra"></span></footer>
+  <footer id="status">
+    <span id="st-main">
+      <span id="st-edit">加载中…</span>
+      <span id="st-errors" class="cnt"></span>
+      <span id="st-warnings" class="cnt"></span>
+      <span id="st-msg" class="msg-line" title="点击展开原话"></span>
+    </span>
+    <span id="st-extra"></span>
+    <div id="st-full" hidden></div>
+  </footer>
 </main>
 <script src="/viewer.js"></script>
 </body>

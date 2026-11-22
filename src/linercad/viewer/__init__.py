@@ -160,6 +160,7 @@ class Viewer:
                 "version": self.version,
                 "edit": edit,
                 "status": status,
+                "message": msg,
                 "errors": errors,
                 "warnings": warns,
                 "build_error": self.error,
