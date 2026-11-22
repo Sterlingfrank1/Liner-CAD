@@ -775,3 +775,29 @@ def test_context_accepts_copied_references(shaft):
     assert [x["element"]["id"] for x in ctx["items"]] == ["D.d2", "D.L"]
     ctx = commands.context(shaft, ["@D.d2"])
     assert ctx["items"][0]["element"]["id"] == "D.d2"
+    # the whole copied line as one (quoted) argument keeps every reference
+    line = "@D.d2（Φ30k6，主视图） @D.d1（M24×1.5-6g，主视图） @D.L（200，主视图）"
+    ctx = commands.context(shaft, [line])
+    assert [x["element"]["id"] for x in ctx["items"]] == ["D.d2", "D.d1", "D.L"]
+
+
+def test_context_requires_a_selection_version(shaft):
+    Viewer(shaft).select(["D.L"])
+    path = shaft / ".linercad/selection.json"
+    sel = json.loads(path.read_text(encoding="utf-8"))
+    sel.pop("version")
+    path.write_text(json.dumps(sel), encoding="utf-8")
+    with pytest.raises(LinerError) as err:
+        commands.context(shaft, ["@sel"])
+    assert err.value.code == "selection_stale" and "未知版本" in err.value.message
+
+
+def test_context_refuses_a_selection_whose_elements_are_all_gone(shaft):
+    Viewer(shaft).select(["D.L"])
+    path = shaft / ".linercad/selection.json"
+    sel = json.loads(path.read_text(encoding="utf-8"))
+    sel["ids"] = ["NOPE.1", "NOPE.2"]
+    path.write_text(json.dumps(sel), encoding="utf-8")
+    with pytest.raises(LinerError) as err:
+        commands.context(shaft, ["@sel"])
+    assert err.value.code == "selection_stale" and "都已不存在" in err.value.message

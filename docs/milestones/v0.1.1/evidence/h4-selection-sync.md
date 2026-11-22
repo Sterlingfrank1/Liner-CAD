@@ -10,7 +10,7 @@
 2. **自然语言指代（所有 Agent）**：skill 明确规则——用户说「选中的 / 这个 / 那个 / 当前对象」而消息里**没有 @ID** 时，先 `lcad context @sel`（或直读 `.linercad/selection.json`）再动手；选择是唯一事实源，不猜。
    - `lcad context @sel` 现在校验新鲜度：选择版本必须与当前 `eN` 一致，且默认不超过 **15 分钟**（`LCAD_SELECTION_TTL` 可调）。
    - 无选择 / 版本落后 / 超时 → 返回 `error.code = "selection_stale"`，消息以「当前没有有效选中：…」开头，hint 明确「请在 Viewer 里重新点选，或直接把 @ID 贴进对话；不要猜用户选的是什么」。
-   - 复制来的 `@D.d2（Φ30k6，主视图）` 也可以直接作为 `lcad context` 参数（自动去掉 @ 与括号里的说明），方便 Agent 把粘贴的一行原样使用。
+   - 复制来的 `@D.d2（Φ30k6，主视图）` 也可以直接作为 `lcad context` 参数（自动去掉 @ 与括号里的说明；整行也可以作为一个带引号的参数传入）；PowerShell 里必须加引号，例如 `lcad context "@sel"`、`lcad context "@D.d2（Φ30k6，主视图）"`。
 
 ## dsh 现场验收（临时目录图纸仓库）
 

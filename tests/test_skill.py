@@ -73,7 +73,7 @@ def test_skill_explains_selection_sync_and_deixis():
         "复制引用",
         "Ctrl+Shift+C",
         "@D.d1（",
-        "lcad context @sel",
+        'lcad context "@sel"',
         "选中的",
         "这个",
         "当前没有有效选中",
@@ -82,5 +82,5 @@ def test_skill_explains_selection_sync_and_deixis():
     ):
         assert needle in page, needle
     main = (resources.files("linercad") / "skill" / "SKILL.md").read_text(encoding="utf-8")
-    for needle in ("@sel", "选中的", "不要猜"):
+    for needle in ("@sel", "选中的", "那个", "不要猜"):
         assert needle in main, needle

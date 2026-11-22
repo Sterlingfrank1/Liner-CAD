@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -111,9 +112,9 @@ def _fresh_selection(dir, seldoc):
     selver = seldoc.get("version")
     edits = git_edits(Path(dir))
     head = f"e{edits[0][0]}" if edits else None
-    if selver and head and selver != head:
+    if not selver or not head or selver != head:
         raise InvalidArgument(
-            f"当前没有有效选中：选择来自 {selver}，当前是 {head}",
+            f"当前没有有效选中：选择来自 {selver or '未知版本'}，当前是 {head or '未知版本'}",
             code="selection_stale",
             hint=hint,
         )
@@ -134,13 +135,22 @@ def _fresh_selection(dir, seldoc):
     return ids, {"version": selver, "time": seldoc.get("time"), "ids": ids, "fresh": True}
 
 
+_REF = re.compile(r"@([^\s（]+)")
+
+
 def _clean_ids(items):
-    """Element ids of copied references: @D.d2（Φ30k6，主视图） → D.d2 (the Agent may paste as-is)."""
+    """Element ids of copied references.
+
+    Accepts one reference per argument, a pasted whole line ("@D.d1（...） @D.d2（...）"), or plain
+    ids: Windows PowerShell needs the argument quoted, e.g. lcad context "@D.d1（Φ30k6，主视图）".
+    """
     out = []
     for item in items:
         s = str(item).strip()
-        if s.startswith("@"):
-            s = s[1:]
+        refs = _REF.findall(s)
+        if refs:
+            out.extend(refs)
+            continue
         s = s.split("（", 1)[0].strip()
         if s:
             out.append(s)
@@ -217,6 +227,13 @@ def context(dir, ids=()):
     if seldoc is not None:  # the elements themselves may have been removed by an uncommitted edit
         gone = [i for i in ids if i not in d]
         ids = [i for i in ids if i in d]
+        if not ids:
+            raise InvalidArgument(
+                "当前没有有效选中：选中的元素在当前图中都已不存在"
+                + (f"（{', '.join(gone)}）" if gone else ""),
+                code="selection_stale",
+                hint="请在 Viewer 里重新点选，或直接把 @ID 贴进对话；不要猜",
+            )
         if gone:
             warn = f"已不存在：{', '.join(gone)}"
     for i in ids:
