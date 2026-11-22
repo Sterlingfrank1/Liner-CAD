@@ -180,13 +180,19 @@ def test_parallel_dimension_rows_keep_the_row_pitch():
 def test_small_dimensions_stay_inside_large_ones():
     d = _dims()
     assert _run(d, "place_nesting")[0] == []
-    w = _dim_line(_el(d, "D.W"))
-    ln = _dim_line(_el(d, "D.L"))
-    _set_line(_el(d, "D.W"), w, (w.p[0], ln.p[1]), (w.q[0], ln.q[1]))
-    _set_line(_el(d, "D.L"), ln, (ln.p[0], w.p[1]), (ln.q[0], w.q[1]))
+    w_dim = _dim_line(_el(d, "D.W"))
+    base_y = max(pt[1] for line in _ext_lines(_el(d, "D.W")) for pt in (line.p, line.q))
+    ln = _el(d, "D.L")  # 120, outer row: rebuild its lines one row closer to the outline
+    dim = _dim_line(ln)
+    left, right = sorted((dim.p[0], dim.q[0]))
+    level = w_dim.p[1] + d.std["dim"]["row_pitch"]
+    ln._prims = [p for p in ln._prims if not isinstance(p, Line)] + [
+        Line((left, base_y), (left, level - 2), "dim"),
+        Line((right, base_y), (right, level - 2), "dim"),
+        Line((left, level), (right, level), "dim"),
+    ]
     findings, _ = _run(d, "place_nesting")
-    assert findings
-    _assert_finding(findings[0], "place_nesting", findings[0]["id"])
+    assert findings and findings[0]["id"] == "D.L"  # 120 is now the inner (nearer) dimension
 
 
 def test_extension_lines_stop_at_the_standard_beyond():
@@ -352,11 +358,12 @@ def test_placement_tolerances_come_from_the_std_profile():
     findings, _ = _run(d, "place_balloon_spacing")
     assert findings  # the clean pair now violates the overridden clearance
     d2 = _dims()
-    d2.std["placement"]["row_tol"] = 5.0  # 6 mm between rows is accepted with a 5 mm slack
     w = _dim_line(_el(d2, "D.W"))
     ln = _dim_line(_el(d2, "D.L"))
-    dy = -(d2.std["dim"]["row_pitch"] - 1.0)
+    dy = -(d2.std["dim"]["row_pitch"] - 1.0)  # 6 mm between the rows
     _set_line(_el(d2, "D.L"), ln, (ln.p[0], w.p[1] + dy), (ln.q[0], w.q[1] + dy))
+    assert _run(d2, "place_row_spacing")[0]  # the default 0.05 slack rejects 6 mm
+    d2.std["placement"]["row_tol"] = 5.0  # a 5 mm slack accepts it (the profile value decides)
     assert _run(d2, "place_row_spacing")[0] == []
 
 
@@ -430,3 +437,136 @@ def test_nesting_checks_all_overlapping_pairs():
     set_span("D.C", left, left + 40)
     findings, _ = _run(d, "place_nesting")
     assert findings and findings[0]["id"] == "D.A"  # the non-adjacent A / C pair is judged
+
+
+# ---- round 2 review: generality regressions ------------------------------------------------
+
+
+def test_inside_dimension_is_classified_and_judged():
+    d = Drawing(sheet="A3")
+    f = d.view("front")
+    f.rect((0, 0), 120, 60, name="body")
+    f.dim.linear("inside", (20, 20), (100, 20), value=80, side="inside")
+    layout(d)
+    e = _el(d, "D.inside")
+    info = place._frame_dim(e)
+    assert info is not None and info["dir"] == "h" and info["ext"] == []
+    assert _run(d, "place_text_direction")[0] == []
+    bad = [
+        Text(p.text, p.at, p.height, 90.0, p.layer, p.box) for p in e._prims if isinstance(p, Text)
+    ]
+    e._prims = [p for p in e._prims if not isinstance(p, Text)] + bad
+    findings, _ = _run(d, "place_text_direction")
+    assert "D.inside" in [f["id"] for f in findings]
+
+
+def test_leader_with_collinear_shoulder_is_classified():
+    d = Drawing(sheet="A3")
+    v = d.view("front")
+    c = v.circle((0, 0), 30, name="outer")
+    v.dim.dia("D", circle=c, at=0)  # shoulder collinear with the diameter line
+    layout(d)
+    info = place._leader_dim(_el(d, "D.D"))
+    assert info is not None and len(info["lines"]) == 2
+    _, opportunities = _run(d, "place_dim_cross")
+    assert opportunities == 1  # the leader takes part in the crossing check
+
+
+def test_aligned_dimensions_take_part_in_the_row_metrics():
+    d = Drawing(sheet="A3")
+    f = d.view("front")
+    f.rect((0, 0), 100, 60, name="body")
+    f.dim.aligned("A", (0, 0), (100, 60))
+    f.dim.aligned("B", (0, 10), (100, 70))
+    layout(d)
+    for eid in ("D.A", "D.B"):
+        e = _el(d, eid)
+        info = place._frame_dim(e)
+        assert info is not None and info["dir"] == "d"
+        assert place._frame_rows(info) is not None
+    groups = place._side_groups(d)
+    assert any(key[1] not in (0.0, 90.0) for key in groups)  # diagonal frames join the row groups
+
+
+def test_extension_line_that_does_not_reach_the_contour():
+    d = _dims()
+    ext = _ext_lines(_el(d, "D.L"))[0]
+    _set_line(
+        _el(d, "D.L"),
+        ext,
+        (ext.p[0], ext.p[1] - 30.0),
+        (ext.q[0], ext.q[1] - 30.0),
+    )
+    findings, _ = _run(d, "place_ext_line")
+    assert findings and findings[0]["id"] == "D.L"
+
+
+def test_dimension_text_over_section_lining():
+    d = Drawing(sheet="A3")
+    f = d.view("front")
+    f.rect((0, 0), 120, 60, name="body")
+    f.hatch("h", loops=["F.front.body"])
+    f.dim.linear("inside", (20, 20), (100, 20), value=80, side="inside")
+    layout(d)
+    findings, _ = _run(d, "place_text_overlap")
+    assert "D.inside" in [f["id"] for f in findings]
+
+
+def test_balloon_alignment_groups_per_view():
+    d = Drawing(sheet="A3")
+    front, left = d.view("front"), d.view("left")
+    front.rect((0, 0), 100, 60, name="b1")
+    left.rect((0, 0), 60, 40, name="b2")
+    layout(d)
+    bf, bl = front.bbox, left.bbox
+    injected = []
+    for k, (view, circle_c, anchor) in enumerate(
+        [
+            ("front", (bf[0] - 20.0, bf[1] + 20.0), (bf[0] + 30.0, bf[1] + 20.0)),
+            ("front", (bf[0] - 20.0, bf[1] + 40.0), (bf[0] + 50.0, bf[1] + 40.0)),
+            ("left", (bl[0] - 20.0, bl[1] + 15.0), (bl[0] + 20.0, bl[1] + 15.0)),
+        ]
+    ):
+        el = Balloon(
+            d,
+            f"B.b{k}",
+            {"view": view, "component": f"A.b{k}", "anchor": list(anchor)},
+            refs=[f"V.{view}"],
+        )
+        d._add(el)
+        q = (circle_c[0] + 4.5, circle_c[1])
+        el._prims = [
+            Circle(circle_c, 4.5, "thin"),
+            Line(anchor, q, "thin"),
+            Text(
+                str(k + 1),
+                circle_c,
+                5.0,
+                0,
+                "text",
+                (circle_c[0] - 2.5, circle_c[1] - 3.5, circle_c[0] + 2.5, circle_c[1] + 3.5),
+            ),
+        ]
+        injected.append(el)
+    # the two front balloons are a column, the single left one is its own group: no misalignment
+    assert _run(d, "place_balloon_align")[0] == []
+
+
+def test_profile_values_inherit_and_override():
+    from linercad.std import load_std
+
+    gb = load_std("GB")["placement"]
+    iso = load_std("ISO")["placement"]
+    for key in ("balloon_clearance", "balloon_align_tol", "ext_gap_max", "row_tol"):
+        assert key in gb
+        assert iso[key] == gb[key]  # ISO inherits the GB conventions
+    assert load_std("GB", [{"placement": {"row_tol": 1.0}}])["placement"]["row_tol"] == 1.0
+    # a 0.2 mm offset is inside the default tolerance and outside an overridden one
+    d = _balloons()
+    el = _el(d, "B.b1")
+    _leader, circle = _balloon_prims(el)
+    shifted = Circle((circle.c[0] + 0.2, circle.c[1]), circle.r, circle.layer)
+    el._prims = [shifted if p is circle else p for p in el._prims]
+    assert _run(d, "place_balloon_align")[0] == []
+    d.std["placement"]["balloon_align_tol"] = 0.1
+    assert _run(d, "place_balloon_align")[0]

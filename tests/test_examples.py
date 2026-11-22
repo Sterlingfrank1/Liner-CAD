@@ -10,14 +10,73 @@ import pytest
 from linercad import txn
 from linercad.runtime import build
 
+#: E5 placement debt of each example (frozen here on purpose: D1/D2 shrink this list, and any
+#: new placement warning must show up as a deliberate update of this table in the same PR).
+PLACEMENT_DEBT = {
+    "bearing_support": {
+        ("place_dim_cross", "D.D"),
+        ("place_dim_cross", "D.d"),
+        ("place_nesting", "D.W"),
+    },
+    "bracket": set(),
+    "end_cover": {
+        ("place_nesting", "D.Ls"),
+        ("place_row_spacing", "D.dc"),
+        ("place_row_spacing", "D.lb"),
+    },
+    "flange": set(),
+    "gear_cover": {("place_nesting", "D.D"), ("place_nesting", "D.W")},
+    "pulley": {
+        ("place_dim_outline", "D.tw"),
+        ("place_nesting", "D.B"),
+        ("place_nesting", "D.da"),
+        ("place_row_spacing", "D.di"),
+        ("place_row_spacing", "D.f"),
+    },
+    "pump_body": {
+        ("place_dim_cross", "D.Db"),
+        ("place_dim_cross", "D.dp"),
+        ("place_ext_line", "D.Hc"),
+        ("place_nesting", "D.Hc"),
+        ("place_nesting", "D.W"),
+        ("place_nesting", "D.py"),
+        ("place_nesting", "D.tw"),
+        ("place_row_spacing", "D.Rc2"),
+        ("place_row_spacing", "D.t"),
+    },
+    "shaft": {
+        ("place_dim_outline", "D.d1"),
+        ("place_dim_outline", "D.d2"),
+        ("place_dim_outline", "D.d3"),
+        ("place_dim_outline", "D.d5"),
+        ("place_ext_line", "D.gh"),
+        ("place_ext_line", "D.gw"),
+        ("place_nesting", "D.L"),
+        ("place_row_spacing", "D.l2"),
+        ("place_row_spacing", "D.l4"),
+    },
+    "shift_fork": {("place_dim_cross", "D.D"), ("place_dim_cross", "D.d")},
+    "sleeve": set(),
+    "spline_shaft": {
+        ("place_dim_outline", "D.d2"),
+        ("place_dim_outline", "D.d3"),
+        ("place_dim_outline", "D.d5"),
+        ("place_nesting", "D.L"),
+        ("place_row_spacing", "D.l2"),
+    },
+}
+
 
 @pytest.mark.parametrize("name", txn.EXAMPLES)
 def test_example_builds_clean(tmp_path, name):
     if txn.needs_3d(name):
         pytest.importorskip("build123d")
     out = txn.init(tmp_path / name, from_=name)
+    assert out["ok"]
     other = [f for f in out["warnings"] if f.get("pack") != "placement"]
-    assert out["ok"] and other == [], out
+    assert other == [], other
+    debt = {(f["rule"], f["id"]) for f in out["warnings"] if f.get("pack") == "placement"}
+    assert debt == PLACEMENT_DEBT[name], debt
     assert (tmp_path / name / ".linercad/build/drawing.dxf").exists()
 
 

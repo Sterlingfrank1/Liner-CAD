@@ -139,18 +139,39 @@ def _parallel(a, b, tol_deg=1.0):
     return min(d, 180.0 - d) < tol_deg
 
 
-def _frame_dim(e):
-    """A dimension drawn as two parallel extension lines plus one dimension line (bar or aligned).
+def _unit(a, b):
+    L = math.dist(a, b)
+    return ((b[0] - a[0]) / L, (b[1] - a[1]) / L) if L > 1e-12 else (1.0, 0.0)
 
-    Works on the laid-out primitives only: the two parallel lines are the extension lines, the odd
-    one is the dimension line. Returns None for leaders and angle dimensions (judged separately or
-    not at all)."""
+
+def _dot(p, u):
+    return p[0] * u[0] + p[1] * u[1]
+
+
+def _frame_dim(e):
+    """A dimension drawn as the frame / bar family: two parallel extension lines plus one
+    dimension line (axis-aligned bar or diagonal aligned dimension), or the inside variant with a
+    single dimension line between the arrows (DESIGN §4.6 side="inside")."""
     if e.kind != "dim":
         return None
     lines = [p for p in e._prims if isinstance(p, Line)]
     arrows = [p for p in e._prims if isinstance(p, Solid)]
     texts = [p for p in e._prims if isinstance(p, Text)]
-    if len(lines) < 3 or len(arrows) < 2:
+    if len(arrows) < 2:
+        return None
+    if len(lines) == 1:
+        dim = lines[0]
+        ang = _line_angle(dim)
+        direction = "h" if (ang < 1.0 or ang > 179.0) else ("v" if abs(ang - 90.0) < 1.0 else "d")
+        return {
+            "dir": direction,
+            "dim": dim,
+            "ext": [],
+            "arrows": arrows,
+            "texts": texts,
+            "lines": [dim],
+        }
+    if len(lines) < 3:
         return None
     groups = []
     for p in lines:
@@ -171,22 +192,31 @@ def _frame_dim(e):
         direction = "v"
     else:
         direction = "d"  # aligned dimension: the dimension line is diagonal
-    return {"dir": direction, "dim": dim, "ext": ext, "arrows": arrows, "texts": texts}
+    return {
+        "dir": direction,
+        "dim": dim,
+        "ext": ext,
+        "arrows": arrows,
+        "texts": texts,
+        "lines": [dim],
+    }
 
 
 def _box_dim(e):
-    """Axis-aligned (bar) dimension: the frame classifier restricted to h / v."""
+    """Axis-aligned (bar) dimension of any kind (outside frame or inside single line)."""
     info = _frame_dim(e)
     return info if info is not None and info["dir"] in ("h", "v") else None
 
 
 def _leader_dim(e):
-    """Leader-type dimension (circle diameter/radius, chamfer, groove, hole, spline): its dim line
-    is the longest line of the leader."""
+    """Leader-type dimension (circle diameter/radius, chamfer, groove, hole, spline): its dimension
+    geometry is the two leader segments (the shoulder may be collinear for at=0 / 180)."""
+    if e.kind != "dim":
+        return None
     lines = [p for p in e._prims if isinstance(p, Line)]
     arrows = [p for p in e._prims if isinstance(p, Solid)]
     texts = [p for p in e._prims if isinstance(p, Text)]
-    if len(lines) != 2 or len(arrows) < 1 or _parallel(lines[0], lines[1], tol_deg=5.0):
+    if len(lines) != 2 or len(arrows) < 1:
         return None
     return {
         "dir": "leader",
@@ -194,11 +224,12 @@ def _leader_dim(e):
         "ext": [],
         "arrows": arrows,
         "texts": texts,
+        "lines": lines,
     }
 
 
 def _dim_info(e):
-    """(kind, {dir, dim, ext, arrows, texts}) for a dimension element, or None.
+    """(kind, {dir, dim, ext, arrows, texts, lines}) for a dimension element, or None.
 
     Angle dimensions (their dimension line is an arc) are deliberately not judged: their placement
     follows the angle candidate rules, not the linear ones."""
@@ -211,6 +242,11 @@ def _dim_info(e):
     if leader is not None:
         return "leader", leader
     return None
+
+
+def _dim_segments(info):
+    """The dimension-line segments of a classified dimension (one for a frame, both leader parts)."""
+    return info.get("lines") or [info["dim"]]
 
 
 def _view_bbox(d, name):
@@ -234,50 +270,45 @@ def _view_bbox(d, name):
     )
 
 
-def _side(bbox, info):
-    """Which side of the view the dimension line sits on (None: inside / cannot tell)."""
-    if not bbox:
+def _frame_axis(info):
+    u = _unit(info["dim"].p, info["dim"].q)
+    return u, (-u[1], u[0]), _dot(info["dim"].p, (-u[1], u[0]))
+
+
+def _frame_rows(info):
+    """(u, outward, offset, interval) of a frame dimension placed outside the outline.
+
+    The extension lines themselves give the outward direction (their short end is the one that
+    stops just past the dimension line) and the offset of the dimension line from the measured
+    points, so the same treatment works for axis-aligned and aligned dimensions without looking at
+    the view box. Returns None for inside dimensions (no extension lines)."""
+    if not info["ext"]:
         return None
-    if info["dir"] == "h":
-        y = info["dim"].p[1]
-        if y > bbox[3] + 0.5:
-            return "top"
-        if y < bbox[1] - 0.5:
-            return "bottom"
-        return None
-    if info["dir"] == "v":
-        x = info["dim"].p[0]
-        if x > bbox[2] + 0.5:
-            return "right"
-        if x < bbox[0] - 0.5:
-            return "left"
-        return None
-    return None
+    u, n, level = _frame_axis(info)
+    signs, offsets = [], []
+    for ext in info["ext"]:
+        s = [_dot(pt, n) - level for pt in (ext.p, ext.q)]
+        k = 0 if abs(s[0]) < abs(s[1]) else 1
+        signs.append(1 if s[k] >= 0 else -1)
+        offsets.append(max(abs(s[0]), abs(s[1])))
+    if len(set(signs)) != 1:
+        return None  # the two extension lines disagree on the side: not a clean row
+    return u, signs[0], max(offsets), _frame_interval(info)
 
 
-def _outline_distance(bbox, info):
-    if not bbox:
-        return None
-    if info["dir"] == "h":
-        y = info["dim"].p[1]
-        return y - bbox[3] if y > bbox[3] else bbox[1] - y
-    x = info["dim"].p[0]
-    return x - bbox[2] if x > bbox[2] else bbox[0] - x
+def _frame_interval(info):
+    """The dimension's extent along its own axis (sheet coordinates)."""
+    u = _unit(info["dim"].p, info["dim"].q)
+    segs = []
+    for line in info["ext"] or [info["dim"]]:
+        segs += [line.p, line.q]
+    vals = [_dot(pt, u) for pt in segs]
+    return min(vals), max(vals)
 
 
-def _box_span(info):
-    """Distance between the two extension lines = the dimension's drawn length on the sheet."""
-    if info["dir"] == "h":
-        return abs(info["ext"][0].p[0] - info["ext"][1].p[0])
-    return abs(info["ext"][0].p[1] - info["ext"][1].p[1])
-
-
-def _box_interval(info):
-    """The dimension's extent along its own axis (sheet coordinates), used to tell whether two
-    parallel dimension lines sit above one another at all."""
-    k = 0 if info["dir"] == "h" else 1
-    a, b = sorted((info["ext"][0].p[k], info["ext"][1].p[k]))
-    return a, b
+def _frame_span(info):
+    a, b = _frame_interval(info)
+    return b - a
 
 
 def _overlap_1d(a, b):
@@ -294,8 +325,8 @@ def _center_segments(d, view):
 
 
 def _straight_edge_segments(d, view):
-    """Only the straight contour segments of a view (arcs are excluded: a diameter leader crosses
-    the arc it points at by design)."""
+    """Only the straight contour segments of a view (used for leader-type dimensions: a diameter
+    leader necessarily crosses the arc it points at, so arcs are not counted there)."""
     out = []
     for e in d._els.values():
         if e.kind != "edge" or e.view != view or e.role not in ("thick", "hidden"):
@@ -325,56 +356,96 @@ def _arrow_size(solid):
     return ds[0], ds[2]
 
 
-# ---- D.place rules ------------------------------------------------------------------------------
+def _hatch_polys(d):
+    """Point-in-polygon test helpers for the rendered section lining: [(view, polygon)]."""
+    out = []
+    for e in d._els.values():
+        if e.kind != "hatch":
+            continue
+        for pr in e._prims:
+            if not isinstance(pr, Hatch):
+                continue
+            for loop in pr.loops:
+                if not loop:
+                    continue
+                if loop[0] == "circle":
+                    c, rad = loop[1], loop[2]
+                    pts = [
+                        (
+                            c[0] + rad * math.cos(2 * math.pi * k / 32),
+                            c[1] + rad * math.sin(2 * math.pi * k / 32),
+                        )
+                        for k in range(32)
+                    ]
+                else:
+                    pts = list(loop)
+                out.append((pts, e.view))
+    return out
+
+
+def _point_in_poly(pt, poly):
+    x, y = pt
+    inside = False
+    for i in range(len(poly)):
+        x0, y0 = poly[i - 1]
+        x1, y1 = poly[i]
+        if (y0 > y) != (y1 > y):
+            xin = x0 + (y - y0) * (x1 - x0) / (y1 - y0)
+            if x < xin:
+                inside = not inside
+    return inside
 
 
 def place_dim_cross(d):
-    """尺寸线互相交叉 (GB/T 4458.4 / ISO 129-1); bars, aligned dimensions and leaders are judged."""
-    targets = []
-    for e in d._els.values():
-        info = _dim_info(e)
-        if info is None:
-            continue
-        targets.append((e, info[1]["dim"]))
+    """尺寸线互相交叉 (GB/T 4458.4 / ISO 129-1); bars, aligned dimensions, inside dimensions and
+    leaders are judged (an angle dimension's dimension line is an arc and is not judged)."""
+    items = [(e, info) for e in d._els.values() if (info := _dim_info(e)) is not None]
+    items = [(e, info[1]) for e, info in items]
     findings = []
-    for i, (e, line) in enumerate(targets):
-        for j, (other, other_line) in enumerate(targets):
-            if i >= j:
+    for i, (e, info) in enumerate(items):
+        for other, oinfo in items[i + 1 :]:
+            hit = None
+            for a in _dim_segments(info):
+                for b in _dim_segments(oinfo):
+                    if _crosses(a.p, a.q, b.p, b.q):
+                        hit = (a, b)
+                        break
+                if hit:
+                    break
+            if hit is None:
                 continue
-            if _crosses(line.p, line.q, other_line.p, other_line.q):
-                pt = _intersection(line.p, line.q, other_line.p, other_line.q)
-                for me, them in ((e, other), (other, e)):
-                    findings.append(
-                        _f(
-                            "place_dim_cross",
-                            d,
-                            me.id,
-                            f"{me.id} 的尺寸线与 {them.id} 的尺寸线相交",
-                            measured={"with": them.id, "at": [round(pt[0], 2), round(pt[1], 2)]},
-                            expected={"crossings": 0},
-                            candidates=[f"移动 {me.id} 的排 / 侧向，避开 {them.id}"],
-                        )
+            (a, b) = hit
+            pt = _intersection(a.p, a.q, b.p, b.q)
+            for me, them in ((e, other), (other, e)):
+                findings.append(
+                    _f(
+                        "place_dim_cross",
+                        d,
+                        me.id,
+                        f"{me.id} 的尺寸线与 {them.id} 的尺寸线相交",
+                        measured={"with": them.id, "at": [round(pt[0], 2), round(pt[1], 2)]},
+                        expected={"crossings": 0},
+                        candidates=[f"移动 {me.id} 的排 / 侧向，避开 {them.id}"],
                     )
+                )
     seen, uniq = set(), []
     for f in findings:
         if f["id"] not in seen:
             seen.add(f["id"])
             uniq.append(f)
-    return uniq, len(targets)
+    return uniq, len(items)
 
 
 def place_dim_outline(d):
-    """尺寸线不应与轮廓线相交; the outline is judged on its straight segments (a diameter leader
-    necessarily crosses the arc it points at, so arcs are not counted)."""
-    targets, findings = [], []
-    for e in d._els.values():
-        info = _dim_info(e)
-        if info is None:
-            continue
-        line = info[1]["dim"]
-        edges = _straight_edge_segments(d, e.view)
-        hit = any(_crosses(line.p, line.q, a, b) for a, b in edges)
-        targets.append(e)
+    """尺寸线不应与轮廓线相交 (GB/T 4458.4 / ISO 129-1). Judged on frame dimensions (bar, aligned,
+    inside): a leader (引出线) is meant to leave the feature through the contour, so it is governed
+    by the leader rules, not by this clause."""
+    items = [(e, info[1]) for e in d._els.values() if (info := _dim_info(e)) is not None]
+    items = [(e, info) for e, info in items if info["dir"] != "leader"]
+    findings = []
+    for e, info in items:
+        edges = _edge_segments(d, e.view)
+        hit = any(_crosses(seg.p, seg.q, a, b) for seg in _dim_segments(info) for a, b in edges)
         if hit:
             findings.append(
                 _f(
@@ -384,32 +455,32 @@ def place_dim_outline(d):
                     f"{e.id} 的尺寸线与轮廓线交叉",
                     measured={
                         "line": [
-                            [round(line.p[0], 2), round(line.p[1], 2)],
-                            [round(line.q[0], 2), round(line.q[1], 2)],
+                            [round(seg.p[0], 2), round(seg.p[1], 2)] for seg in _dim_segments(info)
                         ]
                     },
                     expected={"outline_crossings": 0},
                     candidates=[f"移动 {e.id} 到轮廓外，或加大排距"],
                 )
             )
-    return findings, len(targets)
+    return findings, len(items)
 
 
 def _side_groups(d):
-    """{(view, dir, side): [(element, info, distance)]} for box dimensions outside the outline."""
+    """{(view, direction, outward): [(element, info, offset)]} for frame dimensions outside the
+    outline; axis-aligned and aligned frames share the same treatment (parallel rows)."""
     groups = {}
     for e in d._els.values():
-        info = _box_dim(e)
+        info = _frame_dim(e)
         if info is None:
             continue
-        bbox = _view_bbox(d, e.view)
-        side = _side(bbox, info)
-        if side is None:
+        rows = _frame_rows(info)
+        if rows is None:
             continue
-        dist = _outline_distance(bbox, info)
-        groups.setdefault((e.view, info["dir"], side), []).append((e, info, dist))
+        u, outward, offset, _interval = rows
+        key = (e.view, round(math.degrees(math.atan2(u[1], u[0])) % 180.0, 1), outward)
+        groups.setdefault(key, []).append((e, info, offset))
     for items in groups.values():
-        items.sort(key=lambda t: t[2])
+        items.sort(key=lambda item: item[2])
     return groups
 
 
@@ -423,7 +494,7 @@ def place_row_spacing(d):
     for items in groups.values():
         for i, (e0, i0, d0) in enumerate(items):
             for e1, i1, d1 in items[i + 1 :]:
-                if not _overlap_1d(_box_interval(i0), _box_interval(i1)):
+                if not _overlap_1d(_frame_interval(i0), _frame_interval(i1)):
                     continue  # side by side, not stacked: no row pitch requirement
                 checks += 1
                 gap = d1 - d0
@@ -454,10 +525,10 @@ def place_nesting(d):
     for items in groups.values():
         for i, (e0, i0, _d0) in enumerate(items):
             for e1, i1, _d1 in items[i + 1 :]:
-                if not _overlap_1d(_box_interval(i0), _box_interval(i1)):
+                if not _overlap_1d(_frame_interval(i0), _frame_interval(i1)):
                     continue  # side by side, not nested: order does not matter
                 checks += 1
-                span0, span1 = _box_span(i0), _box_span(i1)
+                span0, span1 = _frame_span(i0), _frame_span(i1)
                 if span0 > span1 + 0.01:  # the inner dimension is the longer one
                     prev = worst.get(e0.id)
                     if prev is None or span0 - span1 > prev[0]:
@@ -489,78 +560,61 @@ def place_ext_line(d):
     beyond = dm["ext_beyond"]
     lo, hi = beyond - 0.5, beyond + 1.0
     max_gap = cfg["ext_gap_max"]
-    findings, checks = [], 0
+    findings = []
+    checks = 0
     for e in d._els.values():
-        info = _box_dim(e)
-        if info is None:
+        info = _frame_dim(e)
+        if info is None or not info["ext"]:
             continue
-        bbox = _view_bbox(d, e.view)
-        side = _side(bbox, info)
-        if side is None:
+        rows = _frame_rows(info)
+        if rows is None:
             continue
+        _u, outward, _offset, _interval = rows
+        _u2, n, level = _frame_axis(info)
         edges = _edge_segments(d, e.view) + _center_segments(d, e.view)
-        level = info["dim"].p[1] if info["dir"] == "h" else info["dim"].p[0]
-        outward = 1.0 if side in ("top", "right") else -1.0
+        checks += 1  # one check per dimension, however many extension lines it has
+        bad = []
         for ext in info["ext"]:
-            checks += 1
-            k = 1 if info["dir"] == "h" else 0  # vertical ext line: y; horizontal: x
-            signs = [(p[k] - level) * outward for p in (ext.p, ext.q)]
-            outward_signs = [s for s in signs if s >= -1e-9]
-            if not outward_signs:  # the extension line does not reach the dimension line
-                findings.append(
-                    _f(
-                        "place_ext_line",
-                        d,
-                        e.id,
-                        f"{e.id} 的尺寸界线没有越过尺寸线（超出 {min(signs):.2f}）",
-                        measured={"beyond": round(max(signs), 3)},
-                        expected={"beyond": f"{lo:g}..{hi:g}"},
-                        candidates=[f"把 {e.id} 的尺寸界线延长到越过尺寸线约 {beyond:g}"],
-                    )
-                )
+            vals = [(pt, (_dot(pt, n) - level) * outward) for pt in (ext.p, ext.q)]
+            far_pt, far = max(vals, key=lambda item: item[1])
+            near_pt, near = min(vals, key=lambda item: item[1])
+            if far <= 0:  # the extension line does not reach / pass the dimension line
+                bad.append({"reaches": False, "beyond": round(far, 3)})
                 continue
-            over = min(outward_signs)
-            inward = [p for p, s in zip((ext.p, ext.q), signs) if s < -1e-9]
-            gap = (
-                min((_seg_dist(inward[0], s, q) for s, q in edges), default=float("inf"))
-                if inward
-                else float("inf")
-            )
-            measured = {"beyond": round(over, 3)}
-            bad = not lo <= over <= hi
-            if gap != float("inf"):
-                measured["gap"] = round(gap, 3)
-                bad = bad or gap > max_gap
-            if bad:
-                findings.append(
-                    _f(
-                        "place_ext_line",
-                        d,
-                        e.id,
-                        f"{e.id} 的尺寸界线超出 {over:.2f}（应约 {beyond:g}）"
-                        + (f"，与轮廓间隙 {gap:.2f}" if gap != float("inf") else ""),
-                        measured=measured,
-                        expected={
-                            "beyond": f"{lo:g}..{hi:g}",
-                            "gap": f"<= {max_gap:g}",
-                        },
-                        candidates=[f"调整 {e.id} 的排距，使尺寸界线从轮廓外引出"],
-                    )
+            gap = min((_seg_dist(near_pt, a, b) for a, b in edges), default=float("inf"))
+            item = {"beyond": round(far, 3)}
+            failed = not lo <= far <= hi
+            if gap == float("inf"):
+                failed = True  # the line does not start at / near the geometry at all
+                item["gap"] = None
+            else:
+                item["gap"] = round(gap, 3)
+                failed = failed or gap > max_gap
+            if failed:
+                bad.append(item)
+        if bad:
+            findings.append(
+                _f(
+                    "place_ext_line",
+                    d,
+                    e.id,
+                    f"{e.id} 的尺寸界线不合规（超出应约 {beyond:g} mm，"
+                    f"起点应落在轮廓 / 轴线 / 中心线上）",
+                    measured={"lines": bad},
+                    expected={"beyond": f"{lo:g}..{hi:g}", "gap": f"<= {max_gap:g}"},
+                    candidates=[f"调整 {e.id} 的排距，使尺寸界线从轮廓外引出"],
                 )
-    seen, uniq = set(), []
-    for f in findings:
-        if f["id"] not in seen:
-            seen.add(f["id"])
-            uniq.append(f)
-    return uniq, checks
+            )
+    return findings, checks
 
 
 def place_text_direction(d):
     """文字方向 (GB/T 4458.4 / ISO 129-1)."""
-    findings, checks = [], 0
+    findings = []
+    checks = 0
     for e in d._els.values():
-        info = _box_dim(e)
-        if info is None:
+        info = _frame_dim(e)
+        if info is None or info["dir"] not in ("h", "v"):
             continue
         checks += 1
         want = 0.0 if info["dir"] == "h" else 90.0
@@ -582,7 +636,8 @@ def place_text_direction(d):
 
 
 def place_text_overlap(d):
-    """尺寸数字与其他图元重叠 (GB/T 4458.4 / ISO 129-1)."""
+    """尺寸数字与其他图元重叠 (GB/T 4458.4 / ISO 129-1); the dimension's own lines, the other
+    elements and the rendered section lining are all judged."""
     prims = {}
     for e in d._els.values():
         segs, boxes = [], []
@@ -594,7 +649,20 @@ def place_text_overlap(d):
             else:
                 segs += prim_segments(p)
         prims[e._id] = (segs, boxes)
-    findings, checks = [], 0
+    hatches = [
+        (polys, eid)
+        for eid, polys in (
+            (e._id, [poly for poly, _view in _hatch_polys(d)])
+            for e in d._els.values()
+            if e.kind == "hatch"
+        )
+    ]
+    hatches = []
+    for e in d._els.values():
+        if e.kind == "hatch":
+            hatches.append((e._id, [poly for poly, view in _hatch_polys(d) if view == e.view]))
+    findings = []
+    checks = 0
     for e in d._els.values():
         info = _dim_info(e)
         if info is None or not info[1]["texts"]:
@@ -603,6 +671,7 @@ def place_text_overlap(d):
         viol = {}
         for t in info[1]["texts"]:
             box = t.box
+            center = ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2)
             for o, (osegs, oboxes) in prims.items():
                 if o == e._id:  # own primitives are judged, own text boxes are not conflicts
                     oboxes = []
@@ -614,6 +683,9 @@ def place_text_overlap(d):
                     ov = _box_overlap(box, ob)
                     if ov > 0.05:
                         viol[o] = max(viol.get(o, 0.0), ov)
+            for hid, polys in hatches:
+                if any(_point_in_poly(center, poly) for poly in polys):
+                    viol[hid] = max(viol.get(hid, 1.0), 1.0)
         if viol:
             findings.append(
                 _f(
@@ -630,20 +702,22 @@ def place_text_overlap(d):
 
 
 def place_arrow(d):
-    """箭头大小一致 (GB/T 4458.4: 箭头长 >= 6d, 全图一致)."""
+    """箭头大小一致 (GB/T 4458.4: 箭头长 >= 6d, 全图一致). One check per dimension element."""
     dm = d.std["dim"]
     aw, al = dm["arrow_width"], dm["arrow_length"]
     want_long = math.hypot(al, aw / 2)
     tol = 0.25
-    findings, checks = [], 0
+    findings = []
+    checks = 0
     for e in d._els.values():
         if e.kind != "dim":
             continue
+        arrows = [p for p in e._prims if isinstance(p, Solid)]
+        if not arrows:
+            continue
+        checks += 1
         bad = 0
-        for p in e._prims:
-            if not isinstance(p, Solid):
-                continue
-            checks += 1
+        for p in arrows:
             short, long_ = _arrow_size(p)
             if abs(short - aw) > tol or abs(long_ - want_long) > tol:
                 bad += 1
@@ -660,9 +734,6 @@ def place_arrow(d):
                 )
             )
     return findings, checks
-
-
-# ---- A.place rules (balloons) -------------------------------------------------------------------
 
 
 def _balloon_parts(e):

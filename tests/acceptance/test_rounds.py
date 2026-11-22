@@ -71,6 +71,25 @@ def git(dir, *args):
     ).stdout
 
 
+#: E5 placement debt of each example at init (frozen: D1/D2 shrink these lists deliberately);
+#: the rounds themselves must not add placement warnings of a different kind beyond the init debt
+PLACEMENT_DEBT = {
+    "shaft": {
+        ("place_dim_outline", "D.d1"),
+        ("place_dim_outline", "D.d2"),
+        ("place_dim_outline", "D.d3"),
+        ("place_dim_outline", "D.d5"),
+        ("place_ext_line", "D.gh"),
+        ("place_ext_line", "D.gw"),
+        ("place_nesting", "D.L"),
+        ("place_row_spacing", "D.l2"),
+        ("place_row_spacing", "D.l4"),
+    },
+    "flange": set(),
+    "bracket": set(),
+}
+
+
 @pytest.mark.parametrize("part", list(ROUNDS))
 def test_eight_rounds(tmp_path, part):
     d = tmp_path / part
@@ -79,6 +98,9 @@ def test_eight_rounds(tmp_path, part):
     # other pack must stay warning-free here.
     other = [f for f in out["warnings"] if f.get("pack") != "placement"]
     assert code == 0 and other == [], out
+    # E5 placement debt of the shaft example, frozen here; D1/D2 shrink it in their own PRs
+    debt = {(f["rule"], f["id"]) for f in out["warnings"] if f.get("pack") == "placement"}
+    assert debt == PLACEMENT_DEBT[part], debt
     commits = 1
     for k, (msg, kind, payload) in enumerate(ROUNDS[part], 1):
         log_before = (d / "drawing.actions.jsonl").read_bytes()
