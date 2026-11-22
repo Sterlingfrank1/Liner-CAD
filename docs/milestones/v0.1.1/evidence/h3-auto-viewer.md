@@ -65,6 +65,14 @@
 
 （三种关法都不产生 `viewer` 键、不写状态文件、不起进程；pytest 的 `tests/conftest.py` 全局设 `LCAD_NO_VIEW=1`，所以测试与 CI 永远不会自动开浏览器。）
 
+## 评审修复后的最终复跑（dsh，临时目录 h3-live3）
+
+- 首次 `lcad build` → `viewer: {url: http://127.0.0.1:58372/, opened: true}`；`/api/ping` 返回 `{ok: true, pid: 68896, dir: ...h3-live3\part}`（身份探测不触发重建）。
+- 运行中第二次 `lcad edit` → 同一 url、同一 pid、`opened: false`。
+- 空闲用例：pid 58696 在 12 s 后退出、状态文件删除、`running()` 为 None、无 `linercad.viewer` 残留。
+- `--no-view`：JSON 无 `viewer` 键、不写状态、不起进程。
+- 锁/身份/超时等 R3 修复后行为与上面 ①–④ 一致。
+
 ## 自动化测试（G2 先失败：4 failed）
 
 `tests/test_autoview.py`：

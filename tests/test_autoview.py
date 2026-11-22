@@ -9,7 +9,10 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
+import threading
 import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -185,3 +188,81 @@ def test_concurrent_autostart_starts_one_viewer(repo, monkeypatch):
         assert len(viewer._CHILDREN) == 1, "the lock must allow exactly one spawned viewer"
     finally:
         _stop(state)
+
+
+def test_active_lock_is_not_stolen(repo, monkeypatch):
+    lock = repo / ".linercad" / "viewer.lock"
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    lock.write_text(str(os.getpid()), encoding="utf-8")  # a live owner
+    monkeypatch.setattr(viewer, "_LOCK_WAIT", 0.2)
+    try:
+        with pytest.raises(TimeoutError):
+            with viewer._viewer_lock(repo):
+                pass
+        assert lock.exists()  # a live lock must never be removed by a waiter
+    finally:
+        lock.unlink(missing_ok=True)
+
+
+def test_startup_timeout_kills_the_half_started_child(repo, monkeypatch):
+    monkeypatch.delenv("LCAD_NO_VIEW", raising=False)
+    monkeypatch.delenv("CI", raising=False)
+
+    class FakeProc:
+        pid = 424242
+
+        def poll(self):
+            return None
+
+    killed = []
+    monkeypatch.setattr(viewer, "_kill_tree", lambda pid: killed.append(pid))
+    monkeypatch.setattr(viewer, "_START_TIMEOUT", 0.2)
+    monkeypatch.setattr(viewer.subprocess, "Popen", lambda *a, **k: FakeProc())
+    try:
+        res = viewer.autostart(repo, open_browser=False)
+        assert res["url"] is None and res["opened"] is False
+        assert killed == [424242], killed  # the orphan-to-be is terminated
+    finally:
+        viewer._CHILDREN.clear()  # drop the fake process from the shared reaper list
+
+
+def test_identity_probe_rejects_a_foreign_service(repo, monkeypatch):
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):  # noqa: N802
+            body = json.dumps({"ok": True, "pid": os.getpid(), "dir": "elsewhere"}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    state = repo / ".linercad" / "viewer.json"
+    state.parent.mkdir(parents=True, exist_ok=True)
+    state.write_text(
+        json.dumps(
+            {
+                "pid": os.getpid(),
+                "port": httpd.server_address[1],
+                "url": f"http://127.0.0.1:{httpd.server_address[1]}/",
+            }
+        ),
+        encoding="utf-8",
+    )
+    try:
+        assert viewer._running(repo) is None  # foreign service: not our Viewer
+        assert not state.exists()
+    finally:
+        httpd.shutdown()
+
+
+def test_cli_survives_a_viewer_import_failure(repo, monkeypatch, capsys):
+    monkeypatch.setitem(sys.modules, "linercad.viewer", None)
+    code = cli.main(["-C", str(repo), "build"])
+    out = json.loads(capsys.readouterr().out)
+    assert code == 0 and out["ok"]
+    assert out["viewer"]["url"] is None and "halted" in out["viewer"]["error"]

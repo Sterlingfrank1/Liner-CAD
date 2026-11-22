@@ -685,6 +685,8 @@ def make_handler(viewer: Viewer):
                     if not svg:
                         return self._json({"ok": False, "error": viewer.error}, 503)
                     return self._send(200, svg.encode("utf-8"), "image/svg+xml")
+                if path == "/api/ping":  # H3 identity probe: lightweight, never rebuilds
+                    return self._json({"ok": True, "pid": os.getpid(), "dir": str(viewer.dir)})
                 if path == "/api/state":
                     return self._json(viewer.state())
                 if path == "/api/model":
@@ -900,9 +902,7 @@ def _viewer_identity(doc, dir):
     """
     try:
         port = int(doc["port"])
-        req = URLRequest(
-            f"http://127.0.0.1:{port}/api/state", headers={"Host": f"127.0.0.1:{port}"}
-        )
+        req = URLRequest(f"http://127.0.0.1:{port}/api/ping", headers={"Host": f"127.0.0.1:{port}"})
         with urlopen(req, timeout=0.6) as resp:  # noqa: S310 - loopback only
             st = json.loads(resp.read().decode("utf-8"))
     except (OSError, ValueError, KeyError):
@@ -943,13 +943,50 @@ def _log_tail(dir, limit=400) -> str:
 
 #: Popen objects of spawned viewers; polled so exited children are reaped (no zombies).
 _CHILDREN = []
+_CHILDREN_LOCK = threading.Lock()
 _LOCK = ".linercad/viewer.lock"
+_LOCK_WAIT = 30.0  # seconds one build may wait for another one's spawn decision
+_START_TIMEOUT = 15.0  # seconds to wait for the child's state file (CI can be slow)
 
 
 def _reap_children():
-    for proc in list(_CHILDREN):
-        if proc.poll() is not None:
-            _CHILDREN.remove(proc)
+    with _CHILDREN_LOCK:
+        for proc in list(_CHILDREN):
+            if proc.poll() is not None:
+                _CHILDREN.remove(proc)
+
+
+def _kill_tree(pid):
+    """Terminate the background child (and its process tree) after a startup timeout."""
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return
+    if pid <= 0 or pid == os.getpid():
+        return
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)], capture_output=True)
+        return
+    try:
+        os.kill(pid, 15)
+    except OSError:
+        return
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline and _pid_alive(pid):
+        time.sleep(0.1)
+    if _pid_alive(pid):
+        try:
+            os.kill(pid, 9)
+        except OSError:
+            pass
+
+
+def _lock_owner(path):
+    """pid recorded in the lock file, or None when it cannot be read (mid-creation)."""
+    try:
+        return int(path.read_text(encoding="utf-8").strip() or 0) or None
+    except (OSError, ValueError):
+        return None
 
 
 @contextlib.contextmanager
@@ -958,17 +995,22 @@ def _viewer_lock(dir):
     path = Path(dir) / _LOCK
     path.parent.mkdir(parents=True, exist_ok=True)
     fd = None
-    deadline = time.monotonic() + 30.0  # a first Viewer may need a slow import + build
+    deadline = time.monotonic() + _LOCK_WAIT
     while time.monotonic() < deadline:
         try:
             fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             break
         except FileExistsError:
-            try:  # only a lock older than a minute is a crashed build, never a live one
-                old = time.time() - path.stat().st_mtime > 60
-            except OSError:
-                old = False
-            if old:
+            owner = _lock_owner(path)
+            stale = False
+            if owner is not None:
+                stale = not _pid_alive(owner)  # only a dead owner's lock may be taken over
+            else:
+                try:  # the file exists but has no owner yet: a live owner may be writing it
+                    stale = time.time() - path.stat().st_mtime > 300
+                except OSError:
+                    stale = False
+            if stale:
                 try:
                     path.unlink()
                 except OSError:
@@ -984,10 +1026,12 @@ def _viewer_lock(dir):
     finally:
         if fd is not None:
             os.close(fd)
-        try:
-            path.unlink()
-        except OSError:
-            pass
+        owner = _lock_owner(path)
+        if owner == os.getpid():  # never remove a lock a newer owner already took over
+            try:
+                path.unlink()
+            except OSError:
+                pass
 
 
 def autostart(dir, disabled=False, open_browser=True):
@@ -1032,11 +1076,13 @@ def autostart(dir, disabled=False, open_browser=True):
             else:
                 kwargs["start_new_session"] = True
             with open(log, "ab") as handle:
-                _CHILDREN.append(subprocess.Popen(args, stdout=handle, **kwargs))
+                proc = subprocess.Popen(args, stdout=handle, **kwargs)
+            with _CHILDREN_LOCK:
+                _CHILDREN.append(proc)
             # the Windows venv launcher may exit after starting the real interpreter, so accept
             # the state file written by the child (any live pid + open port)
             state = None
-            deadline = time.monotonic() + 15  # CI runners can be slow to import the package
+            deadline = time.monotonic() + _START_TIMEOUT
             while time.monotonic() < deadline:
                 candidate = _read_state(dir)
                 if (
@@ -1050,6 +1096,13 @@ def autostart(dir, disabled=False, open_browser=True):
                     break
                 time.sleep(0.05)
             if not state or not state.get("port"):
+                # do not leave a half-started child behind (it may bind later and become an
+                # unregistered viewer); kill the tree and any state it managed to publish
+                _kill_tree(proc.pid)
+                late = _read_state(dir)
+                if late and late.get("pid"):
+                    _kill_tree(late["pid"])
+                _clear_state(dir)
                 return {
                     "url": None,
                     "opened": False,
