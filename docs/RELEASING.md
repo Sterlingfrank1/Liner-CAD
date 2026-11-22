@@ -13,7 +13,7 @@
 
 硬约束：
 
-- **tag 与 `pyproject.toml` 的 `version` 必须一致**。`scripts/release.ps1` 会先校验，不一致直接拒绝发布。
+- **tag 与 `pyproject.toml` 的 `version` 必须一致**。`scripts/release.py` 会先校验，不一致直接拒绝发布。
 - tag 一律用 annotated：`git tag -a <tag> -m "..."`，消息写 `vX.Y.Z — <一句话>（见 docs/releases/vX.Y.Z.md）`。
 - **已推送的 tag 不可删除、不可移动**（ruleset `protect-version-tags` 保护 `refs/tags/v*`）。发布后发现错误只能发新版本（patch）。
 - tag 只从 `main` 打，且打之前 `main` 必须 CI 全绿——CI 不在 tag 上跑，只跑 PR 和 push main。
@@ -25,7 +25,7 @@
 3. 写 `docs/releases/vX.Y.Z.md`：范围、里程碑交付、安装、质量与证据、已知缺口、与上一版本的差异。
 4. 更新 `docs/ROADMAP.md` 看板：状态、tag 列。
 5. 开 PR（分支 `mN/release-vX.Y.Z`），CI 全绿后 squash 合并。
-6. 在 `main` 上跑 `pwsh scripts/release.ps1 X.Y.Z`：脚本会再校验一遍（分支/工作区/同步/版本号/发布说明/tag 未被占用/main CI 全绿），然后打 annotated tag、推送、建 GitHub Release。先加 `-DryRun` 可以只看计划。
+6. 在 `main` 上跑 `uv run python scripts/release.py X.Y.Z`：脚本会再校验一遍（分支/工作区/同步/版本号/发布说明/tag 未被占用/main CI 全绿），然后打 annotated tag、推送、建 GitHub Release。先加 `--dry-run` 可以只看计划。
 7. 到 <https://github.com/Sterlingfrank1/Liner-CAD/releases> 核对标题、说明、是不是 Latest。
 
 ## 3. 命令
@@ -36,8 +36,8 @@
 git switch main
 git pull --ff-only
 uv run pytest -q ; uv run ruff check      # 最后一次本地确认
-pwsh scripts/release.ps1 0.1.1 -DryRun    # 只看计划
-pwsh scripts/release.ps1 0.1.1            # 打 tag + 推送 + 建 Release
+uv run python scripts/release.py 0.1.1 --dry-run   # 只看计划
+uv run python scripts/release.py 0.1.1             # 打 tag + 推送 + 建 Release
 ```
 
 手工等价操作（脚本不可用时）：
@@ -51,7 +51,7 @@ gh release create v0.1.1 --verify-tag --title "Liner-CAD v0.1.1" --notes-file do
 预发布：
 
 ```powershell
-pwsh scripts/release.ps1 0.2.0-rc1        # 自动加 --prerelease
+uv run python scripts/release.py 0.2.0-rc1   # 自动加 --prerelease
 ```
 
 ## 4. 查看与回滚
