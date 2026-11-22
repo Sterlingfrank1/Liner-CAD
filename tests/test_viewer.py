@@ -293,7 +293,7 @@ def test_viewer_copy_reference_ui():
     from importlib import resources
 
     js = (resources.files("linercad.viewer") / "viewer.js").read_text(encoding="utf-8")
-    for needle in ("复制引用", "Ctrl+Shift+C", "selectionRefs", "refs.join"):
+    for needle in ("复制引用", "Ctrl+Shift+C", "selectionRefs", 'join(" ")'):
         assert needle in js, needle
 
 

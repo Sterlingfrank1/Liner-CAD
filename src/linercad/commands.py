@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import json
+import os
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .errors import InvalidArgument, LinerError, NotFound
 from .model import check_name
 from .runtime import SRC, TMP_DIR, build
+
+SELECTION_TTL = 900.0  # seconds a Viewer selection stays actionable (H4); env override for tests
 
 BRIEF_KINDS = (
     "view",
@@ -73,19 +77,77 @@ def _source(dir, e):
     return []
 
 
+def _selection_ttl() -> float:
+    raw = os.environ.get("LCAD_SELECTION_TTL")
+    if not raw:
+        return SELECTION_TTL
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        return SELECTION_TTL
+
+
+def _selection_age(seldoc):
+    """Seconds since the Viewer wrote the selection, or None when the timestamp is unusable."""
+    try:
+        when = datetime.fromisoformat(str(seldoc.get("time")).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=UTC)
+    return max(0.0, (datetime.now(UTC) - when).total_seconds())
+
+
+def _fresh_selection(dir, seldoc):
+    """The ids of an actionable selection; refuses (selection_stale) when it is gone or outdated."""
+    ids = list(seldoc.get("ids") or [])
+    hint = "请在 Viewer 里重新点选，或直接把 @ID 贴进对话；不要猜用户选的是什么"
+    if not ids:
+        raise InvalidArgument(
+            "当前没有有效选中：selection.json 里没有元素", code="selection_stale", hint=hint
+        )
+    from .txn import git_edits
+
+    selver = seldoc.get("version")
+    edits = git_edits(Path(dir))
+    head = f"e{edits[0][0]}" if edits else None
+    if selver and head and selver != head:
+        raise InvalidArgument(
+            f"当前没有有效选中：选择来自 {selver}，当前是 {head}",
+            code="selection_stale",
+            hint=hint,
+        )
+    age = _selection_age(seldoc)
+    ttl = _selection_ttl()
+    if age is None:
+        raise InvalidArgument(
+            "当前没有有效选中：selection.json 缺少可用的选择时间",
+            code="selection_stale",
+            hint=hint,
+        )
+    if ttl and age > ttl:
+        raise InvalidArgument(
+            f"当前没有有效选中：选择已超过 {int(ttl)} 秒（超时）",
+            code="selection_stale",
+            hint=hint,
+        )
+    return ids, {"version": selver, "time": seldoc.get("time"), "ids": ids, "fresh": True}
+
+
 def context(dir, ids=()):
     dir = Path(dir)
     seldoc = None
+    selection = None
     if ids and ids[0] == "@sel":
         sel = dir / ".linercad" / "selection.json"
+        hint = "请在 Viewer 里点选元素后重试，或直接把 @ID 贴进对话；不要猜"
         if not sel.exists():
             raise InvalidArgument(
-                "还没有 selection.json", hint="在 lcad view 里点选元素后再用 @sel"
+                "当前没有有效选中：还没有 selection.json", code="selection_stale", hint=hint
             )
         seldoc = json.loads(sel.read_text(encoding="utf-8"))
-        ids = seldoc.get("ids", []) + list(ids[1:])
-        if not ids:
-            raise InvalidArgument("selection.json 里没有选中的元素", hint="在 Viewer 里点选")
+        selected, selection = _fresh_selection(dir, seldoc)
+        ids = selected + list(ids[1:])
     try:
         res = build(dir)
     except (
@@ -97,7 +159,7 @@ def context(dir, ids=()):
         m = json.loads(mp.read_text(encoding="utf-8"))
         els = {x["id"]: x for x in m["elements"]}
         items = [{"element": els[i]} for i in ids if i in els] if ids else []
-        return {
+        out = {
             "ok": True,
             "stale": True,
             "build_error": e.to_dict(),
@@ -105,6 +167,9 @@ def context(dir, ids=()):
             "elements": None if ids else sorted(els),
             "hint": "构建失败，以上是上一版 model.json；先修好 drawing.py / 脚本",
         }
+        if selection is not None:
+            out["selection"] = selection
+        return out
     d = res.d
     if not ids:
         groups = {}
@@ -134,17 +199,11 @@ def context(dir, ids=()):
         }
     out = []
     warn = None
-    if seldoc is not None:  # the selection may predate the latest edit
+    if seldoc is not None:  # the elements themselves may have been removed by an uncommitted edit
         gone = [i for i in ids if i not in d]
         ids = [i for i in ids if i in d]
-        from .txn import git_edits
-
-        edits = git_edits(dir)
-        head = f"e{edits[0][0]}" if edits else None
-        if gone or (seldoc.get("version") and head and seldoc["version"] != head):
-            warn = f"选择来自 {seldoc.get('version')}，当前是 {head}" + (
-                f"；已不存在：{', '.join(gone)}" if gone else ""
-            )
+        if gone:
+            warn = f"已不存在：{', '.join(gone)}"
     for i in ids:
         e = d[i]
         b = e.bbox
@@ -165,6 +224,8 @@ def context(dir, ids=()):
             }
         )
     res_ = {"ok": True, "items": out}
+    if selection is not None:
+        res_["selection"] = selection
     if warn:
         res_["warning"] = warn
     return res_
