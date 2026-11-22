@@ -1942,10 +1942,12 @@ class _ViewLayout:
         if not bs:
             return
         cfg = self.std.get("assembly") or {}
+        place_cfg = self.std.get("placement") or {}
         h = float(cfg.get("balloon_height", 5.0))
         r = float(cfg.get("balloon_radius", 0.9 * h))
         offset = float(cfg.get("balloon_offset", 8.0))
-        step = 2 * r + float(cfg.get("balloon_gap", 2.0))
+        # single source of the minimum gap δ: the same [placement] value the E5 rule reads
+        step = 2 * r + float(place_cfg.get("balloon_clearance", 1.0))
         B = union([prims_bbox(p) for p in self.parts.values() if p] + [self.G])
         numbered = sorted(((e.number, self.P(e._intent["anchor"])) for e in bs), key=lambda t: t[0])
         sides = ("top", "right", "bottom", "left")
@@ -1967,7 +1969,8 @@ class _ViewLayout:
                 if e._layout.get("side") is None:
                     e._auto.append("side")
                 A = self.P(e._intent["anchor"])
-                e._reason = "序号按顺时针连续排列（引线不交叉，间距取标准档 δ）"
+                e._reason = "序号按侧成行/成列、沿旋转方向编号单调（引线不交叉，间距取标准档 δ）"
+                e._resolved["order"] = "side-monotonic"
                 self.put(e, self._balloon_prims(e, A, c, h, r))
             return
 
@@ -1983,6 +1986,7 @@ class _ViewLayout:
                 e._resolved["side"] = side
             if e._layout.get("side") is None:
                 e._auto.append("side")
+            e._resolved["order"] = "fallback"
             by_side[side].append((e, A))
         for side, items in by_side.items():
             if not items:
@@ -2179,6 +2183,8 @@ def _balloon_plan(B, numbered, step, offset, r, written=None, obstacles=()):
             for j, (num, _a) in enumerate(items):
                 t = mean + (j - (len(items) - 1) / 2) * step * sign
                 result[num] = (side, centre(side, t))
+    if len(_BALLOON_PLAN_CACHE) >= 256:  # deterministic, bounded memo
+        _BALLOON_PLAN_CACHE.pop(next(iter(_BALLOON_PLAN_CACHE)))
     _BALLOON_PLAN_CACHE[key] = result
     return result
 

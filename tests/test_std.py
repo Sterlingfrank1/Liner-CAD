@@ -54,6 +54,19 @@ def gb():
 # --------------------------------------------------------------------------- gb.toml values
 
 
+def test_assembly_values_are_shared_between_gb_and_iso():
+    gb = load_std("GB")["assembly"]
+    iso = load_std("ISO")["assembly"]
+    for key in ("balloon_height", "balloon_radius", "balloon_offset"):
+        assert gb[key] == iso[key], key
+    # δ / alignment tolerance have a single source: the E5 placement table
+    for table in (gb, iso):
+        assert "balloon_gap" not in table and "balloon_align_tol" not in table
+    for name in ("GB", "ISO"):
+        placement = load_std(name)["placement"]
+        assert placement["balloon_clearance"] > 0 and placement["balloon_align_tol"] > 0
+
+
 def test_name(gb):
     assert gb["name"] == "GB"
 

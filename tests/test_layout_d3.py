@@ -100,13 +100,13 @@ def test_balloon_leaders_do_not_cross(tmp_path, name):
 def test_balloon_spacing_and_alignment_follow_the_standard(tmp_path, name):
     d = _build(tmp_path, name)
     cfg = d.std["assembly"]
-    gap = float(cfg["balloon_gap"])
+    gap = float(d.std["placement"]["balloon_clearance"])
     r = float(cfg["balloon_radius"])
-    tol = float(cfg["balloon_align_tol"])
+    tol = float(d.std["placement"]["balloon_align_tol"])
     items = _balloons(d)
     for i, a in enumerate(items):
         for b in items[i + 1 :]:
-            assert math.dist(a["c"], b["c"]) >= 2 * r + gap - 0.25
+            assert math.dist(a["c"], b["c"]) >= 2 * r + gap - 1e-9
     for side in CW_SIDES:
         group = [b for b in items if b["side"] == side]
         if len(group) < 2:
@@ -137,6 +137,53 @@ def test_no_balloon_overlap_warning_on_l3(tmp_path, name):
         assert not any(str(x).startswith("B.") for x in involved), f
 
 
+@pytest.mark.parametrize("name", CASES)
+def test_l3_uses_the_order_plan(tmp_path, name):
+    d = _build(tmp_path, name)
+    for e in d._els.values():
+        if e.kind == "balloon":
+            assert e._resolved.get("order") == "side-monotonic", e.id
+
+
+def test_fallback_reports_its_order_state(tmp_path, monkeypatch):
+    import linercad.layout as L
+
+    monkeypatch.setattr(L, "_balloon_plan", lambda *a, **k: None)
+    d = _build(tmp_path, "jack")
+    states = {e._resolved.get("order") for e in d._els.values() if e.kind == "balloon"}
+    assert states == {"fallback"}
+    for fn in (place.place_balloon_cross, place.place_balloon_align, place.place_balloon_spacing):
+        found, _ = fn(d)
+        assert found == [], (fn.__name__, found)
+
+
+def test_balloons_from_two_views_do_not_collide(tmp_path):
+    from linercad.layout import union
+
+    d = _build(tmp_path, "jack")
+    names = [v.name for v in d.views()]
+    assert len(names) >= 2, names
+    top = names[1]
+    boxes = [
+        e._resolved.get("bbox")
+        for e in d._els.values()
+        if e._intent.get("view") == top and e._resolved.get("bbox")
+    ]
+    gb = union(boxes)
+    balloons = sorted((e for e in d._els.values() if e.kind == "balloon"), key=lambda e: e.number)
+    for e in balloons[:1]:  # one balloon lives in the second view (cross-view layout check)
+        e._intent["view"] = top
+        e._intent["anchor"] = [(gb[0] + gb[2]) / 2, (gb[1] + gb[3]) / 2]
+    layout(d)
+    for fn in (place.place_balloon_cross, place.place_balloon_align, place.place_balloon_spacing):
+        found, _ = fn(d)
+        assert found == [], (fn.__name__, found)
+    leaders = [b["leader"] for b in _balloons(d)]
+    for i, a in enumerate(leaders):
+        for b in leaders[i + 1 :]:
+            assert not _seg_cross(a.p, a.q, b.p, b.q)
+
+
 def test_written_balloon_side_is_kept(tmp_path):
     d = _build(tmp_path, "jack")
     target = sorted((e for e in d._els.values() if e.kind == "balloon"), key=lambda e: e.number)[0]
@@ -147,8 +194,11 @@ def test_written_balloon_side_is_kept(tmp_path):
 
 
 def test_balloon_layout_is_deterministic(tmp_path):
+    from linercad.layout import _BALLOON_PLAN_CACHE
+
     d = _build(tmp_path, "vise")
     snap = [(b["id"], repr(b["leader"]), b["c"]) for b in _balloons(d)]
+    _BALLOON_PLAN_CACHE.clear()  # prove the plan itself is deterministic, not just the cache
     layout(d)
     snap2 = [(b["id"], repr(b["leader"]), b["c"]) for b in _balloons(d)]
     assert snap == snap2
