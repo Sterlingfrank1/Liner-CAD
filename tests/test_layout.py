@@ -139,8 +139,11 @@ def test_circle_dia_candidates_and_fixed_at():
     layout(d)
     assert d["D.Do"].at == 45 and d["D.Do"].placement["auto"] == ["at"]
     assert d["D.Do2"].at == 200 and d["D.Do2"].placement["auto"] == []
+    # the fixed at=200 dimension already crosses the centre line; D2 switches the automatic
+    # one to the GB/T 4458.4 permitted leader fallback instead of drawing two crossing arrows
+    assert d["D.Do"]._resolved["style"] == "leader"
     sol = [p for p in d["D.Do"]._prims if isinstance(p, Solid)]
-    assert len(sol) == 2
+    assert len(sol) == 1
 
 
 def test_note_direction_candidates(shaft):
@@ -154,7 +157,7 @@ def test_note_direction_candidates(shaft):
 
 def test_unavoidable_conflict_reported_with_corridors(shaft):
     d, P, f = shaft
-    for k in range(8):  # more fixed-row dims than candidates can separate
+    for k in range(24):  # more fixed-row dims than the local push-out slots can separate
         f.dim.linear(f"x{k}", (0, 20), (120, 20), side="top", row=1)
     layout(d)
     found = [x for x in checks.run(d) if x["rule"] == "overlap"]

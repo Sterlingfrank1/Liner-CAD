@@ -65,15 +65,22 @@ def label_parts(i, std):
     we = h * 1.3 if env else 0.0
     gap = 0.6
     W = w0 + (gap + wd if dev else 0) + (wt if tail else 0) + (gap + we if env else 0)
-    H = max(h0, 2 * th * 1.15 if dev else 0)
+    dev_dy = 0.0
+    if dev:
+        # the upper / lower deviation boxes must not overlap each other (E5 counts text
+        # overlapping any primitive, including the dimension's own deviation texts)
+        hu = text_size(dev[0], th, std)[1]
+        hl = text_size(dev[1], th, std)[1]
+        dev_dy = max(hu, hl) / 2 + 0.1
+    H = max(h0, 2 * dev_dy + (max(th * 1.25, th) if dev else 0))
     x = -W / 2
     prims = [make_text(main, (x + w0 / 2, 0.0), h, std)]
     x += w0
     if dev:
         x += gap
         up, lo = dev
-        prims.append(make_text(up, (x + text_size(up, th, std)[0] / 2, th * 0.6), th, std))
-        prims.append(make_text(lo, (x + text_size(lo, th, std)[0] / 2, -th * 0.6), th, std))
+        prims.append(make_text(up, (x + text_size(up, th, std)[0] / 2, dev_dy), th, std))
+        prims.append(make_text(lo, (x + text_size(lo, th, std)[0] / 2, -dev_dy), th, std))
         x += wd
     if tail:
         prims.append(make_text(tail, (x + wt / 2, 0.0), h, std))
@@ -223,7 +230,11 @@ def _anchor(vl, el, frac):
 def _lens(lay, std):
     if lay.get("length"):
         return [lay["length"]]
-    return list(std["tolerancing"]["leader_lengths"])
+    base = list(std["tolerancing"]["leader_lengths"])
+    # the standard档 gives coarse preferred lengths; the extra stops help a leader clear a
+    # dimension line / a text without jumping a whole step (D2: crowded circular views)
+    extra = [12.0, 18.0, 24.0, 34.0, 40.0]
+    return sorted(set(base + extra))
 
 
 def _fracs(el):
@@ -255,6 +266,7 @@ def _cand(prims, fields, why="", body=None, cross=(), allow=()):
         "fields": fields,
         "cross": leaders,
         "allow_cross": list(allow),
+        "pmi_cost": True,  # crossing a dimension line is worse for a leader than a small gap
         "why": why,
     }
 
@@ -496,7 +508,7 @@ def rough_cands(vl, el):
         bx0, _, bx1, _ = prims_bbox(sym)
         for L in _lens(el._layout, std):
             L = L + lift if not el._layout.get("length") else L
-            for tilt in (0, 35, -35):
+            for tilt in (0, 20, -20, 35, -35, 55, -55):
                 u = _rot(n, tilt)
                 for side in (1, -1) if n[0] >= 0 else (-1, 1):
                     sx, sy = _shift(el)
