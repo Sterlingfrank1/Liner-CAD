@@ -26,6 +26,8 @@ BRIEF（监督会话写）
   → 监督会话复核，记入第 5 节 → 下一个里程碑
 ```
 
+发布与打标签按 `docs/RELEASING.md` 执行：版本号、发布说明、annotated tag、Release workflow 一步不落。tag 受 ruleset 保护，推上去就不能移动，所以打之前先确认 `main` 全绿。
+
 文档都放在 `docs/milestones/Mx/`：
 
 | 文件 | 谁写 | 内容 |

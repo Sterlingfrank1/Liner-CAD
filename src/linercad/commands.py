@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import json
+import os
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .errors import InvalidArgument, LinerError, NotFound
 from .model import check_name
 from .runtime import SRC, TMP_DIR, build
+
+SELECTION_TTL = 900.0  # seconds a Viewer selection stays actionable (H4); env override for tests
 
 BRIEF_KINDS = (
     "view",
@@ -73,19 +77,138 @@ def _source(dir, e):
     return []
 
 
+def _selection_ttl() -> float:
+    """Selection TTL in seconds; 0 (or a negative value) means it never expires (version check stays)."""
+    raw = os.environ.get("LCAD_SELECTION_TTL")
+    if not raw:
+        return SELECTION_TTL
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        return SELECTION_TTL
+
+
+def _selection_age(seldoc):
+    """Seconds since the Viewer wrote the selection, or None when the timestamp is unusable."""
+    try:
+        when = datetime.fromisoformat(str(seldoc.get("time")).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=UTC)
+    return max(0.0, (datetime.now(UTC) - when).total_seconds())
+
+
+def _fresh_selection(dir, seldoc):
+    """The ids of an actionable selection; refuses (selection_stale) when it is gone or outdated."""
+    ids = list(seldoc.get("ids") or [])
+    hint = "请在 Viewer 里重新点选，或直接把 @ID 贴进对话；不要猜用户选的是什么"
+    if not ids:
+        raise InvalidArgument(
+            "当前没有有效选中：selection.json 里没有元素", code="selection_stale", hint=hint
+        )
+    from .txn import git_edits
+
+    selver = seldoc.get("version")
+    edits = git_edits(Path(dir))
+    head = f"e{edits[0][0]}" if edits else None
+    if not selver or not head or selver != head:
+        raise InvalidArgument(
+            f"当前没有有效选中：选择来自 {selver or '未知版本'}，当前是 {head or '未知版本'}",
+            code="selection_stale",
+            hint=hint,
+        )
+    age = _selection_age(seldoc)
+    ttl = _selection_ttl()
+    if age is None:
+        raise InvalidArgument(
+            "当前没有有效选中：selection.json 缺少可用的选择时间",
+            code="selection_stale",
+            hint=hint,
+        )
+    if ttl and age > ttl:
+        raise InvalidArgument(
+            f"当前没有有效选中：选择已超过 {int(ttl)} 秒（超时）",
+            code="selection_stale",
+            hint=hint,
+        )
+    return ids, {"version": selver, "time": seldoc.get("time"), "ids": ids, "fresh": True}
+
+
+#: separators that end an @ID: whitespace, the reference brackets and common list punctuation
+_REF_STOP = set("（） \t\r\n，、；,;。")  # an @ID contains dots (D.d1): never split on them
+
+
+def _refs_in(text):
+    """(refs, dangling) of a pasted reference line.
+
+    @ inside a matched （...） description is label text. If the line has an unmatched （, the refs
+    after it would be swallowed: keep them as ``dangling`` so the caller can report, never drop them.
+    """
+    refs, dangling = [], []
+    depth = 0
+    i = 0
+    while i < len(text):
+        c = text[i]
+        if c == "（":
+            depth += 1
+        elif c == "）":
+            depth = max(0, depth - 1)
+        elif c == "@":
+            j = i + 1
+            while j < len(text) and text[j] not in _REF_STOP:
+                j += 1
+            if j > i + 1:
+                (refs if depth == 0 else dangling).append(text[i + 1 : j])
+            i = j - 1
+        i += 1
+    if depth:  # unmatched opening bracket: surface the refs it would have swallowed
+        refs.extend(dangling)
+    else:
+        dangling = []  # balanced line: anything inside brackets is label text
+    return refs, dangling
+
+
+def _clean_ids(items):
+    """(ids, dangling) of pasted references / plain ids.
+
+    Accepts one reference per argument, a pasted whole line ("@D.d1（...） @D.d2（...）"), or plain
+    ids: Windows PowerShell needs the argument quoted, e.g. lcad context "@D.d1（Φ30k6，主视图）".
+    """
+    out, dangling = [], []
+    for item in items:
+        s = str(item).strip()
+        refs, extra = _refs_in(s)
+        out.extend(refs)
+        dangling.extend(extra)
+        if not refs and not extra:
+            s = s.split("（", 1)[0].strip()
+            if s:
+                out.append(s)
+    return out, dangling
+
+
 def context(dir, ids=()):
     dir = Path(dir)
     seldoc = None
-    if ids and ids[0] == "@sel":
+    selection = None
+    want_sel = bool(ids) and str(ids[0]).strip() == "@sel"
+    ids, dangling = _clean_ids(ids[1:] if want_sel else ids)
+    dangling_warning = ""
+    if dangling:
+        dangling_warning = "引用里有未配对的「（」，已保留其中的 @ID：" + "、".join(
+            dict.fromkeys(dangling)
+        )
+    if want_sel:
         sel = dir / ".linercad" / "selection.json"
+        hint = "请在 Viewer 里点选元素后重试，或直接把 @ID 贴进对话；不要猜"
         if not sel.exists():
             raise InvalidArgument(
-                "还没有 selection.json", hint="在 lcad view 里点选元素后再用 @sel"
+                "当前没有有效选中：还没有 selection.json", code="selection_stale", hint=hint
             )
         seldoc = json.loads(sel.read_text(encoding="utf-8"))
-        ids = seldoc.get("ids", []) + list(ids[1:])
-        if not ids:
-            raise InvalidArgument("selection.json 里没有选中的元素", hint="在 Viewer 里点选")
+        selected, selection = _fresh_selection(dir, seldoc)
+        ids = selected + ids
     try:
         res = build(dir)
     except (
@@ -97,7 +220,15 @@ def context(dir, ids=()):
         m = json.loads(mp.read_text(encoding="utf-8"))
         els = {x["id"]: x for x in m["elements"]}
         items = [{"element": els[i]} for i in ids if i in els] if ids else []
-        return {
+        gone = [i for i in ids if i not in els] if ids else []
+        if seldoc is not None and ids and not items:
+            raise InvalidArgument(
+                "当前没有有效选中：选中的元素在当前图中都已不存在"
+                + (f"（{', '.join(gone)}）" if gone else ""),
+                code="selection_stale",
+                hint="请在 Viewer 里重新点选，或直接把 @ID 贴进对话；不要猜",
+            )
+        out = {
             "ok": True,
             "stale": True,
             "build_error": e.to_dict(),
@@ -105,6 +236,16 @@ def context(dir, ids=()):
             "elements": None if ids else sorted(els),
             "hint": "构建失败，以上是上一版 model.json；先修好 drawing.py / 脚本",
         }
+        notes = []
+        if seldoc is not None and gone:
+            notes.append(f"已不存在：{', '.join(gone)}")
+        if dangling_warning:
+            notes.append(dangling_warning)
+        if notes:
+            out["warning"] = "；".join(notes)
+        if selection is not None:
+            out["selection"] = selection
+        return out
     d = res.d
     if not ids:
         groups = {}
@@ -131,20 +272,22 @@ def context(dir, ids=()):
             "findings": res.findings,
             "history": hist,
             "hint": "lcad context <ID> 看单个元素；查询无名几何用 d.q.lines(view=...).where(...).near(x, y)",
+            **({"warning": dangling_warning} if dangling_warning else {}),
         }
     out = []
     warn = None
-    if seldoc is not None:  # the selection may predate the latest edit
+    if seldoc is not None:  # the elements themselves may have been removed by an uncommitted edit
         gone = [i for i in ids if i not in d]
         ids = [i for i in ids if i in d]
-        from .txn import git_edits
-
-        edits = git_edits(dir)
-        head = f"e{edits[0][0]}" if edits else None
-        if gone or (seldoc.get("version") and head and seldoc["version"] != head):
-            warn = f"选择来自 {seldoc.get('version')}，当前是 {head}" + (
-                f"；已不存在：{', '.join(gone)}" if gone else ""
+        if not ids:
+            raise InvalidArgument(
+                "当前没有有效选中：选中的元素在当前图中都已不存在"
+                + (f"（{', '.join(gone)}）" if gone else ""),
+                code="selection_stale",
+                hint="请在 Viewer 里重新点选，或直接把 @ID 贴进对话；不要猜",
             )
+        if gone:
+            warn = f"已不存在：{', '.join(gone)}"
     for i in ids:
         e = d[i]
         b = e.bbox
@@ -165,8 +308,11 @@ def context(dir, ids=()):
             }
         )
     res_ = {"ok": True, "items": out}
-    if warn:
-        res_["warning"] = warn
+    if selection is not None:
+        res_["selection"] = selection
+    notes = [x for x in (warn, dangling_warning) if x]
+    if notes:
+        res_["warning"] = "；".join(notes)
     return res_
 
 

@@ -1,7 +1,25 @@
 # Viewer：用户在浏览器里看图、点选、试参数
 
-用户可能开着 `lcad view`（浏览器里看图、点选、拖参数滑块）。
-- 用户说“这个 / 我选中的 / @sel”，或贴来 `@D.d1（Φ25k6，主视图）` 这样的引用：`lcad context @sel` 给出选中元素的详情、邻近元素、来源行和一段可改写的脚本片段（`.linercad/selection.json` 的 `ids` 就是选中的 ID）。
-- 用户在试的参数值在 `.linercad/snapshot.json` 的 `params`（只是预览，没写进 drawing.py）；用户要定下来时，改 drawing.py 里那个 `Param` 的默认值再 `lcad build -m`，或请用户点 Viewer 的[写回源码]。
+用户可能开着 `lcad view`（浏览器里看图、点选、拖参数滑块）；画完后 Viewer 也会被自动打开。
+
+## 选择同步到对话（H4）
+
+Viewer 的选择是唯一事实源：`.linercad/selection.json`（`ids` + 每个元素的 `ref` / 时间 / 版本）。两条路都支持，任何 Agent 通用：
+
+1. **复制引用（推荐，用户点了按钮 / 快捷键）：** 用户在 Viewer 里单击点选、Ctrl 多选，点「复制引用」或按 Ctrl+Alt+C（Ctrl+Shift+C 是浏览器 DevTools 快捷键，页面拦不住），得到一行引用，例如
+   `@D.d1（Φ25k6，主视图） @D.d2（Φ30k6，主视图） @D.L（200，主视图）`。
+   用户把它粘进对话后，把每个 `@ID` 当作该元素——可以直接 `lcad context "@D.d1（Φ25k6，主视图）" "@D.d2（Φ30k6，主视图）"`（PowerShell 里参数要用双引号包住整条引用），或按 ID 写临时脚本；不要要求用户再解释一遍。
+2. **自然语言指代（用户没复制）：** 用户说「选中的 / 这个 / 那个 / 当前对象 / 我选的」而消息里**没有 `@ID`** 时，先读当前选中再动手：
+   ```powershell
+   lcad context "@sel"      # PowerShell 里 @sel 要加引号
+   ```
+   确认 `items` 里的 ID 后再写脚本 / 改参数；不要凭聊天上下文猜用户指的是哪个元素。
+   优先用 `lcad context`（它校验版本与 TTL）。**若直读 `.linercad/selection.json`：** 必须自己用 `lcad log` 的当前 `eN` 比较文件里的 `version`，并检查 `time` 不超过 15 分钟（默认 TTL）；版本不一致或超时就按「当前没有有效选中」处理，不要用旧选择。
+
+**选择过期时如实报告，不要猜：** `lcad context "@sel"` 会校验选择的新鲜度——版本必须与当前 `eN` 一致，且默认不超过 15 分钟（`LCAD_SELECTION_TTL` 秒数可调；**设为 0 或负值表示永不过期**，版本校验仍然生效，不要把它当成“立即过期”）。失败时返回的 `error.code` 是 `selection_stale`，消息形如「当前没有有效选中：选择来自 e0，当前是 e1」/「当前没有有效选中：选择已超过 900 秒（超时）」/「当前没有有效选中：还没有 selection.json」。这时**明确告诉用户当前没有有效选中**，请他在 Viewer 里重新点选或把 `@ID` 贴进对话；不要用旧选择硬改，也不要猜。
+
+## 参数与刷新
+
+- 用户在试的参数值在 `.linercad/snapshot.json` 的 `params`（只是预览，没写进 drawing.py）；用户要定下来时，改 drawing.py 里那个 `Param` 的默认值再 `lcad build -m`，或请用户点 Viewer 的「写回源码」。
 - 你提交后 Viewer 会自动刷新，状态栏显示新的编号。
 - 命令是 `lcad -C <图纸目录> view`（目录用全局 `-C`，不是位置参数）。Viewer 只面向本机单用户：只监听 127.0.0.1，令牌随首页下发，不防同机其他用户 / 进程。共享主机上不要替用户开，也不要把端口暴露给他人。

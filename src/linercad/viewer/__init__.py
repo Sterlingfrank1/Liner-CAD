@@ -69,7 +69,8 @@ def view_label(e) -> str:
 
 
 def ref_text(e) -> str:
-    parts = [p for p in (label(e), view_label(e)) if p]
+    # a copied reference must stay one line even when a note / dimension text contains newlines
+    parts = [" ".join(str(p).split()) for p in (label(e), view_label(e)) if p]
     return f"@{e.id}（{'，'.join(parts)}）" if parts else f"@{e.id}"
 
 
@@ -141,6 +142,17 @@ class Viewer:
             self.version += 1
             self._write_snapshot()
             return True
+
+    def _drawing_edit(self):
+        """Latest eN commit that touched this drawing (the version selection.json records).
+
+        The repository may have newer commits for other drawings; only git_edits(dir) knows the
+        drawing's own eN, and lcad context validates against exactly that value.
+        """
+        from ..txn import git_edits
+
+        edits = git_edits(self.dir)
+        return f"e{edits[0][0]}" if edits else None
 
     def edit_no(self):
         h, s = self._head()
@@ -291,7 +303,7 @@ class Viewer:
             self.selection = items
             edit, _, _ = self.edit_no()
             doc = {
-                "version": edit,
+                "version": self._drawing_edit(),
                 "ids": [x["id"] for x in items],
                 "items": items,
                 "time": datetime.now(UTC).isoformat(timespec="seconds"),

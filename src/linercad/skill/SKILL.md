@@ -14,6 +14,7 @@ Liner-CAD 是一个 2D 工程图 harness：你写 Python，它负责画法、布
 ## 1. 工作循环（每一轮用户请求）
 
 1. `lcad context` —— 看图幅、参数、视图、所有元素 ID 和问题列表。细节：`lcad context D.L E.front.body.3`。
+   用户说「这个 / 那个 / 我选中的 / 当前对象」而消息里没有 `@ID` 时，先 `lcad context "@sel"`（PowerShell 要加引号）读当前选中再动手；返回 `selection_stale`（无选择 / 版本落后 / 超时）时如实说「当前没有有效选中」，不要猜。
 2. 决定改哪一层：
    - **参数值、视图、几何结构** → 直接改 `drawing.py`。
    - **标注、布局、公差文字、加删注释** → 写临时脚本 `.linercad/tmp/<名字>.py`，定义 `apply(d)`。
