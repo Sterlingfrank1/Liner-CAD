@@ -1,0 +1,84 @@
+{
+ "version": 1,
+ "cases": 40,
+ "case_ids": [
+  "L1/center_hole_A2",
+  "L1/center_hole_A3_15",
+  "L1/drill_blind_4x10",
+  "L1/drill_blind_6x8",
+  "L1/half_section_24",
+  "L1/half_section_32",
+  "L1/hub_keyway_30",
+  "L1/hub_keyway_40",
+  "L1/keyway_d28",
+  "L1/keyway_d44",
+  "L1/section_aligned_3x12",
+  "L1/section_stepped_18",
+  "L1/spline_6x23x26x6",
+  "L1/spline_8x32x36x6",
+  "L1/tapped_disc_M10x4",
+  "L1/tapped_disc_M8x3",
+  "L1/thread_ext_M16x1_5",
+  "L1/thread_ext_M20",
+  "L1/undercut_3x13",
+  "L1/undercut_4x21",
+  "L2/box/bearing_seat",
+  "L2/box/box_cover",
+  "L2/box/gear_pump_body",
+  "L2/box/gearbox_base",
+  "L2/box/valve_body",
+  "L2/disc/bearing_cap",
+  "L2/disc/end_cover",
+  "L2/disc/flange",
+  "L2/disc/gear_blank",
+  "L2/disc/pulley",
+  "L2/fork/angle_bracket",
+  "L2/fork/bearing_support",
+  "L2/fork/clevis",
+  "L2/fork/link",
+  "L2/fork/shift_fork",
+  "L2/shaft/pump_shaft",
+  "L2/shaft/shaft",
+  "L2/shaft/sleeve",
+  "L2/shaft/spacer",
+  "L2/shaft/spline_shaft"
+ ],
+ "errors": 0,
+ "zero_error_rate": 1.0,
+ "geometry_pass_rate": 1.0,
+ "geometry_cases": 35,
+ "completeness_pass_rate": 1.0,
+ "completeness_cases": 5,
+ "families": {
+  "G": {
+   "score": 1.0,
+   "opportunities": 4417,
+   "violations": 0
+  },
+  "D": {
+   "score": 1.0,
+   "opportunities": 711,
+   "violations": 0
+  },
+  "T": {
+   "score": 1.0,
+   "opportunities": 247,
+   "violations": 0
+  },
+  "A": {
+   "score": null,
+   "opportunities": 0,
+   "violations": 0
+  }
+ },
+ "P": {
+  "first_pass_rate": null,
+  "mean_rounds": null,
+  "rules": {
+   "stale_op": {
+    "opportunities": 0,
+    "violations": 0
+   }
+  }
+ }
+}
