@@ -13,7 +13,7 @@
 
 `versions.compare` 按视图聚合 bbox 位移（snapshot 增加 `view`；视图元素 `V.<name>` 自身归入该视图）：
 
-- 同一视图里多数元素共享同一平移 (dx, dy) 且至少 2 个元素时，报一条 `view_moves: [{view, dx, dy, elements}]`；这些元素从 `layout_changed` 移出。
+- 视图元素 `V.<name>` 作为该视图的显式锚点：它移动时，它的位移就是视图平移（即使只有一个子元素共享），共享它的元素从 `layout_changed` 移出；没有锚点时要求 ≥2 个元素共享同一位移且严格多数，并列位移组不报视图平移。
 - 只有位移与该视图公共平移不同的元素（真正额外移动）才留在 `layout_changed`；单元素视图的移动不会误判为视图平移。
 - 叠加 SVG 仍把被归并的元素标蓝（`df-chg`），画面上仍能看出整组视图移动；`lcad diff` 的 `counts.view_moves` 与 Viewer 对比横幅「视图平移 n」、检查器「视图平移（n）」（每行 `view 平移 (dx, dy) mm · n 个元素`）同步。
 - 纯单视图平移的用例（单元测试）只报一条视图平移、`layout_changed` 为空。

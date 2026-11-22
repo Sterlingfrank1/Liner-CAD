@@ -212,10 +212,26 @@ def compare(sa: dict, sb: dict) -> dict:
             groups.setdefault(view, []).append((i, delta))
     for view in sorted(groups):
         rows = groups[view]
+        # the view element V.<name> is the explicit anchor: when it moved, that translation is the
+        # view move even if only one child shares it (the other children are the extra movements)
+        anchor_delta = next((d for i, d in rows if i == f"V.{view}"), None)
+        if anchor_delta is not None:
+            if max(abs(x) for x in anchor_delta) <= BBOX_EPS:
+                continue  # the view itself did not move: children moved on their own
+            absorbed |= {i for i, d in rows if d == anchor_delta}
+            n = sum(1 for _i, d in rows if d == anchor_delta)
+            view_moves.append(
+                {"view": view, "dx": anchor_delta[0], "dy": anchor_delta[1], "elements": n}
+            )
+            continue
         counts = {}
         for _i, delta in rows:
             counts[delta] = counts.get(delta, 0) + 1
-        delta, n = max(counts.items(), key=lambda kv: (kv[1], kv[0]))
+        top = max(counts.values())
+        tied = [delta for delta, n in counts.items() if n == top]
+        if len(tied) != 1:
+            continue  # no single common translation: report no view move
+        delta, n = tied[0], top
         total = sum(
             1
             for i in set(sa) & set(sb)
@@ -223,9 +239,9 @@ def compare(sa: dict, sb: dict) -> dict:
             and sa[i]["bbox"] is not None
             and sb[i]["bbox"] is not None
         )
-        # a translation needs at least two elements moving together and must cover the view's
-        # majority: the remaining elements are the real extra layout changes
-        if n >= 2 and 2 * n >= total:
+        # without an anchor a translation needs at least two elements moving together and a
+        # strict majority: the remaining elements are the real extra layout changes
+        if n >= 2 and 2 * n > total:
             absorbed |= {i for i, d in rows if d == delta}
             view_moves.append({"view": view, "dx": delta[0], "dy": delta[1], "elements": n})
     layout_changed = [i for i in layout_changed if i not in absorbed]

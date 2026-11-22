@@ -204,16 +204,17 @@ def _el(view, bbox, kind="edge"):
 
 
 def test_compare_merges_a_whole_view_translation():
+    # real snapshots contain the view element V.<name>: it is the explicit anchor of the view move
     a = {
+        "V.left": _el("left", [0, 0, 60, 20]),
         "E.left.1": _el("left", [0, 0, 10, 10]),
         "E.left.2": _el("left", [20, 0, 30, 10]),
-        "E.left.3": _el("left", [40, 0, 50, 10]),
         "E.front.1": _el("front", [100, 0, 110, 10]),
     }
     b = {
+        "V.left": _el("left", [10, 5, 70, 25]),
         "E.left.1": _el("left", [10, 5, 20, 15]),
         "E.left.2": _el("left", [30, 5, 40, 15]),
-        "E.left.3": _el("left", [50, 5, 60, 15]),
         "E.front.1": _el("front", [100, 0, 110, 10]),
     }
     out = versions.compare(a, b)
@@ -224,6 +225,22 @@ def test_compare_merges_a_whole_view_translation():
     out = versions.compare(a, b)
     assert out["view_moves"] == [{"view": "left", "dx": 10.0, "dy": 5.0, "elements": 2}]
     assert out["layout_changed"] == ["E.left.2"]
+
+
+def test_compare_view_anchor_wins_over_a_lone_child():
+    a = {"V.left": _el("left", [0, 0, 40, 10]), "E.left.1": _el("left", [0, 0, 5, 5])}
+    b = {"V.left": _el("left", [10, 0, 50, 10]), "E.left.1": _el("left", [25, 0, 30, 5])}
+    out = versions.compare(a, b)
+    assert out["view_moves"] == [{"view": "left", "dx": 10.0, "dy": 0.0, "elements": 1}]
+    assert out["layout_changed"] == ["E.left.1"]
+
+
+def test_compare_reports_no_view_move_for_conflicting_translations():
+    a = {"E.left.1": _el("left", [0, 0, 10, 10]), "E.left.2": _el("left", [20, 0, 30, 10])}
+    b = {"E.left.1": _el("left", [10, 0, 20, 10]), "E.left.2": _el("left", [10, 0, 20, 10])}
+    out = versions.compare(a, b)  # +10 and -10 tie: no single common translation
+    assert out["view_moves"] == []
+    assert out["layout_changed"] == ["E.left.1", "E.left.2"]
 
 
 def test_compare_keeps_a_lone_moved_element_as_layout_change():
@@ -253,7 +270,8 @@ def test_diff_reports_view_moves_for_the_real_drawing(moved_view_repo):
     assert all(m["elements"] >= 2 for m in moves.values())
     assert out["counts"]["view_moves"] == len(out["view_moves"])
     assert "V.left" not in out["layout_changed"]  # the view itself is part of its translation
-    assert len(out["layout_changed"]) <= 2  # only elements moving differently from their view stay
+    # only elements moving differently from their view stay: the section label changes width
+    assert out["layout_changed"] == ["S.A"]
     svg = Path(out["svg"]).read_text(encoding="utf-8")
     # the absorbed view elements stay blue in the overlay, so the moved view is still visible
     assert 'class="df-chg" data-id="E.left.outer.1"' in svg
