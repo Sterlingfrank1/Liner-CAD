@@ -30,15 +30,30 @@ PMI 引线候选在 `pmi_layout.py`。写明的字段（`side` / `row` / `offset
    只对**自动放置的单个文字**做 ≤40 mm 确定性微移。**glm 二道后**：微移把剖面线（hatch 偶奇区域）作为
    不可落字区真正接进判定（`_point_in_poly` 不再死代码）；写死字段的元素不因 repair/nudge 改字段，
    唯一例外是文字已落在剖面线内时把它移出（尺寸线 / 箭头 / 字段不动）。
+   **C2 合并后**：导入文字（`kind="text"`，intent 带 `insert`/`align_point`/`dxf` 源锚）一律视为固定元素，
+   repair/nudge 不移动它——这是 PR 合并 C2 测试后 ubuntu CI 暴露的真实缺陷（见下节）。
 8. **repair 两趟**：改为读 `self.parts`（此前读空的 `_prims`，实际是 no-op，被 glm 二道用实验抓出）；
    按最终图元、完整单调键（conf → 尺寸线交叉 → 其它标注交叉 → nest/tight）重排；aligned 尺寸进入 repair
    与 `linear_rows`；dim 候选交叉用 dimlines 口径（与注释一致）；采用后重算 bbox / reports，不残留旧数据。
 9. **D1 review 两处 minor**：① `_concentric_with` 收窄为整圆；② PMI 引线与引用尺寸端部共线 >2 mm 写
    `resolved["coincident_with_ref"]`（只比较结构性引线，3 处真实贴合见下）。
 
+## merge C2/C3 后 ubuntu CI 失败的一轮修复（导入文字被 nudge 移动）
+
+merge `origin/main` `35a7dde`（含 C2 #125 的 `test_import_text.py`）后 ubuntu job 出现
+`test_text_middle_and_aligned_alignment` 失败：ALIGNED 导入文字的框右端实测 32（期望 40±0.6），被文字微移
+挪了 8 mm。根因：nudge 的写死字段判定只看元素 `LAYOUT` 字段，导入 `PlainText` 没有显式 layout 字段，
+于是被当成自动文字；ubuntu 字体度量让重叠判定触发的位移在 Windows 度量下不出现（本地全绿、CI 红）。
+
+- 修复：`_nudge_texts` 对 `kind="text"`（导入文字）直接跳过，源锚 `insert` / `align_point` / DXF handle 一律不动；
+  repair 两趟本来就只处理 dim / PMI，不涉及导入文字。
+- 回归测试：`test_imported_text_is_never_moved_by_the_repair_passes` —— 构造两个同锚点、框重叠的导入文字，
+  对比「关闭 nudge」与「正常 layout」的图元，断言导入文字 prims 完全一致（修复前本机也会失败：实测被移 8 mm）。
+- 复跑：pytest 1202→全量（merge C2/C3 后本机全绿）、ruff、`--baseline`、--mutation 与 place_scores 数字不变。
 ## E5 数字
 
-分支已 merge `origin/main`（`61670c7`：E2 规则目录 / 变异框架 + B 流 Viewer 小改）；after 为同规则集 /
+分支已再次 merge `origin/main`（`35a7dde`：C2 TEXT/MTEXT 导入、C3 HATCH 导入、B7 版本对比、H3 首次出图自动打开 Viewer 等）；
+after 为同规则集 /
 同 `evals/baseline.json` 口径。
 
 命令：`uv run python evals/place_scores.py --eval40`、`uv run python evals/run.py --baseline evals/baseline.json`。
@@ -149,6 +164,6 @@ text_overlap D.ug），无新增规则项。
 
 ## 交接
 
-- `uv run pytest` 全绿；`ruff check` / `format --check` 全绿；`evals/run.py --baseline` `regressions: []`；
+- merge `origin/main` `35a7dde` 后 `uv run pytest` 全绿；`ruff check` / `format --check` 全绿；`evals/run.py --baseline` `regressions: []`；
   40 例 D 族 **0.965724（97/2830，main/E2）→ 0.986572（38/2830）**；五范例 gear_cover 1.0。
 - 本文件不再保留「待 E5」占位；合并门禁以 lead 终验（亲跑 --baseline + place_scores）为准。

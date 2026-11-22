@@ -231,6 +231,39 @@ def test_text_clear_of_the_lining_is_not_shifted():
     assert _text_centres(with_hatch, "D.t") == _text_centres(without, "D.t")
 
 
+def test_imported_text_is_never_moved_by_the_repair_passes(tmp_path, monkeypatch):
+    import ezdxf
+    from ezdxf import units
+
+    from linercad import importdxf
+    from linercad.layout import Hatch  # noqa: F401  (keep layout imports side-effect free)
+
+    src = tmp_path / "overlap.dxf"
+    doc = ezdxf.new("R2018", setup=True)
+    doc.units = units.MM
+    msp = doc.modelspace()
+    # two imported texts stacked on the same anchor: their boxes overlap, so the local
+    # push-out pass would want to move one of them if imported text were not fixed
+    for text in ("FIRST", "SECOND"):
+        t_ = msp.add_text(text, height=5.0, dxfattribs={"layer": "TEXT", "style": "Standard"})
+        t_.set_placement((30.0, 40.0))
+    doc.saveas(src)
+
+    def build(disable_nudge):
+        d = Drawing(sheet="A3")
+        importdxf.import_dxf(d, str(src))
+        if disable_nudge:
+            import linercad.layout as L
+
+            monkeypatch.setattr(L._Layout, "_nudge_texts", lambda self: None)
+        layout(d)
+        return {e.id: repr(e._prims) for e in d._els.values() if e.kind == "text"}
+
+    normal = build(False)
+    without_nudge = build(True)
+    assert normal == without_nudge  # imported text keeps its anchors / boxes
+
+
 def test_repair_passes_do_not_move_written_elements(tmp_path, monkeypatch):
     import linercad.layout as L
 

@@ -2141,8 +2141,8 @@ class _Layout:
         for _round in range(2):
             changed = False
             for e in els:
-                if e.kind in ("view", "feature", "raw", "chain") or not e._prims:
-                    continue
+                if e.kind in ("view", "feature", "raw", "chain", "text") or not e._prims:
+                    continue  # imported text keeps its DXF anchors: never moved by a repair pass
                 texts = [(i, pr) for i, pr in enumerate(e._prims) if isinstance(pr, Text)]
                 if len(texts) != 1:
                     continue
