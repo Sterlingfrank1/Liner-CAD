@@ -223,6 +223,13 @@ window.addEventListener("mouseup", (ev) => {
   if (ev.target.closest && ev.target.closest("#canvas")) click(pick(ev), ev.ctrlKey || ev.metaKey);
 });
 window.addEventListener("keydown", (ev) => {
+  // H4: copy the selected elements' references (one line) without leaving the canvas
+  // Ctrl+Alt+C: Ctrl+Shift+C is the DevTools shortcut in Chrome/Edge/Firefox and never reaches us
+  if ((ev.ctrlKey || ev.metaKey) && ev.altKey && ev.key.toLowerCase() === "c" && S.sel.length) {
+    ev.preventDefault();
+    copy(selectionRefs(), "引用");
+    return;
+  }
   if (ev.key === "Escape") {
     if (S.cmp) exitCompare();
     else if (S.previewActive || S.previewIds.size || S.paramError) releasePreview();  // B3: Esc
@@ -327,6 +334,12 @@ function previewPanel() {
   return h;
 }
 
+// H4: one line of @ID references, e.g. "@D.d1（Φ25k6，主视图） @D.d2（Φ30k6，主视图）"
+function selectionRefs() {
+  return S.sel.map((id) => S.byId[id]).filter(Boolean)
+    .map((e) => (e.ref || "").replace(/\s+/g, " ").trim()).join(" ");
+}
+
 function bindRefs(box) {
   for (const a of box.querySelectorAll("a.ref")) a.onclick = () => {
     if (S.byId[a.dataset.ref]) { S.sel = [a.dataset.ref]; sendSel(); }
@@ -341,7 +354,7 @@ function inspect() {
     const sum = (S.model && S.model.summary) || { elements: 0, errors: 0, warnings: 0 };
     let h = '<div id="insp-empty"><h3>用法</h3><div class="kv">' +
       '<div class="k">点选</div><div class="v">单击画布元素（Ctrl 多选）</div>' +
-      '<div class="k">@ID</div><div class="v">选中后点「复制 @ID」，直接粘给 Agent</div></div>';
+      '<div class="k">@ID</div><div class="v">选中后点「复制引用」（Ctrl+Alt+C），把一行 @ID 粘给 Agent</div></div>';
     h += '<h3>图纸摘要</h3><div id="insp-summary" class="kv">' +
       '<div class="k">元素</div><div class="v">' + sum.elements + '</div>' +
       '<div class="k">错误</div><div class="v ' + (sum.errors ? "st-error" : "muted") + '">' + sum.errors + '</div>' +
@@ -350,9 +363,9 @@ function inspect() {
     box.innerHTML = h; bindRefs(box); return;
   }
   const els = S.sel.map((id) => S.byId[id]).filter(Boolean);
-  const refs = els.map((e) => e.ref).join(" ");
-  let h = previewPanel() + `<div class="row"><button class="primary" id="btn-copy">复制 @ID</button>
-    <span class="muted">${els.length} 个已写入 selection.json</span></div>`;
+  const refs = selectionRefs();
+  let h = previewPanel() + `<div class="row"><button class="primary" id="btn-copy" title="Ctrl+Alt+C">复制引用</button>
+    <span class="muted">${els.length} 个已写入 selection.json · Ctrl+Alt+C 也可复制</span></div>`;
   for (const e of els) {
     h += `<h3>${esc(e.kind)}</h3><div class="idline">${esc(e.id)}</div><div class="kv">`;
     h += `<div class="k">显示</div><div class="v">${esc(e.label)}</div>`;
@@ -371,15 +384,15 @@ function inspect() {
     if (e.selector) h += `<h3>选择器</h3><code class="sel">${esc(e.selector)}</code>`;
   }
   box.innerHTML = h;
-  $("btn-copy").onclick = () => copy(refs);
+  $("btn-copy").onclick = () => copy(refs, "引用");
   bindRefs(box);
 }
-function copy(text) {
+function copy(text, what = "") {
   (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).catch(() => {
     const t = document.createElement("textarea"); t.value = text; document.body.appendChild(t); t.select();
     document.execCommand("copy"); t.remove();
   });
-  $("st-extra").textContent = "已复制 " + text;
+  $("st-extra").textContent = (what ? "已复制" + what + "：" : "已复制 ") + text;
 }
 
 // ---- parameters -------------------------------------------------------------------------------

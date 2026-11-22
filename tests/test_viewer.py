@@ -240,14 +240,61 @@ def test_late_preview_is_ignored_and_errors_recorded(shaft):
     assert snap["param_errors"]["error"]["code"] == "param"
 
 
-def test_context_at_sel_warns_on_an_old_selection(shaft):
+def test_context_at_sel_refuses_an_old_selection(shaft):
     v = Viewer(shaft)
     v.select(["D.L"])
     script = shaft / ".linercad" / "tmp" / "m.py"
     script.write_text('def apply(d):\n    d["D.L"].place(side="top")\n', encoding="utf-8")
     txn.edit(shaft, script, "挪")
+    with pytest.raises(LinerError) as err:
+        commands.context(shaft, ["@sel"])
+    assert err.value.code == "selection_stale"
+    assert "当前没有有效选中" in err.value.message
+    assert "e0" in err.value.message and "e1" in err.value.message
+    assert err.value.hint and "@ID" in err.value.hint
+
+
+def test_context_at_sel_refuses_an_expired_selection(shaft):
+    from datetime import UTC, datetime
+
+    v = Viewer(shaft)
+    v.select(["D.L"])
+    path = shaft / ".linercad/selection.json"
+    sel = json.loads(path.read_text(encoding="utf-8"))
+    sel["time"] = datetime(2000, 1, 1, tzinfo=UTC).isoformat(timespec="seconds")
+    path.write_text(json.dumps(sel), encoding="utf-8")
+    with pytest.raises(LinerError) as err:
+        commands.context(shaft, ["@sel"])
+    assert err.value.code == "selection_stale" and "当前没有有效选中" in err.value.message
+    assert "超时" in err.value.message or "过期" in err.value.message
+
+
+def test_context_at_sel_reports_no_selection(shaft):
+    with pytest.raises(LinerError) as err:
+        commands.context(shaft, ["@sel"])
+    assert err.value.code == "selection_stale" and "当前没有有效选中" in err.value.message
+
+
+def test_selection_refs_carry_value_tolerance_and_view(shaft):
+    from datetime import datetime
+
+    v = Viewer(shaft)
+    v.select(["D.d2", "D.d1", "D.L"])
+    sel = json.loads((shaft / ".linercad/selection.json").read_text(encoding="utf-8"))
+    line = " ".join(item["ref"] for item in sel["items"])
+    assert line == "@D.d2（Φ30k6，主视图） @D.d1（M24×1.5-6g，主视图） @D.L（200，主视图）"
     ctx = commands.context(shaft, ["@sel"])
-    assert "e0" in ctx["warning"] and ctx["items"][0]["element"]["id"] == "D.L"
+    assert [x["element"]["id"] for x in ctx["items"]] == ["D.d2", "D.d1", "D.L"]
+    assert ctx["selection"]["fresh"] is True and ctx["selection"]["ids"] == ["D.d2", "D.d1", "D.L"]
+    assert datetime.fromisoformat(ctx["selection"]["time"]).year >= 2026
+
+
+def test_viewer_copy_reference_ui():
+    from importlib import resources
+
+    js = (resources.files("linercad.viewer") / "viewer.js").read_text(encoding="utf-8")
+    for needle in ("复制引用", "Ctrl+Alt+C", "selectionRefs", 'join(" ")'):
+        assert needle in js, needle
 
 
 @pytest.fixture
@@ -719,3 +766,181 @@ def test_viewer_page_has_the_compare_and_preview_hooks():
         assert needle in js, needle
     for c in ("df-a", "df-b", "df-add", "df-del", "df-chg", "is-preview"):
         assert c in css, c
+
+
+def test_context_accepts_copied_references(shaft):
+    Viewer(shaft).select(["D.L", "D.d2"])
+    # an Agent may paste the copied line pieces straight back into the command
+    ctx = commands.context(shaft, ["@D.d2（Φ30k6，主视图）", "@D.L（200，主视图）"])
+    assert [x["element"]["id"] for x in ctx["items"]] == ["D.d2", "D.L"]
+    ctx = commands.context(shaft, ["@D.d2"])
+    assert ctx["items"][0]["element"]["id"] == "D.d2"
+    # the whole copied line as one (quoted) argument keeps every reference
+    line = "@D.d2（Φ30k6，主视图） @D.d1（M24×1.5-6g，主视图） @D.L（200，主视图）"
+    ctx = commands.context(shaft, [line])
+    assert [x["element"]["id"] for x in ctx["items"]] == ["D.d2", "D.d1", "D.L"]
+
+
+def test_context_requires_a_selection_version(shaft):
+    Viewer(shaft).select(["D.L"])
+    path = shaft / ".linercad/selection.json"
+    sel = json.loads(path.read_text(encoding="utf-8"))
+    sel.pop("version")
+    path.write_text(json.dumps(sel), encoding="utf-8")
+    with pytest.raises(LinerError) as err:
+        commands.context(shaft, ["@sel"])
+    assert err.value.code == "selection_stale" and "未知版本" in err.value.message
+
+
+def test_context_refuses_a_selection_whose_elements_are_all_gone(shaft):
+    Viewer(shaft).select(["D.L"])
+    path = shaft / ".linercad/selection.json"
+    sel = json.loads(path.read_text(encoding="utf-8"))
+    sel["ids"] = ["NOPE.1", "NOPE.2"]
+    path.write_text(json.dumps(sel), encoding="utf-8")
+    with pytest.raises(LinerError) as err:
+        commands.context(shaft, ["@sel"])
+    assert err.value.code == "selection_stale" and "都已不存在" in err.value.message
+
+
+def test_context_ignores_at_inside_reference_labels(shaft):
+    Viewer(shaft).select(["D.L"])
+    ctx = commands.context(shaft, ["@D.L（联系 a@example.com，主视图）"])
+    assert [x["element"]["id"] for x in ctx["items"]] == ["D.L"]
+
+
+def test_context_refuses_a_gone_selection_on_the_build_failure_fallback(shaft):
+    Viewer(shaft).select(["D.L"])
+    path = shaft / ".linercad/selection.json"
+    sel = json.loads(path.read_text(encoding="utf-8"))
+    sel["ids"] = ["NOPE.1"]
+    path.write_text(json.dumps(sel), encoding="utf-8")
+    src = shaft / "drawing.py"
+    src.write_text(
+        src.read_text(encoding="utf-8") + "\nraise RuntimeError('half')\n", encoding="utf-8"
+    )
+    with pytest.raises(LinerError) as err:
+        commands.context(shaft, ["@sel"])
+    assert err.value.code == "selection_stale" and "都已不存在" in err.value.message
+
+
+def test_selection_version_survives_unrelated_repo_commits(tmp_path):
+    import subprocess
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    p = root / "parts" / "p1"
+    txn.init(p)
+    Viewer(p).select(["D.L"])
+    sel = json.loads((p / ".linercad/selection.json").read_text(encoding="utf-8"))
+    assert sel["version"] == "e0"  # the drawing's own edit, not the repository HEAD
+    (root / "README.md").write_text("unrelated", encoding="utf-8")
+    subprocess.run(["git", "-C", str(root), "add", "README.md"], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(root),
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "-q",
+            "-m",
+            "docs: unrelated",
+        ],
+        check=True,
+    )
+    ctx = commands.context(p, ["@sel"])  # the selection is still fresh for this drawing
+    assert ctx["selection"]["fresh"] is True
+    assert [x["element"]["id"] for x in ctx["items"]] == ["D.L"]
+
+
+def test_selection_ref_is_one_line_for_multiline_text(shaft):
+    s = shaft / ".linercad" / "tmp" / "multi.py"
+    s.parent.mkdir(parents=True, exist_ok=True)
+    s.write_text('def apply(d):\n    d.notes.tech("第一行\\n第二行")\n', encoding="utf-8")
+    assert txn.edit(shaft, s, "多行技术要求")["ok"]
+    v = Viewer(shaft)
+    note = next(
+        e.id
+        for e in v.res.d._els.values()
+        if e.kind == "note" and "第一行" in str(e._intent.get("text"))
+    )
+    ref = v.select([note])["items"][0]["ref"]
+    assert "\n" not in ref and "第一行 第二行" in ref
+
+
+def test_context_splits_common_reference_separators(shaft):
+    ctx = commands.context(shaft, ["@D.d1，@D.d2"])
+    assert [x["element"]["id"] for x in ctx["items"]] == ["D.d1", "D.d2"]
+    ctx = commands.context(shaft, ["@D.L,", "@D.d2;"])
+    assert [x["element"]["id"] for x in ctx["items"]] == ["D.L", "D.d2"]
+
+
+def test_context_surfaces_refs_after_an_unmatched_bracket(shaft):
+    ctx = commands.context(shaft, ["@D.L（主视图 @D.d2"])
+    assert [x["element"]["id"] for x in ctx["items"]] == ["D.L", "D.d2"]
+    assert "未配对" in ctx["warning"] and "D.d2" in ctx["warning"]
+
+
+def test_context_reports_partial_selection_in_the_build_failure_fallback(shaft):
+    Viewer(shaft).select(["D.L", "D.d1"])
+    path = shaft / ".linercad/selection.json"
+    sel = json.loads(path.read_text(encoding="utf-8"))
+    sel["ids"] = ["D.L", "NOPE.1"]
+    path.write_text(json.dumps(sel), encoding="utf-8")
+    src = shaft / "drawing.py"
+    src.write_text(
+        src.read_text(encoding="utf-8") + "\nraise RuntimeError('half')\n", encoding="utf-8"
+    )
+    ctx = commands.context(shaft, ["@sel"])
+    assert ctx["stale"] and [x["element"]["id"] for x in ctx["items"]] == ["D.L"]
+    assert "已不存在" in ctx["warning"] and "NOPE.1" in ctx["warning"]
+
+
+def test_selection_ttl_zero_means_never_expires(shaft, monkeypatch):
+    from datetime import UTC, datetime
+
+    Viewer(shaft).select(["D.L"])
+    path = shaft / ".linercad/selection.json"
+    sel = json.loads(path.read_text(encoding="utf-8"))
+    sel["time"] = datetime(2000, 1, 1, tzinfo=UTC).isoformat(timespec="seconds")
+    path.write_text(json.dumps(sel), encoding="utf-8")
+    for value in ("0", "-1"):
+        monkeypatch.setenv("LCAD_SELECTION_TTL", value)
+        ctx = commands.context(shaft, ["@sel"])
+        assert ctx["selection"]["fresh"] is True and ctx["items"][0]["element"]["id"] == "D.L"
+
+
+def test_selection_without_a_drawing_edit_is_stale(tmp_path):
+    import subprocess
+
+    p = tmp_path / "drawing"
+    txn.init(p, from_="shaft")
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(p),
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "--amend",
+            "-q",
+            "-m",
+            "init without an edit number",
+        ],
+        check=True,
+    )
+    v = Viewer(p)
+    v.select(["D.L"])
+    sel = json.loads((p / ".linercad/selection.json").read_text(encoding="utf-8"))
+    assert sel["version"] is None  # no drawing edit: honest "unknown version", not repository HEAD
+    with pytest.raises(LinerError) as err:
+        commands.context(p, ["@sel"])
+    assert err.value.code == "selection_stale" and "未知版本" in err.value.message
