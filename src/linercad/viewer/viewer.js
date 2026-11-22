@@ -301,7 +301,19 @@ function bindRefs(box) {
 function inspect() {
   const box = $("insp-body");
   if (S.cmp) { cmpPanel(box); return; }
-  if (!S.sel.length) { box.innerHTML = '<p class="muted">点选图上的元素（Ctrl 多选）</p>' + previewPanel(); bindRefs(box); return; }
+  if (!S.sel.length) {
+    // B2: an empty inspector still tells the user how to work and what the drawing contains
+    const sum = (S.model && S.model.summary) || { elements: 0, errors: 0, warnings: 0 };
+    let h = '<div id="insp-empty"><h3>用法</h3><div class="kv">' +
+      '<div class="k">点选</div><div class="v">单击画布元素（Ctrl 多选）</div>' +
+      '<div class="k">@ID</div><div class="v">选中后点「复制 @ID」，直接粘给 Agent</div></div>';
+    h += '<h3>图纸摘要</h3><div id="insp-summary" class="kv">' +
+      '<div class="k">元素</div><div class="v">' + sum.elements + '</div>' +
+      '<div class="k">错误</div><div class="v ' + (sum.errors ? "st-error" : "muted") + '">' + sum.errors + '</div>' +
+      '<div class="k">警告</div><div class="v ' + (sum.warnings ? "st-warn" : "muted") + '">' + sum.warnings + '</div></div>';
+    h += previewPanel();
+    box.innerHTML = h; bindRefs(box); return;
+  }
   const els = S.sel.map((id) => S.byId[id]).filter(Boolean);
   const refs = els.map((e) => e.ref).join(" ");
   let h = previewPanel() + `<div class="row"><button class="primary" id="btn-copy">复制 @ID</button>

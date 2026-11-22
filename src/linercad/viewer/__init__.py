@@ -209,9 +209,15 @@ class Viewer:
                         "selector": svgout.selector(e),
                     }
                 )
+            errors = sum(1 for f in r.findings if f.get("severity") == "error")
             return {
                 "ok": True,
                 "version": self.version,
+                "summary": {
+                    "elements": len(out),
+                    "errors": errors,
+                    "warnings": len(r.findings) - errors,
+                },
                 "resolved": self._resolved(r),
                 "unplaced": self._unplaced(r),
                 "content_bbox": _content_bbox(r.d),
