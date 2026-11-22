@@ -6,7 +6,19 @@ from __future__ import annotations
 
 import math
 
-from .layout import Arc, Circle, Line, Solid, arrow, make_text, prims_bbox, union
+from .layout import (
+    Arc,
+    Circle,
+    Line,
+    Solid,
+    arrow,
+    box_overlap,
+    make_text,
+    prim_segments,
+    prims_bbox,
+    seg_in_box,
+    union,
+)
 from .text import text_size
 
 
@@ -131,6 +143,11 @@ def aligned_cands(vl, el):
     off = lay.get("offset") or 0.0
     rows = [lay["row"]] if lay.get("row") else range(1, int(dm["max_rows"]) + 1)
     ang = math.degrees(math.atan2(u[1], u[0]))
+    if ang < 0:
+        ang += 180.0
+    row_n = n  # E5 frame_rows normal n = (-u_y, u_x)
+    sv = SIDE_VEC[side]
+    row_sg = 1 if row_n[0] * sv[0] + row_n[1] * sv[1] >= 0 else -1
     w, hh = label_size(i, std)
     out = []
     for row in rows:
@@ -144,21 +161,55 @@ def aligned_cands(vl, el):
             segs.append((p, e))
         prims += [Line(A, B, "dim"), arrow(A, (-u[0], -u[1]), std), arrow(B, u, std)]
         segs.append((A, B))
-        tg = dm["text_gap"] + hh / 2
-        ctr = ((A[0] + B[0]) / 2 + N[0] * tg, (A[1] + B[1]) / 2 + N[1] * tg)
-        tp, box = dim_label(i, ctr, std, ang if N[0] * -u[1] + N[1] * u[0] >= 0 else ang)
-        prims += tp
-        out.append(
-            {
-                "prims": prims,
-                "boxes": [box],
-                "segs": segs,
-                "dimline": (A, B),
-                "fields": {"side": side, "row": row, "offset": off},
-                "ends": [A, B],
-                "why": "",
-            }
-        )
+        # offset the rotated text box off the line by its own half extent along N (so the
+        # diagonal dimension line does not clip the axis-aligned box of the rotated text)
+        rad = math.radians(ang)
+        tg = dm["text_gap"] + (abs(math.sin(rad)) * w + abs(math.cos(rad)) * hh) / 2 + 0.8
+        for text_side in (1, -1):  # the text may sit on either side of the aligned line
+            ctr = (
+                (A[0] + B[0]) / 2 + N[0] * tg * text_side,
+                (A[1] + B[1]) / 2 + N[1] * tg * text_side,
+            )
+            tp, box = dim_label(i, ctr, std, ang)
+            tboxes = [pr.box for pr in tp if hasattr(pr, "box")] or [box]
+            prims_t = prims + tp
+            own_segs = [
+                sg_ for pr in prims_t if not hasattr(pr, "box") for sg_ in prim_segments(pr)
+            ]
+            self_hit = sum(
+                1 for tb in tboxes for p_, q_ in own_segs if seg_in_box(p_, q_, tb) > 0.05
+            )
+            self_hit += sum(
+                1
+                for i_ in range(len(tboxes))
+                for j_ in range(i_ + 1, len(tboxes))
+                if box_overlap(tboxes[i_], tboxes[j_]) > 0.05
+            )
+            proj = [a[0] * u[0] + a[1] * u[1], b[0] * u[0] + b[1] * u[1]]
+            proj += [A[0] * u[0] + A[1] * u[1], B[0] * u[0] + B[1] * u[1]]
+            out.append(
+                {
+                    "prims": prims_t,
+                    "boxes": tboxes,
+                    "segs": segs,
+                    "dimline": (A, B),
+                    "fields": {"side": side, "row": row, "offset": off},
+                    "ends": [A, B],
+                    "row_info": {
+                        "axis": round(ang % 180.0, 1),
+                        "outward": row_sg,
+                        "level": A[0] * row_n[0] + A[1] * row_n[1],
+                        "lo": min(proj),
+                        "hi": max(proj),
+                        "span": max(proj) - min(proj),
+                    },
+                    "cross": [(A, B)],
+                    "overlap_cost": True,
+                    "contour": True,
+                    "self_hit": self_hit,
+                    "why": "文字换到尺寸线另一侧" if text_side < 0 else "",
+                }
+            )
     return out
 
 
@@ -233,7 +284,7 @@ def _lens(lay, std):
     base = list(std["tolerancing"]["leader_lengths"])
     # the standard档 gives coarse preferred lengths; the extra stops help a leader clear a
     # dimension line / a text without jumping a whole step (D2: crowded circular views)
-    extra = [12.0, 18.0, 24.0, 34.0, 40.0]
+    extra = list(std["tolerancing"].get("leader_lengths_extra") or [])
     return sorted(set(base + extra))
 
 

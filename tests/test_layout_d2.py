@@ -8,10 +8,12 @@ lines), and the two D1 review minors (concentric arcs are not inherent; collinea
 attachment is reported instead of silent).
 """
 
+import math
+
 import pytest
 
 from linercad import Drawing, place, txn
-from linercad.layout import _crosses, layout
+from linercad.layout import Text, _crosses, layout
 from linercad.runtime import build
 
 
@@ -174,6 +176,82 @@ def test_written_at_on_a_secondary_view_is_absolute_too():
     left.place(at=(300, 100))
     layout(d)
     assert left._resolved["origin"] == [300.0, 100.0]
+
+
+def _text_centres(d, eid):
+    out = []
+    for p in d[eid]._prims:
+        if isinstance(p, Text):
+            out.append(((p.box[0] + p.box[2]) / 2, (p.box[1] + p.box[3]) / 2))
+    return out
+
+
+def _inside_hatch(d, pt):
+    from linercad.layout import Hatch, _point_in_poly
+
+    for e in d._els.values():
+        if e.kind != "hatch":
+            continue
+        loops = [lp for pr in e._prims if isinstance(pr, Hatch) for lp in pr.loops]
+        k = 0
+        for lp in loops:
+            if lp and lp[0] == "circle":
+                k += 1 if math.dist(pt, lp[1]) <= lp[2] else 0
+            else:
+                k += 1 if _point_in_poly(pt, lp) else 0
+        if k % 2 == 1:
+            return True
+    return False
+
+
+def test_text_inside_section_lining_is_moved_out_but_keeps_its_written_fields():
+    d = Drawing(sheet="A3")
+    f = d.view("front")
+    f.rect((0, 0), 120, 60, name="body")
+    f.hatch("h", loops=["F.front.body"])
+    f.dim.linear("inside", (20, 20), (100, 20), value=80, side="inside")
+    layout(d)
+    (centre,) = _text_centres(d, "D.inside")
+    assert not _inside_hatch(d, centre)  # the text is legible: it left the lining
+    assert d["D.inside"]._layout == {"side": "inside"}  # written field untouched
+
+
+def test_text_clear_of_the_lining_is_not_shifted():
+    def build(with_hatch):
+        d = Drawing(sheet="A3")
+        f = d.view("front")
+        f.rect((0, 0), 120, 60, name="body")
+        if with_hatch:
+            f.hatch("h", loops=["F.front.body"])
+        f.dim.linear("t", (20, 55), (100, 55), value=80, side="top")
+        layout(d)
+        return d
+
+    with_hatch, without = build(True), build(False)
+    assert _text_centres(with_hatch, "D.t") == _text_centres(without, "D.t")
+
+
+def test_repair_passes_do_not_move_written_elements(tmp_path, monkeypatch):
+    import linercad.layout as L
+
+    def snap(d):
+        out = {}
+        for e in d._els.values():
+            fixed = any(e._layout.get(f) is not None for f in getattr(e, "LAYOUT", ()))
+            if fixed:
+                out[e.id] = (repr(e._prims), {k: repr(v) for k, v in sorted(e._resolved.items())})
+        return out
+
+    p = tmp_path / "a"
+    txn.init(p, from_="end_cover")
+    normal = snap(build(p, dxf=False).d)
+    monkeypatch.setattr(L._ViewLayout, "_repair_pmi_leaders", lambda self: None)
+    monkeypatch.setattr(L._ViewLayout, "_repair_dim_overlaps", lambda self: None)
+    monkeypatch.setattr(L._Layout, "_nudge_texts", lambda self: None)
+    q = tmp_path / "b"
+    txn.init(q, from_="end_cover")
+    plain = snap(build(q, dxf=False).d)
+    assert normal == plain
 
 
 def test_concentric_arc_is_not_an_inherent_crossing():

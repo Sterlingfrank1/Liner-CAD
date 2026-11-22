@@ -1,7 +1,7 @@
 {
  "version": 2,
  "note": "冻结的参考图已知违规（真阳性，不是误报）：E5 的 D.place/A.place 债务 + E2 新增径向引线交叉规则对参考图的现存检出。每条带 measured 签名 (rule, id, signature)，债务集合与当前实际集合必须完全相等（evals/mutate.py 的 known_debt.exact）；任何新增/移除都必须随 PR 更新并说明。D2 重排后按本 PR 的 placement 数字与 leader_cross 重新冻结。",
- "total": 42,
+ "total": 38,
  "cases": {
   "L1/center_hole_A2": [
    [
@@ -38,17 +38,17 @@
    [
     "place_dim_outline",
     "D.Bb",
-    "{\"line\": [[214.01, 231.62]]}"
+    "{\"line\": [[200.37, 231.62]]}"
    ],
    [
     "place_dim_outline",
     "D.fw",
-    "{\"line\": [[281.01, 228.12]]}"
+    "{\"line\": [[267.37, 228.12]]}"
    ],
    [
     "place_dim_outline",
     "D.s",
-    "{\"line\": [[275.01, 243.62]]}"
+    "{\"line\": [[261.37, 243.62]]}"
    ],
    [
     "place_ext_line",
@@ -57,30 +57,18 @@
    ],
    [
     "place_nesting",
+    "D.D2",
+    "{\"inner\": \"D.D2\", \"inner_span\": 40.0, \"outer\": \"D.d2\", \"outer_span\": 30.0}"
+   ],
+   [
+    "place_nesting",
     "D.Dv",
     "{\"inner\": \"D.Dv\", \"inner_span\": 28.0, \"outer\": \"D.dv\", \"outer_span\": 12.0}"
-   ]
-  ],
-  "L2/box/gear_pump_body": [
-   [
-    "place_dim_cross",
-    "D.H",
-    "{\"at\": [252.42, 223.77], \"with\": \"D.Rc2\"}"
    ],
    [
-    "place_dim_cross",
-    "D.Rc2",
-    "{\"at\": [252.42, 223.77], \"with\": \"D.H\"}"
-   ],
-   [
-    "place_dim_cross",
-    "D.pz",
-    "{\"at\": [245.42, 223.77], \"with\": \"D.Rc2\"}"
-   ],
-   [
-    "place_leader_cross",
-    "D.Rc2",
-    "{\"at\": [252.42, 223.77], \"with\": \"D.H\"}"
+    "place_nesting",
+    "D.L",
+    "{\"inner\": \"D.L\", \"inner_span\": 124.0, \"outer\": \"D.d2\", \"outer_span\": 30.0}"
    ]
   ],
   "L2/box/gearbox_base": [
@@ -103,11 +91,6 @@
   "L2/box/valve_body": [
    [
     "place_nesting",
-    "D.H",
-    "{\"inner\": \"D.H\", \"inner_span\": 94.0, \"outer\": \"D.ds\", \"outer_span\": 8.0}"
-   ],
-   [
-    "place_nesting",
     "D.Hn",
     "{\"inner\": \"D.Hn\", \"inner_span\": 56.0, \"outer\": \"D.ds\", \"outer_span\": 8.0}"
    ]
@@ -117,11 +100,6 @@
     "place_dim_outline",
     "D.dg",
     "{\"line\": [[147.6, 139.25]]}"
-   ],
-   [
-    "place_text_overlap",
-    "D.dg",
-    "{\"overlap\": 1.0, \"with\": [\"H.front.body\"]}"
    ]
   ],
   "L2/disc/pulley": [

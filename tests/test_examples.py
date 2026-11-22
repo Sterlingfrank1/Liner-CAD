@@ -17,9 +17,7 @@ PLACEMENT_DEBT = {
     "bracket": set(),
     "end_cover": set(),
     "flange": set(),
-    "gear_cover": {
-        ("place_nesting", "D.W"),  # right-side row 3 would enter the title-block zone
-    },
+    "gear_cover": set(),
     "pulley": {
         ("place_dim_outline", "D.tw"),  # written side="inside": the dimension line stays there
         ("place_nesting", "D.B"),  # written row 2 of the reference dimension chains it
@@ -28,7 +26,6 @@ PLACEMENT_DEBT = {
         ("place_ext_line", "D.Hc"),
         ("place_nesting", "D.Df"),
         ("place_nesting", "D.Hc"),
-        ("place_nesting", "D.W"),
         ("place_row_spacing", "D.t"),
     },
     "shaft": {

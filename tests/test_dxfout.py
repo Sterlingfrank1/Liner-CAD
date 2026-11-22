@@ -95,7 +95,18 @@ def test_hatch_paths_and_text_island():
     doc, index, _ = to_doc(d)
     (h,) = index["H.front.sec"]
     assert h.dxftype() == "HATCH" and h.dxf.pattern_name == "ANSI31"
-    assert len(h.paths) == 3  # two regions + one island around the text of D.t
+    # D2 now shifts a dimension text out of the section lining (readability), so this drawing
+    # has no text island any more; the island geometry itself is covered by the unit test below
+    assert len(h.paths) == 2
+
+
+def test_hatch_islands_are_only_built_inside_the_region():
+    from linercad.dxfout import _islands
+    from linercad.layout import Hatch
+
+    h = Hatch((((0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)),), "hatch")
+    assert _islands(h, [(2.0, 2.0, 4.0, 4.0)])  # a text fully inside gets an island
+    assert not _islands(h, [(20.0, 20.0, 22.0, 22.0)])  # outside: no island
 
 
 def test_dxf_and_model_bytes_are_deterministic(tmp_path):

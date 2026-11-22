@@ -21,8 +21,9 @@ ALLOWED = {  # baseline: leaders fixed by the example or attached to a nested in
         ("R.bore", "D.ds"),
         ("R.bore", "R.spig"),
         ("R.spig", "R.bore"),
-        # D2 re-placed the frame dimensions: the written gtol leader now runs across the
-        # extension lines of the aligned tap dimension; all candidate lengths / shifts cross it
+        # G.pos has a written at=0.5: the probe over D.tap's 4 sides x 6 rows still crosses
+        # its diagonal dimension line; E5 place_leader_cross (dimension-line scope) counts 0
+        # here, the stricter local test keeps it as a documented residual
         ("G.pos", "D.tap"),
     },
     "pulley": {("DT.A", "D.Dh"), ("R.bore", "D.Dh"), ("R.flank", "D.e")},
@@ -30,6 +31,19 @@ ALLOWED = {  # baseline: leaders fixed by the example or attached to a nested in
 
 
 def leader_crossings(d):
+    """PMI leaders cutting another dimension's *dimension line* (E5 place_dim_cross scope).
+
+    A leader crossing an extension line is normal drafting (the same rule the E5 metric uses),
+    so only dimension lines are judged here.
+    """
+    from linercad import place
+
+    dims = {}
+    for e in d._els.values():
+        info = place._dim_info(e)
+        if info is None:
+            continue
+        dims[e.id] = [(s.p, s.q) for s in place._dim_segments(info[1])]
     lines = {
         e.id: [p for p in e._prims if isinstance(p, Line)] for e in d._els.values() if e.kind in ANN
     }
@@ -38,9 +52,9 @@ def leader_crossings(d):
         if e.kind not in ("gtol", "rough", "datum") or not lines[e.id]:
             continue
         lead = lines[e.id][0]
-        for oid, ols in lines.items():
+        for oid, osegs in dims.items():
             if oid != e.id and oid != e._intent.get("ref"):
-                if any(_crosses(lead.p, lead.q, b.p, b.q) for b in ols):
+                if any(_crosses(lead.p, lead.q, a, b) for a, b in osegs):
                     out.add((e.id, oid))
     return out
 

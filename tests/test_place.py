@@ -509,7 +509,8 @@ def test_dimension_text_over_section_lining():
     f.dim.linear("inside", (20, 20), (100, 20), value=80, side="inside")
     layout(d)
     findings, _ = _run(d, "place_text_overlap")
-    assert "D.inside" in [f["id"] for f in findings]
+    # D2: a text that would sit in the section lining is shifted out by the local push-out pass
+    assert "D.inside" not in [f["id"] for f in findings]
 
 
 def test_balloon_alignment_groups_per_view():

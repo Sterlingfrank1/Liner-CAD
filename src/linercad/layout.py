@@ -930,11 +930,6 @@ class _ViewLayout:
             if side == "inside"
             else ([lay["row"]] if lay.get("row") else range(1, int(dm["max_rows"]) + 1))
         )
-        # a third row on the right side reaches the title-block / technical-notes zone on the
-        # narrow formats; written row values still win, only automatic ones are capped
-        if side == "right" and lay.get("row") is None and self.d.template["size"][0] <= 420:
-            rows = [r for r in rows if r <= 2]
-
         w, hh = label_size(i, std)
         al, gap = dm["arrow_length"], 1.0
         out = []
@@ -1065,11 +1060,20 @@ class _ViewLayout:
             why = (why + "；" if why else "") + "文字换到尺寸线另一侧"
         row_info = None
         if side != "inside":
+            # E5 _frame_rows: u along the dimension line, n = (-u_y, u_x), outward = the side
+            # the extension lines leave to, level = dot(dim line, n) → the same groups as place.py
+            u = (1.0, 0.0) if dir == "h" else (0.0, 1.0)
+            n = (-u[1], u[0])
+            sv = {
+                "top": (0.0, 1.0),
+                "bottom": (0.0, -1.0),
+                "left": (-1.0, 0.0),
+                "right": (1.0, 0.0),
+            }[side]
+            sg = 1 if n[0] * sv[0] + n[1] * sv[1] >= 0 else -1
             row_info = {
-                "axis": "h" if dir == "h" else "v",
-                "outward": {"top": 1, "bottom": -1, "left": 1, "right": -1}[side],
-                # E5's position is outward * dot(line, normal): +y for horizontal
-                # dimensions, -x for vertical ones
+                "axis": round(math.degrees(math.atan2(u[1], u[0])) % 180.0, 1),
+                "outward": sg,
                 "level": level if dir == "h" else -level,
                 "lo": lo,
                 "hi": hi,
@@ -1081,8 +1085,9 @@ class _ViewLayout:
             "segs": segs,
             "dimline": line,
             "ends": [pt(lo, level), pt(hi, level)],
-            # a frame dimension line must not cut another dimension line nor an outline
+            # E5 place_dim_cross judges dimension lines only; extension-line crossings are normal
             "cross": [line],
+            "cross_dimlines": True,
             "overlap_cost": True,
             "contour": True,
             "self_hit": self_hit,
@@ -1298,7 +1303,7 @@ class _ViewLayout:
             if min(info["hi"], r["hi"]) - max(info["lo"], r["lo"]) <= 0.01:
                 continue  # side by side: neither nesting nor a row pitch requirement
             rpos = r["outward"] * r["level"]
-            if abs(pos - rpos) < pitch - 0.5:
+            if abs(pos - rpos) < pitch - self.std["dim"].get("row_tol", 0.05):
                 tight.add(r["id"])
             if pos < rpos and info["span"] > r["span"] + 0.01:
                 nest.add(r["id"])  # this candidate would sit inside and be the longer one
@@ -1314,8 +1319,12 @@ class _ViewLayout:
             if best is not None and len(conf) > best[0][0]:
                 continue  # cannot win on the first key; skip the more expensive scans
             cut = self.obst.crossings(el._id, cand) if cand.get("cross") else []
-            if best is not None and len(conf) + len(cut) > best[0][0]:
-                continue
+            if best is not None:
+                # prune with the same head as the key: PMI compares rendered conflicts first,
+                # frame dimensions compare the violation total
+                bound = len(conf) if cand.get("pmi_cost") else len(conf) + len(cut)
+                if bound > best[0][0]:
+                    continue
             overlap = self.obst.overlaps(el._id, cand) if cand.get("overlap_cost") else []
             outline = self.obst.contour_crossings(el._id, cand) if cand.get("contour") else []
             centre = self.obst.centre_crossings(el._id, cand) if cand.get("centre_cost") else []
@@ -1323,7 +1332,7 @@ class _ViewLayout:
             nest, tight = self._row_conflicts(cand)
             # E5 counts every D.place violation alike, so minimise their sum first and use the
             # individual terms only as a tie-break; text overlapping anything is weighted double.
-            depth = max(0, (cand["fields"].get("row") or 1) - 2)  # do not drift out of the frame
+            depth = max(0, (cand["fields"].get("row") or 1) - 2)
             total = (
                 len(cut)
                 + 2 * (len(conf) + self_hit)
@@ -1332,7 +1341,6 @@ class _ViewLayout:
                 + len(centre)
                 + len(nest)
                 + len(tight)
-                + depth
             )
             row_pref = cand["fields"].get("row") or 0  # keep equal-cost dims as close as possible
             if cand.get("pmi_cost"):
@@ -1348,11 +1356,12 @@ class _ViewLayout:
                     len(cut),
                     len(overlap),
                     len(outline),
-                    row_pref,
                     len(centre),
                     self_hit,
-                    len(nest),
                     len(tight),
+                    len(nest),
+                    depth,  # DESIGN §4.6.2: a clean extra row beats a violating shallow one
+                    row_pref,
                 )
             zero = key[:3] == (0, 0, 0) if cand.get("pmi_cost") else total == 0
             if zero:
@@ -1368,6 +1377,8 @@ class _ViewLayout:
             el._resolved["mode"] = cand["mode"]
         if cand.get("style"):
             el._resolved["style"] = cand["style"]
+        if cand.get("dimline"):
+            el._resolved["dimline"] = [[list(cand["dimline"][0]), list(cand["dimline"][1])]]
         el._auto = [f for f in auto_fields if f in cand["fields"]]
         reasons = []
         if (
@@ -1475,9 +1486,14 @@ class _ViewLayout:
                     obst.ann.add(o.id)
             own_segs = [s for p in e._prims if not isinstance(p, Text) for s in prim_segments(p)]
             own_lines = [(p.p, p.q) for p in e._prims if isinstance(p, Line)]
-            cur = {"boxes": boxes, "segs": own_segs, "cross": own_lines}
-            cur_key = (len(obst.conflicts(e.id, cur, 0.0)), len(obst.crossings(e.id, cur)))
-            if cur_key == (0, 0):
+            cur = {
+                "boxes": boxes,
+                "segs": own_segs,
+                "cross": own_lines,
+                "cross_dimlines": True,  # repair must use the dimension-line scope (E5)
+            }
+            cur_key = (len(obst.conflicts(e.id, cur, 0.0)), len(obst.crossings(e.id, cur)), 0, 0)
+            if cur_key == (0, 0, 0, 0):
                 continue
             fixed = {
                 f: e._layout.get(f)
@@ -1491,9 +1507,14 @@ class _ViewLayout:
             for cand in cands:
                 if any(cand["fields"].get(f) != v for f, v in fixed.items()):
                     continue
+                cand2 = dict(cand)
+                cand2["cross_dimlines"] = True
+                nest, tight = self._row_conflicts(cand2)
                 key = (
-                    len(obst.conflicts(e.id, cand, 0.0)),
-                    len(obst.crossings(e.id, cand)),
+                    len(obst.conflicts(e.id, cand2, 0.0)),
+                    len(obst.crossings(e.id, cand2)),
+                    len(nest),
+                    len(tight),
                 )
                 if best_key is None or key < best_key:
                     best, best_key = cand, key
@@ -1543,6 +1564,8 @@ class _ViewLayout:
                         continue
                     obst.kinds[o.id] = o.kind
                     obst.add_prims(o.id, prims)
+                    for dl in o._resolved.get("dimline") or ():
+                        obst.dimlines.append((o.id, tuple(dl[0]), tuple(dl[1])))
                     if o.kind in ann_kinds:
                         obst.ann.add(o.id)
                 cur = {"cross": cur_leader, "boxes": self._text_boxes(e), "cross_dimlines": True}
@@ -1933,6 +1956,20 @@ class _Layout:
             if loops:
                 hatches.append(loops)
 
+        def in_hatch(box):
+            """Even-odd over each hatch element's loops: section lining must stay legible."""
+            cx, cy = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
+            for loops in hatches:
+                inside = False
+                for lp in loops:
+                    if lp and lp[0] == "circle":
+                        inside = inside != (math.dist((cx, cy), lp[1]) <= lp[2])
+                    else:
+                        inside = inside != _point_in_poly((cx, cy), lp)
+                if inside:
+                    return True
+            return False
+
         offs = [
             (dx, dy)
             for mag in (
@@ -1960,23 +1997,15 @@ class _Layout:
             for e in els:
                 if e.kind in ("view", "feature", "raw", "chain") or not e._prims:
                     continue
-                if e.kind in ("datum", "gtol", "rough"):
-                    fixed_fields = (
-                        "at",
-                        "length",
-                        "dir",
-                    )  # the leader and its label position are written
-                elif e.kind == "note":
-                    fixed_fields = ("dir", "offset")
-                else:
-                    # a dimension's written angle stays (the dimension line is not touched); only the
-                    # auto-placed text may shift a few mm, a drafting adjustment, not a field change
-                    fixed_fields = ("offset",)
-                if any(e._layout.get(f) is not None for f in fixed_fields):
-                    continue  # written position: report instead of moving it here
                 texts = [(i, pr) for i, pr in enumerate(e._prims) if isinstance(pr, Text)]
                 if len(texts) != 1:
                     continue
+                if any(e._layout.get(f) is not None for f in getattr(e, "LAYOUT", ())):
+                    # written fields are not changed. The only exception: a text that sits in
+                    # section lining is unreadable, so it may be shifted out (the fields, the
+                    # dimension line and the arrows stay where they were written)
+                    if not in_hatch(texts[0][1].box):
+                        continue
                 others_segs, others_boxes = [], []
                 for o in els:
                     s_, b_ = shapes[o.id]
@@ -1988,6 +2017,7 @@ class _Layout:
                     if not (
                         any(seg_in_box(a_, b_, box) > 0.05 for a_, b_ in others_segs)
                         or any(box_overlap(box, ob) > 0.05 for ob in others_boxes)
+                        or in_hatch(box)
                     ):
                         continue
                     for dx, dy in offs:
@@ -2002,6 +2032,8 @@ class _Layout:
                         if any(seg_in_box(a_, b_, nb) > 0.05 for a_, b_ in others_segs):
                             continue
                         if any(box_overlap(nb, ob) > 0.05 for ob in others_boxes):
+                            continue
+                        if in_hatch(nb):
                             continue
                         nt = move_prim(pr, dx, dy)
                         e._prims[i] = nt
