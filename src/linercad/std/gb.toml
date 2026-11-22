@@ -169,3 +169,11 @@ balloon_clearance = 1.0
 balloon_align_tol = 0.5
 ext_gap_max = 1.5
 row_tol = 0.05
+
+[assembly]
+basis = "convention：GB/T 4458.2-2003 未给序号圆圈直径与间距数值，取教材通行值；balloon_gap 为圆圈之间的最小间距 δ，balloon_align_tol 与 E5 place_balloon_align 的 0.5 mm 对齐容差一致"
+balloon_height = 5.0
+balloon_radius = 4.5
+balloon_offset = 8.0  # 视图轮廓到圆圈中心的引线长度（convention）
+balloon_gap = 2.0  # 相邻圆圈之间的最小间距 δ（convention）
+balloon_align_tol = 0.5
