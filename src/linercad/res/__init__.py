@@ -302,10 +302,12 @@ def spline(spec: str) -> dict:
 
 
 def datum_excluded(std: str = "GB") -> dict:
-    """Letters the standard recommends not to use as datum letters under ``std`` ("GB" or
-    "ISO"): ``{"std", "letters", "verified", "source"}``. It is a recommendation in a note, not a
-    prohibition (the datum_letter check reports a warning). ``verified`` False = the list could not
-    be checked against the standard (both lists are single-lineage: see the file's [meta])."""
+    """Letters the source of ``std`` recommends not to use as datum letters ("GB": GB/T 17851-2010
+    clause 6.2 note 2; "ISO": a PTC Creo software rule, ISO 5459 itself was not read):
+    ``{"std", "letters", "verified", "source"}``. It is a recommendation (in a note for GB, in
+    software rules for ISO), not a prohibition - the datum_letter check reports a warning.
+    ``verified`` False = the list could not be checked against the standard itself (both lists are
+    single-lineage: see the file's [meta])."""
     data = _table("datum")
     types = [k for k in data if k != "meta"]
     if std not in types:
@@ -628,13 +630,14 @@ def gtol(char: str) -> dict:
         "targets": union("targets"),
         "zone_shapes": union("zone_shapes"),
         "modifiers": union("modifiers"),
-        "modifier_conditions": list(
-            {
+        "modifier_conditions": [
+            _deep_copy(c)
+            for c in {
                 (c["symbol"], c["when"], c["clause"]): c
                 for r in rows
                 for c in r.get("modifier_conditions", ())
             }.values()
-        ),
+        ],
         "modifiers_unverified": list(data["meta"]["modifiers_unverified"]),
         "parameters": {k: v for k, v in data["parameters"].items() if k != "note"},
         "clauses": list(dict.fromkeys(r["clause"] for r in rows)),

@@ -723,6 +723,8 @@ def test_gtol_modifiers_separate_unconditional_from_conditional():
     assert {("OZ", "profile"), ("VA", "profile_angle"), ("><", "direction_only")} <= profile
     position = {(c["symbol"], c["when"]) for c in res.gtol("position")["modifier_conditions"]}
     assert {("UZ", "integral_plane"), ("ACS", "derived_line"), ("><", "direction_only")} <= position
+    symmetry = {(c["symbol"], c["when"]) for c in res.gtol("symmetry")["modifier_conditions"]}
+    assert ("ACS", "nominal_line_point_set") in symmetry
     assert res.gtol("total_runout")["modifier_conditions"] == []
     for char in ("straightness", "profile_line", "position", "concentricity"):
         assert all(c["clause"] for c in res.gtol(char)["modifier_conditions"])
@@ -769,6 +771,15 @@ def test_datum_meta_records_the_gbt_1182_check():
     assert "6.3.3" in meta["conclusion"] and "verified" in meta["conclusion"]
     assert "6.2" in meta["unread"]
     assert data["GB"]["verified"] is False and data["ISO"]["verified"] is False
+
+
+def test_gtol_query_results_are_copies():
+    first = res.gtol("straightness")
+    first["modifier_conditions"][0]["when"] = "bogus"
+    first["rows"][0]["targets"].append("bogus")
+    again = res.gtol("straightness")
+    assert again["modifier_conditions"][0]["when"] != "bogus"
+    assert "bogus" not in again["rows"][0]["targets"]
 
 
 def test_gtol_unknown_characteristic_gives_candidates():

@@ -31,7 +31,7 @@
 | 12 | location.position | 位置度 | location | optional | 17.13 | point、line、surface / 组成或导出 | 两平行平面 / 圆柱面(φ) / 球面(Sφ) | UZ@integral_plane, ACS@derived_line, ><@direction_only |
 | 13 | location.concentricity | 同心度（中心点） | location | yes | 17.14.2 | derived_point / 导出 | 圆(φ) | ACS@nominal_line_point_set |
 | 14 | location.coaxiality | 同轴度（中心线） | location | yes | 17.14.3 | derived_line / 导出 | 圆柱面(φ) | ACS@derived_line |
-| 15 | location.symmetry | 对称度 | location | yes | 17.15 | point、line、plane / 组成或导出 | 两平行平面 | UZ@integral, ACS@derived_line |
+| 15 | location.symmetry | 对称度 | location | yes | 17.15 | point、line、plane / 组成或导出 | 两平行平面 | UZ@integral, ACS@nominal_line_point_set, ACS@derived_line |
 | 16 | location.profile_line | 线轮廓度 | location | yes | 17.7 | line / 组成或导出 | 两等距包络线 | UZ@integral, OZ@profile, VA@profile_angle, ><@direction_only |
 | 17 | location.profile_surface | 面轮廓度 | location | yes | 17.9 | surface / 组成或导出 | 两等距包络面 | 同 16 |
 | 18 | run-out.circular_runout | 圆跳动 | run-out | yes | 17.16 | circle / 组成 | 两共面同心圆 / 两等圆 / 锥面上两不等圆 | — |
@@ -103,6 +103,7 @@ P / V / T / Q 是 8.2.3.3.2 定义的参数，不是修饰符；`pmi.py` 的旧 
 - GB/T 17851-2010：第 4、5 章只读了部分（表 1 已读）；第 6.2 条只从用户 2026-11-10 页面图读出，未从 PDF 复读；第 7 章基准目标、第 8 章三基面体系未读。
 - GB/T 17852-2018：5.1、5.2.1-5.2.3 已读；5.2 的规则 D-H、附录 A、附录 B（16 个轮廓度示例）未读。
 - 交叉引用未读：GB/T 16671-2018（M / L / R）、ISO 10579:2010（F）、ISO 1101:2017 原文（GB/T 1182-2018 为修改采用，页边竖线标出的技术差异未逐条分析）、GB/T 4249-2018、GB/T 13319-2020。
+- `datum.toml` 的 `[meta].unread` 另有：ISO 5459:2011 完全未读（ISO 的 I / O / Q / X 列表来自 PTC Creo 软件规则，不是标准条文）；GB/T 17851-2010 6.2 只从用户 2026-11-10 页面图读出，未从 PDF 复读。
 
 ## 8. 待用户项 / 其它跟进
 
