@@ -35,6 +35,7 @@ CLAUSES = {
     "place_text_direction": "水平尺寸的数字字头朝上，垂直尺寸的数字字头朝左",
     "place_text_overlap": "尺寸数字不应与其他图元重叠",
     "place_arrow": "同一图纸的箭头大小应一致，并符合标准档的箭头尺寸",
+    "place_leader_cross": "径向（直径 / 半径）引线不应与其他尺寸线相交",
     "place_balloon_cross": "零件序号的引线不应相交",
     "place_balloon_align": "同一侧的零件序号应排成一列或一行",
     "place_balloon_spacing": "零件序号的圆圈之间应保持间隙，不得重叠",
@@ -895,6 +896,54 @@ def place_balloon_spacing(d):
 
 
 #: every placement rule; checks.run runs them in this order
+def place_leader_cross(d):
+    """径向引线不应与其他尺寸线相交 (GB/T 4458.4 / ISO 129-1).
+
+    Only radial (diameter / radius) leaders are judged: other leader types (chamfer, groove, hole,
+    thread) are meant to leave their feature through the drawing and are governed by their own
+    conventions. One check per radial leader; a leader that crosses another dimension line or leader
+    is reported once."""
+    radial = []
+    others = []
+    for e in d._els.values():
+        info = _dim_info(e)
+        if info is None:
+            continue
+        others.append((e, info[1]))
+        if info[0] == "leader" and e._intent.get("circle"):
+            radial.append((e, info[1]))
+    findings = []
+    for e, info in radial:
+        for other, oinfo in others:
+            if other is e:
+                continue
+            hit = None
+            for a in _dim_segments(info):
+                for b in _dim_segments(oinfo):
+                    if _crosses(a.p, a.q, b.p, b.q):
+                        hit = (a, b)
+                        break
+                if hit:
+                    break
+            if hit is None:
+                continue
+            a, b = hit
+            pt = _intersection(a.p, a.q, b.p, b.q)
+            findings.append(
+                _f(
+                    "place_leader_cross",
+                    d,
+                    e.id,
+                    f"{e.id} 的径向引线与 {other.id} 的尺寸线相交",
+                    measured={"with": other.id, "at": [round(pt[0], 2), round(pt[1], 2)]},
+                    expected={"crossings": 0},
+                    candidates=[f"换一个引出角度，或移动 {other.id}"],
+                )
+            )
+            break
+    return findings, len(radial)
+
+
 RULES = (
     place_dim_cross,
     place_dim_outline,
@@ -904,6 +953,7 @@ RULES = (
     place_text_direction,
     place_text_overlap,
     place_arrow,
+    place_leader_cross,
     place_balloon_cross,
     place_balloon_align,
     place_balloon_spacing,
@@ -939,4 +989,5 @@ def _seg_in_box(p, q, box):
 def _box_overlap(a, b):
     w = min(a[2], b[2]) - max(a[0], b[0])
     h = min(a[3], b[3]) - max(a[1], b[1])
+
     return max(0.0, w) * max(0.0, h)

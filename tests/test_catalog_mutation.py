@@ -119,10 +119,22 @@ def test_radial_leader_crossing_rule():
     v.dim.linear("X", (60, -40), (60, 40), dir="v", value=80, side="right")
     layout(d)
     assert place.place_leader_cross(d)[0] == []
-    # push the second dimension line across the radial leader
+    # push the second dimension line across the radial leader: a perpendicular through its middle
+    info = place._leader_dim(d["D.Dd"])
+    a = info["lines"][0]
+    mid = ((a.p[0] + a.q[0]) / 2, (a.p[1] + a.q[1]) / 2)
+    u = place._unit(a.p, a.q)
+    perp = (-u[1], u[0])
     x = place._frame_dim(d["D.X"])["dim"]
     d["D.X"]._prims = [
-        Line((20.0, 0.0), (20.0, 50.0), "dim") if p is x else p for p in d["D.X"]._prims
+        Line(
+            (mid[0] - perp[0] * 20, mid[1] - perp[1] * 20),
+            (mid[0] + perp[0] * 20, mid[1] + perp[1] * 20),
+            "dim",
+        )
+        if p is x
+        else p
+        for p in d["D.X"]._prims
     ]
     findings, opportunities = place.place_leader_cross(d)
     assert opportunities >= 1
@@ -137,6 +149,8 @@ def test_radial_leader_rule_is_catalogued_and_mutated():
     assert entry["clause"].startswith("GB/T 4458.4")
     assert entry["status"] == "done"
     assert "place_leader_cross" in mutate.MUTATORS
+    # D1 review: gear_blank Φ92 is the negative mutation example for this rule
+    assert mutate.BASE_OVERRIDES["place_leader_cross"] == "L2/disc/gear_blank"
 
 
 def test_general_tol_and_rough_default_opportunity_policy():
@@ -144,7 +158,7 @@ def test_general_tol_and_rough_default_opportunity_policy():
     d = Drawing()
     f = d.view("front")
     f.rect((0, 0), 50, 30, name="b")
-    f.dim.linear("L", (0, 0), (50, 0), value=50, tol=(0.1, -0.1))
+    f.dim.linear("T", (0, 0), (50, 0), value=50, tol=(0.1, -0.1))
     layout(d)
     from linercad.rules import general_tol, rough_default
 
@@ -153,5 +167,9 @@ def test_general_tol_and_rough_default_opportunity_policy():
     f.rough("r", 0.8, ref="E.front.b.1")
     findings, opportunities = rough_default(d)
     assert findings and opportunities == 1
+    # an untoleranced dimension is what the drawing-level general-tolerance check looks at
+    f.dim.linear("U", (0, 10), (50, 10), value=50, side="bottom")
+    layout(d)
+    assert general_tol(d)[1] == 1 and general_tol(d)[0]  # no general note yet -> finding
     d.general_tol("m")
-    assert general_tol(d)[1] == 1
+    assert general_tol(d) == ([], 1)

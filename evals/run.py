@@ -4,6 +4,7 @@ comparison, writes report.json. Adding a case means adding files, never code.
     uv run python evals/run.py [--level L1|L2|L3] [--case ID] [--drawings DIR] [--out report.json]
     uv run python evals/run.py --baseline evals/baseline.json   # nonzero exit on regression
     uv run python evals/run.py --save-baseline evals/baseline.json
+    uv run python evals/run.py --mutation          # add per-rule detection / false-positive rates
 
 The summary carries a score vector: G / D / T / A, each 1 - violations / opportunities weighted by
 the number of objects the rules examined (docs/proposals/benchmark-metrics.md section 3.6); P
@@ -545,6 +546,11 @@ def main(argv=None):
         "--baseline", metavar="PATH", help="regression gate against a baseline vector (E1)"
     )
     ap.add_argument("--save-baseline", metavar="PATH", help="write this run's vector as a baseline")
+    ap.add_argument(
+        "--mutation",
+        action="store_true",
+        help="run the E2 mutation framework and add detection / false-positive rates",
+    )
     a = ap.parse_args(argv)
     results = [run_case(c, a.drawings, not a.no_geo) for c in discover(a.level, a.case)]
     if not results:  # a typo in --case must not look like a clean run
@@ -560,6 +566,16 @@ def main(argv=None):
         json.dumps(rep, ensure_ascii=False, indent=1), encoding="utf-8", newline="\n"
     )
     print(json.dumps(rep["summary"], ensure_ascii=False))
+    if a.mutation:
+        import mutate
+
+        report = mutate.run_report()
+        rep["mutation"] = report
+        rep["summary"]["mutation"] = report["totals"]
+        Path(a.out).write_text(
+            json.dumps(rep, ensure_ascii=False, indent=1), encoding="utf-8", newline="\n"
+        )
+        print(json.dumps({"mutation": report["totals"]}, ensure_ascii=False))
     problems = []
     if a.baseline:
         try:
