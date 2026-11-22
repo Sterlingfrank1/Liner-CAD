@@ -84,3 +84,19 @@ def test_skill_explains_selection_sync_and_deixis():
     main = (resources.files("linercad") / "skill" / "SKILL.md").read_text(encoding="utf-8")
     for needle in ("@sel", "选中的", "那个", "不要猜"):
         assert needle in main, needle
+
+
+def test_skill_api_documents_user_templates():
+    from linercad import commands
+
+    page = commands.skill("api")["text"]
+    for needle in (
+        "template save",
+        "template list",
+        "lcad init",
+        "--set",
+        "从模板起步",
+        "LCAD_TEMPLATES",
+        "修订层",
+    ):
+        assert needle in page, needle
