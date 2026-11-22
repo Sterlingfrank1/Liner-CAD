@@ -680,7 +680,11 @@ def m_place_arrow(d):
     raise AssertionError("no dimension arrows")
 
 
-def m_place_leader_cross(d):
+def _cross_radial_leader(d, text_form=None):
+    """Cross the largest radial (diameter / radius) leader with another dimension line.
+
+    text_form optionally rewrites the leader's own text first, so a mutation can prove that a
+    particular spelling (SΦ sphere, 2-Φ count, lower-case ø) is still recognised as radial."""
     leaders = []
     others = []
     for e in d._els.values():
@@ -693,27 +697,50 @@ def m_place_leader_cross(d):
     # D1 review: gear_blank's Φ92 is the required negative example - use the largest radial
     # dimension of the drawing, whatever element id it happens to have
     leaders.sort(key=lambda item: -(item[0]._intent.get("value") or 0.0))
-    leaders = leaders[:1]
-    for e, info in leaders:
-        for other, oinfo in others:
-            if other is e:
-                continue
-            for a in place._dim_segments(info):
-                mid = ((a.p[0] + a.q[0]) / 2, (a.p[1] + a.q[1]) / 2)
-                u = place._unit(a.p, a.q)
-                perp = (-u[1], u[0])
-                other_segs = place._dim_segments(oinfo)
-                if oinfo.get("ext") and "dim" in oinfo:
-                    line = oinfo["dim"]
-                    seg = (
-                        (mid[0] - perp[0] * 20, mid[1] - perp[1] * 20),
-                        (mid[0] + perp[0] * 20, mid[1] + perp[1] * 20),
-                    )
-                    if other.kind == "dim" and place._frame_dim(other):
-                        _replace_line(other, line, seg[0], seg[1])
-                        return e.id
-                _ = other_segs
+    if not leaders:
+        raise AssertionError("no radial leader")
+    e, info = leaders[0]
+    if text_form is not None:
+        value = e._intent.get("value") or 0.0
+        wanted = text_form(value)
+        texts = [p for p in e._prims if isinstance(p, Text)]
+        if texts:
+            first = texts[0]
+            e._prims = [
+                Text(wanted, p.at, p.height, p.rot, p.layer, p.box) if p is first else p
+                for p in e._prims
+            ]
+    for other, oinfo in others:
+        if other is e:
+            continue
+        for a in place._dim_segments(info):
+            mid = ((a.p[0] + a.q[0]) / 2, (a.p[1] + a.q[1]) / 2)
+            u = place._unit(a.p, a.q)
+            perp = (-u[1], u[0])
+            if oinfo.get("ext") and "dim" in oinfo:
+                line = oinfo["dim"]
+                seg = (
+                    (mid[0] - perp[0] * 20, mid[1] - perp[1] * 20),
+                    (mid[0] + perp[0] * 20, mid[1] + perp[1] * 20),
+                )
+                if other.kind == "dim" and place._frame_dim(other):
+                    _replace_line(other, line, seg[0], seg[1])
+                    return e.id
     raise AssertionError("no radial leader with another dimension")
+
+
+def m_place_leader_cross(d):
+    return _cross_radial_leader(d)
+
+
+def m_place_leader_cross_sphere(d):
+    """A sphere diameter written SΦ (radial recognition must cover SΦ / SR / 2-Φ / ø)."""
+    return _cross_radial_leader(d, text_form=lambda v: f"SΦ{v:g}")
+
+
+def m_place_leader_cross_hyphen(d):
+    """A counted diameter written with a hyphen (2-Φ8 instead of 2×Φ8)."""
+    return _cross_radial_leader(d, text_form=lambda v: f"2-Φ{v:g}")
 
 
 def m_place_balloon_align(d):
@@ -793,6 +820,19 @@ MUTATORS = {
 }
 
 
+#: additional scenarios per rule (a rule may need several shapes of the same defect)
+EXTRA_MUTATORS = {
+    "place_leader_cross": [m_place_leader_cross_sphere, m_place_leader_cross_hyphen],
+}
+
+
+def _scenarios(rule) -> list:
+    primary = MUTATORS.get(rule)
+    if primary is None:
+        return []
+    return [primary] + list(EXTRA_MUTATORS.get(rule, []))
+
+
 def rule_functions() -> dict:
     return catalog.rule_functions()
 
@@ -853,9 +893,10 @@ def run_report(cases=None) -> dict:
     rules = catalog.rules()
     report = {"rules": {}, "totals": {}, "known_debt": {}}
     total_mut = total_det = total_fp = 0
+    errored = unmutated = 0
     for entry in rules:
         rule = entry["id"]
-        mutator = MUTATORS.get(rule)
+        scenarios = _scenarios(rule)
         data = {
             "mutations": 0,
             "detected": 0,
@@ -865,50 +906,60 @@ def run_report(cases=None) -> dict:
             "reference_opportunities": ref["opportunities"].get(rule, 0),
             "mutation_base_opportunities": None,
             "base": None,
+            "base_findings": 0,
+            "targets": [],
+            "errors": [],
         }
-        if mutator is not None:
+        if scenarios:
             base = BASE_OVERRIDES.get(rule) or FIXTURES.get(rule) or ref["clean"].get(rule)
-            if isinstance(base, str):
-                d = _build_case(built[base]).d
-                data["base"] = base
-            elif base is not None:
-                d = base()
-                data["base"] = f"fixture:{rule}"
-            else:
+            data["base"] = f"fixture:{rule}" if not isinstance(base, str) else base
+            base_ids = set()
+            for mutator in scenarios:
                 d = None
-            if d is not None:
-                stale = ()
+                if isinstance(base, str):
+                    d = _build_case(built[base]).d
+                elif base is not None:
+                    d = base()
+                if d is None:
+                    data["errors"].append("no mutation base")
+                    continue
+                log_ops = VALID_LOG if rule == "stale_op" else ()
+                stale = (STALE_OP,) if rule == "stale_op" else ()
                 try:
-                    log_ops = VALID_LOG if rule == "stale_op" else ()
-                    base_found = _findings(d, stale, log_ops)
-                    data["_base_ids"] = {f["id"] for f in base_found if f["rule"] == rule}
-                    data["base_findings"] = len(data["_base_ids"])
-                    data["mutation_base_opportunities"] = base_found.opportunities.get(rule, 0)
+                    base_found = _findings(d, (), log_ops)
+                    own = {f["id"] for f in base_found if f["rule"] == rule}
+                    base_ids |= own
+                    data["base_findings"] = max(data["base_findings"], len(own))
+                    if data["mutation_base_opportunities"] is None:
+                        data["mutation_base_opportunities"] = base_found.opportunities.get(rule, 0)
                     if not isinstance(base, str):
-                        # a purpose-built clean fixture is its reference; only rules without a
-                        # reference-drawing opportunity use the fixture numbers for FP accounting
                         base_opp = base_found.opportunities.get(rule, 0)
                         base_fps = sum(1 for f in base_found if f["rule"] == rule)
                         data["mutation_base_opportunities"] = base_opp
                         if data["reference_opportunities"] == 0:
                             data["opportunities"] = base_opp
                             data["false_positives"] = base_fps
-                    stale = (STALE_OP,) if rule == "stale_op" else ()
                     target = STALE_OP["id"] if rule == "stale_op" else mutator(d)
                     found = _findings(d, stale, log_ops)
                     ids = {f["id"] for f in found if f["rule"] == rule}
-                    base_ids = data.pop("_base_ids", set())
-                    data["target"] = target
-                    data["mutations"] = 1
+                    data["targets"].append(target)
+                    data["mutations"] += 1
                     ok = rule in {f["rule"] for f in found}
                     ok = ok and target is not None and target in ids
                     ok = ok and not (base_ids & ids)
-                    data["detected"] = 1 if ok else 0
-                    data["detection_rate"] = float(data["detected"])
-                    data.pop("_base_ids", None)
-                except Exception as e:  # noqa: BLE001 - a broken operator is reported, not fatal
-                    data.pop("_base_ids", None)
-                    data["error"] = f"{type(e).__name__}: {e}"
+                    data["detected"] += 1 if ok else 0
+                except Exception as exc:  # noqa: BLE001 - a broken operator is reported
+                    data["errors"].append(f"{type(exc).__name__}: {exc}")
+            if data["mutations"]:
+                data["detection_rate"] = round(data["detected"] / data["mutations"], 4)
+            targets = [t for t in data["targets"] if t is not None]
+            data["target"] = targets[0] if targets else None
+            if data["errors"]:
+                data["error"] = "; ".join(data["errors"])
+        if data["mutations"] == 0 or data.get("error"):
+            errored += 1
+        if data["mutations"] == 0:
+            unmutated += 1
         total_mut += data["mutations"]
         total_det += data["detected"]
         total_fp += data["false_positives"]
@@ -919,6 +970,8 @@ def run_report(cases=None) -> dict:
         "detected": total_det,
         "detection_rate": round(total_det / total_mut, 4) if total_mut else 0.0,
         "false_positives": total_fp,
+        "errored": errored,
+        "unmutated": unmutated,
     }
     debt = json.loads(KNOWN_DEBT.read_text(encoding="utf-8")) if KNOWN_DEBT.exists() else {}
     actual = {
@@ -965,7 +1018,12 @@ def _baseline_table() -> list[str]:
         cur = new.get(fam, {})
         d_opp = (cur.get("opportunities") or 0) - old["opportunities"]
         d_viol = (cur.get("violations") or 0) - old["violations"]
-        why = "新增 place_leader_cross 规则的 20 条真实交叉" if fam == "D" else "不变"
+        why = (
+            "新增 place_leader_cross 的 20 条（与 place_dim_cross 在同一批径向引线物理交叉上"
+            "重叠计账，族分数计双次；已知设计重叠）"
+            if fam == "D"
+            else "不变"
+        )
         out.append(
             f"| {fam} | {old['score']} ({old['opportunities']}/{old['violations']}) | "
             f"{cur.get('score')} ({cur.get('opportunities')}/{cur.get('violations')}) | "
@@ -1011,11 +1069,24 @@ def markdown(report) -> str:
         "- place_leader_cross（E2）只判径向引线×其它尺寸线/引线；"
         "径向引线×尺寸界线、×中心线、×轮廓未计量。"
     )
+    lines.append("")
+    lines.append("### 与 place_dim_cross 的已知重叠计账（明示，不隐藏）")
+    lines.append("")
+    lines.append(
+        "place_leader_cross 是径向引线专用子规则；place_dim_cross 本就判 leader 型尺寸线，"
+        "因此同一批径向引线×尺寸线的物理交叉被两条规则各计一次：族分数对同一物理交叉计双次，"
+        "E2 的 D 违规 77→97 中的 +20 即此。这是按规则族划分的已知重叠，不是隐藏或口径错误。"
+    )
+    lines.append("")
     lines.append(
         "- 这些盲区中，D1 在 layout 放置阶段用 placement.resolved 的 crossings / violations / "
         "corridors（with + kind：overlap / cross / coincide / outline）记录可避免交叉并写进 reason；"
         "残余不可避免者由 E2 的 warn 规则承接；把引线扩到尺寸界线 / 中心线 / 轮廓属 D2 或 "
         "place 子规则扩展，另卡处理。"
+    )
+    lines.append(
+        "- 另注：D1 evidence 把残余的 outline 交叉也写成由 E2 承接；place_leader_cross 实际只覆盖 "
+        "引线×尺寸线/引线，引线×轮廓仍无 warn 规则承接，该措辞由 lead 在 F1 docs PR 统一勘正。"
     )
     lines.append("")
     lines.extend(_baseline_table())
@@ -1053,6 +1124,8 @@ def main(argv=None):
             report["totals"]["detection_rate"] == 1.0
             and report["totals"]["false_positives"] == 0
             and report["totals"].get("skipped_cases", 0) == 0
+            and report["totals"].get("errored", 0) == 0
+            and report["totals"].get("unmutated", 0) == 0
             and report["known_debt"]["exact"]
         )
         else 1

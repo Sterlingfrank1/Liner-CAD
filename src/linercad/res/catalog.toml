@@ -1,20 +1,23 @@
 # Rule catalog (E2, benchmark-metrics §5.2/§6): every rule checks.run can report.
 #
 # Fields: id / pack / family / fn / statement / std / clause / clause_status / status /
-# positive / negative. clause_status:
+# positive / negative / clause_note(optional). clause_status:
 #   read    - the clause / table number was read from the standard text (see read_sources)
 #   design  - the rule's authority is this repository's DESIGN.md, quoted as DESIGN §x.y
 #   pending - only the standard number is known; the clause number has NOT been read and is
-#             never invented (clause == std for these rows)
-# The mutation framework (evals/mutate.py) keeps these rows honest: every done rule has one
-# operator, detection 1.0 and no false positives on the reference drawings (known debt aside).
+#             never invented (clause == std for these rows); clause_note records the lineage
+#             when a resource itself marks the reading unverified.
+# The mutation framework (evals/mutate.py) keeps these rows honest: every done rule has at
+# least one operator, detection 1.0 and no false positives on the reference drawings.
 
 [meta]
 purpose = "每条规则的度量目录：id、标准、条款、陈述、实现函数、状态、正/反例 fixture"
-clause_policy = "read 保留读到的条款/表号；design 引 DESIGN 节；pending 只写标准号、不编造条款号"
-read_sources = "GB/T 1182-2018、GB/T 17851-2010 由 A4（card #93）逐页读入 res/gtol.toml 与 res/datum.toml；其余标准的原文未在本仓库读到"
+clause_policy = "read 保留读到的条款/表号；design 引 DESIGN 节；pending 只写标准号、不编造条款号，谱系写 clause_note"
+read_sources = "gtol_syntax 的表1/7.4/8.2.4 由 A4 读入 res/gtol.toml（该资源自记 verified=false）；GB/T 17851-2010 6.2 未从 PDF 复读（datum.toml 自记唯一来源为用户页图、verified=false），故 datum_letter 记 pending；其余标准的原文未在本仓库读到"
 known_debt = "参考图上的 E5 排布债务 + 径向引线交叉现存违规，冻结在 evals/known-debt.json（含 measured 签名），变异框架计为真阳性"
-mutation = "evals/mutate.py：35 条 done 规则各一个变异算子；检出率 1.0、参考图误报 0（已知债务除外）"
+mutation = "evals/mutate.py：35 条 done 规则各至少一个算子（径向引线另有 SΦ/连字符形场景）；检出率 1.0、参考图误报 0（已知债务除外）"
+dual_counting = "place_leader_cross 是径向引线专用子规则，与 place_dim_cross 在同一批径向引线物理交叉上重叠计账：D 族分数对同一物理交叉计双次，77→97 中的 +20 即此；按规则族设计的已知重叠，不是隐藏"
+coverage_boundary = "place_leader_cross 只判径向引线×其它尺寸线/引线；径向引线×尺寸界线、×中心线、×轮廓未计量（已知盲区，D1 placement.resolved 记录可避免者；残余 outline 交叉暂无 warn 规则）"
 
 [[rule]]
 id = "center_mark"
@@ -75,11 +78,12 @@ family = "T"
 fn = "datum_letter"
 statement = "基准字母不应选用标准建议不用的字母"
 std = "GB/T 17851-2010"
-clause = "GB/T 17851-2010 6.2 注2"
-clause_status = "read"
+clause = "GB/T 17851-2010"
+clause_status = "pending"
 status = "done"
 positive = "参考图 L2/disc/bearing_cap（该规则 0 违规，机会数见 mutation-report.md）"
 negative = "evals/mutate.py:MUTATORS['datum_letter']（注入缺陷后检出率 1.0，target 见报告）"
+clause_note = "6.2 注2 的唯一来源是 2026-11-10 用户页图（res/datum.toml [meta]：A4 未从 PDF 复读 6.2，verified=false）；目录口径不高于资源自记，故记 pending"
 
 [[rule]]
 id = "dev_order"
@@ -132,6 +136,7 @@ clause_status = "read"
 status = "done"
 positive = "参考图 L2/disc/bearing_cap（该规则 0 违规，机会数见 mutation-report.md）"
 negative = "evals/mutate.py:MUTATORS['gtol_syntax']（注入缺陷后检出率 1.0，target 见报告）"
+clause_note = "表1 与 7.4/8.2.4 由 A4 读入 res/gtol.toml；该资源自记 verified=false（仅单一份 PDF 谱系）"
 
 [[rule]]
 id = "line_width"

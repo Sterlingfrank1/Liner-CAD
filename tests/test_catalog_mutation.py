@@ -27,7 +27,6 @@ REPO = Path(__file__).resolve().parents[1]
 #: rules whose clause number was read from the standard (A4: GB/T 1182-2018 / 17851-2010)
 READ_CLAUSES = {
     "gtol_syntax": ("GB/T 1182-2018", "表1"),
-    "datum_letter": ("GB/T 17851-2010", "6.2"),
 }
 
 
@@ -90,8 +89,8 @@ def test_clause_precision_policy():
         assert e["std"] == std
         assert e["clause_status"] == "read"
         assert marker in e["clause"], e["clause"]
-    # two rules take their authority from DESIGN.md; everything else has not been read clause by
-    # clause and says so instead of guessing
+    # two rules take their authority from DESIGN.md; datum_letter is pending with a lineage note
+    # (res/datum.toml itself marks 6.2 unverified); everything else says so instead of guessing
     for rule, e in by_id.items():
         if rule in READ_CLAUSES:
             continue
@@ -100,6 +99,30 @@ def test_clause_precision_policy():
             assert e["clause"].startswith("DESIGN §"), rule
         else:
             assert e["clause_status"] == "pending", rule
+    datum = by_id["datum_letter"]
+    assert datum["clause_status"] == "pending"
+    assert datum["clause"] == datum["std"] == "GB/T 17851-2010"
+    assert "verified=false" in datum["clause_note"] and "6.2" in datum["clause_note"]
+
+
+def test_catalog_meta_declares_the_known_blind_spots_and_double_counting():
+    meta = catalog.load()["meta"]
+    assert "place_dim_cross" in meta["dual_counting"]
+    assert "77→97" in meta["dual_counting"] or "77" in meta["dual_counting"]
+    assert "尺寸界线" in meta["coverage_boundary"] and "中心线" in meta["coverage_boundary"]
+    assert "轮廓" in meta["coverage_boundary"]
+
+
+def test_radial_text_recognition_forms():
+    from linercad.layout import Text
+
+    def radial(txt):
+        return place._is_radial_text([Text(txt, (0, 0), 3.5, 0, "text", (0, 0, 1, 1))])
+
+    for txt in ("Φ92", "⌀92", "Ø92", "ø92", "R5", "SΦ92", "SR5", "2-Φ8", "2×Φ8", "4xΦ12"):
+        assert radial(txt), txt
+    for txt in ("92", "M8", "R", "S", "2 个 Φ8 孔"):  # free text without a radial prefix
+        assert not radial(txt), txt
 
 
 def test_every_done_rule_has_a_mutation_operator():
@@ -116,6 +139,8 @@ def test_mutation_detection_and_false_positive_rates(report):
         assert data["target"] is not None, (rule, data)  # every mutation is anchored on an id
     assert report["totals"]["mutations"] >= len(checks.RULES)
     assert report["totals"]["skipped_cases"] == 0
+    assert report["totals"].get("errored", 0) == 0
+    assert report["totals"].get("unmutated", 0) == 0
     for rule, data in report["rules"].items():
         assert data["mutation_base_opportunities"] is not None, rule
 

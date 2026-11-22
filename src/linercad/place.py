@@ -369,7 +369,7 @@ def _all_edge_segments(d):
 
 #: a radial (diameter / radius) dimension is recognised by its own text, so imported drawings
 #: (whose elements carry no model intent) are judged exactly like native ones
-_RADIAL = __import__("re").compile(r"^(?:\d+\s*[×xX])?\s*(?:Φ|⌀|Ø|R)")
+_RADIAL = __import__("re").compile(r"^(?:(?:\d+\s*[×xX\-])\s*)?S?\s*(?:Φ|⌀|Ø|ø|R)\s*\d")
 
 
 def _is_radial_text(texts) -> bool:

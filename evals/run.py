@@ -581,6 +581,8 @@ def main(argv=None):
             report["totals"]["detection_rate"] == 1.0
             and report["totals"]["false_positives"] == 0
             and report["totals"].get("skipped_cases", 0) == 0
+            and report["totals"].get("errored", 0) == 0
+            and report["totals"].get("unmutated", 0) == 0
             and report["known_debt"]["exact"]
         )
         print(json.dumps({"mutation": report["totals"]}, ensure_ascii=False))
