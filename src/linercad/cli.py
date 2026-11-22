@@ -63,9 +63,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--sheet", default=None)
     s = sub.add_parser("build")
     s.add_argument("-m", dest="msg", default=None)
+    s.add_argument("--no-view", dest="no_view", action="store_true")
     s = sub.add_parser("edit")
     s.add_argument("script")
     s.add_argument("-m", dest="msg", default=None)
+    s.add_argument("--no-view", dest="no_view", action="store_true")
     s = sub.add_parser("undo")
     s.add_argument("edit")
     s.add_argument("-m", dest="msg", default=None)
@@ -162,6 +164,14 @@ def _run(args, parser) -> int:
         out = commands.template_import(d, args.file, args.name)
     else:
         out = commands.render(d, args.focus, args.out, args.dpi)
+    # H3: the first successful build / edit starts the background Viewer and opens it once; an
+    # already running Viewer is only refreshed (the page polls). --no-view / LCAD_NO_VIEW / CI off.
+    if args.cmd in ("build", "edit") and out.get("ok"):
+        from .viewer import autostart
+
+        state = autostart(d, disabled=bool(getattr(args, "no_view", False)))
+        if state is not None:
+            out["viewer"] = state
     emit(out)
     return 0
 

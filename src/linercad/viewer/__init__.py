@@ -9,9 +9,12 @@ import ast
 import io
 import json
 import math
+import os
 import re
 import secrets
+import socket
 import subprocess
+import sys
 import threading
 import time
 from datetime import UTC, datetime
@@ -85,6 +88,7 @@ class Viewer:
         self.param_errors = {}
         self.token = secrets.token_hex(16)  # per run; the served page carries it (SPEC §2 安全)
         self.retried = None
+        self.last_active = time.monotonic()  # H3: idle timeout of the background Viewer
         self.refresh()
 
     # ---- build state ------------------------------------------------------------------------
@@ -657,6 +661,7 @@ def make_handler(viewer: Viewer):
             )
 
         def do_GET(self):  # noqa: N802
+            viewer.last_active = time.monotonic()
             path = self.path.split("?")[0]
             try:
                 if not self._host_ok():
@@ -715,6 +720,7 @@ def make_handler(viewer: Viewer):
             )
 
         def do_POST(self):  # noqa: N802
+            viewer.last_active = time.monotonic()
             # same origin + per-run token: another local page cannot drive the service
             tok = self.headers.get("X-LCAD-Token", "")
             try:
@@ -774,19 +780,240 @@ class _Server(ThreadingHTTPServer):
         super().server_bind()
 
 
-def serve(dir, port=8765, open_browser=True):
-    """Start the Viewer on 127.0.0.1:<port> (blocks). Returns after Ctrl+C."""
+# ---- H3: background Viewer lifecycle ---------------------------------------------------------------
+
+STATE_PATH = Path(".linercad") / "viewer.json"
+LOG_PATH = Path(".linercad") / "viewer.log"
+DEFAULT_IDLE_TIMEOUT = 1800.0  # seconds without a request before the background Viewer exits
+
+
+def _state_path(dir):
+    return Path(dir) / STATE_PATH
+
+
+def _log_path(dir):
+    return Path(dir) / LOG_PATH
+
+
+def _pid_alive(pid) -> bool:
+    """Is the process still running? (the Windows branch also works for a detached child)."""
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        SYNCHRONIZE = 0x00100000
+        STILL_ACTIVE = 259
+        h = ctypes.windll.kernel32.OpenProcess(
+            SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, False, pid
+        )
+        if not h:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            ok = ctypes.windll.kernel32.GetExitCodeProcess(h, ctypes.byref(code))
+            return bool(ok) and code.value == STILL_ACTIVE
+        finally:
+            ctypes.windll.kernel32.CloseHandle(h)
+    try:
+        os.kill(pid, 0)
+    except (ProcessLookupError, OSError):
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _port_open(port) -> bool:
+    try:
+        with socket.create_connection(("127.0.0.1", int(port)), timeout=0.4):
+            return True
+    except OSError:
+        return False
+
+
+def _read_state(dir):
+    try:
+        doc = json.loads(_state_path(dir).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return doc if isinstance(doc, dict) else None
+
+
+def _clear_state(dir, pid=None):
+    p = _state_path(dir)
+    try:
+        doc = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        doc = None
+    if pid is not None and doc is not None and doc.get("pid") != pid:
+        return
+    try:
+        p.unlink()
+    except OSError:
+        pass
+
+
+def _idle_timeout(value=None) -> float:
+    """Seconds of inactivity after which the background Viewer exits."""
+    if value is not None:
+        return max(1.0, float(value))
+    raw = os.environ.get("LCAD_VIEW_IDLE_TIMEOUT")
+    if not raw:
+        return DEFAULT_IDLE_TIMEOUT
+    try:
+        return max(1.0, float(raw))
+    except ValueError:
+        return DEFAULT_IDLE_TIMEOUT
+
+
+def _suppressed(disabled=False) -> bool:
+    """--no-view, the env switch and CI all keep the auto-open off (tests open no browser)."""
+    if disabled or os.environ.get("LCAD_NO_VIEW"):
+        return True
+    return bool(os.environ.get("CI"))
+
+
+def _running(dir):
+    """The state document of a live Viewer for this drawing, or None (stale files removed)."""
+    doc = _read_state(dir)
+    if not doc:
+        return None
+    try:
+        pid, port = int(doc["pid"]), int(doc["port"])
+    except (KeyError, TypeError, ValueError):
+        _clear_state(dir)
+        return None
+    if _pid_alive(pid) and _port_open(port):
+        return doc
+    _clear_state(dir, pid)
+    return None
+
+
+def _log_tail(dir, limit=400) -> str:
+    try:
+        data = _log_path(dir).read_bytes()[-limit:]
+    except OSError:
+        return ""
+    return data.decode("utf-8", "replace").strip()
+
+
+def autostart(dir, disabled=False, open_browser=True):
+    """After a successful build / edit: make sure a Viewer runs and open it once.
+
+    Returns {"url": ..., "opened": bool}; None when auto-opening is off (--no-view,
+    LCAD_NO_VIEW or CI). An already running Viewer is reused without opening a new tab.
+    """
+    if _suppressed(disabled):
+        return None
+    dir = Path(dir)
+    running = _running(dir)
+    if running is not None:
+        return {"url": running["url"], "opened": False}
+    log = _log_path(dir)
+    log.parent.mkdir(parents=True, exist_ok=True)
+    args = [
+        sys.executable,
+        "-m",
+        "linercad.viewer",
+        "--background",
+        "--dir",
+        str(dir),
+        "--port",
+        "0",
+        "--idle-timeout",
+        str(_idle_timeout()),
+    ]
+    kwargs = dict(
+        stdin=subprocess.DEVNULL,
+        stderr=subprocess.STDOUT,
+        cwd=str(dir),
+        close_fds=True,
+    )
+    if os.name == "nt":
+        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+    else:
+        kwargs["start_new_session"] = True
+    handle = open(log, "ab")
+    try:
+        subprocess.Popen(args, stdout=handle, **kwargs)
+    finally:
+        handle.close()  # the child keeps its own duplicate
+
+    # the Windows venv launcher may exit after starting the real interpreter, so accept the state
+    # file written by the child (any live pid + open port), not only the launcher's pid
+    state = None
+    deadline = time.monotonic() + 8
+    while time.monotonic() < deadline:
+        candidate = _read_state(dir)
+        if (
+            candidate
+            and candidate.get("pid")
+            and candidate.get("port")
+            and _pid_alive(candidate["pid"])
+            and _port_open(candidate["port"])
+        ):
+            state = candidate
+            break
+        time.sleep(0.05)
+    if not state or not state.get("port"):
+        return {
+            "url": None,
+            "opened": False,
+            "error": _log_tail(dir) or "Viewer 后台进程启动失败",
+        }
+    url = state["url"]
+    opened = False
+    if open_browser:
+        try:
+            import webbrowser
+
+            opened = bool(webbrowser.open(url))
+        except Exception:  # noqa: BLE001 - no browser is a supported degradation
+            opened = False
+    return {"url": url, "opened": opened}
+
+
+def _serve_until_idle(httpd, v, idle_timeout):
+    """Serve one request at a time and exit after idle_timeout seconds without any request."""
+    httpd.timeout = min(1.0, max(idle_timeout / 4, 0.05))
+    while True:
+        httpd.handle_request()
+        if time.monotonic() - v.last_active > idle_timeout:
+            return
+
+
+def serve(dir, port=8765, open_browser=True, idle_timeout=None):
+    """Start the Viewer on 127.0.0.1:<port> (blocks). Writes .linercad/viewer.json for H3."""
     v = Viewer(dir)
     httpd = _Server(("127.0.0.1", int(port)), make_handler(v))
     url = f"http://127.0.0.1:{httpd.server_address[1]}/"
+    _write_json(
+        _state_path(dir),
+        {
+            "pid": os.getpid(),
+            "port": int(httpd.server_address[1]),
+            "url": url,
+            "started": datetime.now(UTC).isoformat(timespec="seconds"),
+        },
+    )
     print(json.dumps({"ok": True, "url": url, "dir": str(v.dir)}, ensure_ascii=False), flush=True)
     if open_browser:
         import webbrowser
 
         webbrowser.open(url)
     try:
-        httpd.serve_forever()
+        if idle_timeout:
+            _serve_until_idle(httpd, v, float(idle_timeout))
+        else:
+            httpd.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
         httpd.server_close()
+        _clear_state(dir, os.getpid())
