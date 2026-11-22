@@ -1354,7 +1354,8 @@ class _ViewLayout:
                     len(nest),
                     len(tight),
                 )
-            if total == 0:
+            zero = key[:3] == (0, 0, 0) if cand.get("pmi_cost") else total == 0
+            if zero:
                 best = (key, k, cand, conf, cut, overlap, outline, centre, nest, tight)
                 break
             if best is None or key < best[0]:
@@ -1397,7 +1398,7 @@ class _ViewLayout:
             )
         elif k and "at" in el._auto and cand["fields"].get("at") != cands[0]["fields"].get("at"):
             reasons.append("换角度避开交叉")
-        unavoidable = conf or cut or overlap or outline or self_hit or nest or tight
+        unavoidable = conf or cut or overlap or outline or centre or self_hit or nest or tight
         if (
             cand.get("overlap_cost") or cand.get("row_info") or cand.get("pmi_cost")
         ) and unavoidable:
@@ -1407,12 +1408,13 @@ class _ViewLayout:
             violations += [{"with": o, "kind": "cross"} for o in cut]
             violations += [{"with": o, "kind": "coincide"} for o in overlap]
             violations += [{"with": o, "kind": "outline"} for o in outline]
+            violations += [{"with": o, "kind": "centre"} for o in centre]
             violations += [{"with": "self", "kind": "own_text"} for _ in range(self_hit)]
             violations += [{"with": o, "kind": "nest"} for o in nest]
             violations += [{"with": o, "kind": "row"} for o in tight]
             el._resolved["violations"] = violations
-            if cut or overlap or outline:
-                hit = sorted(set(cut) | set(overlap) | set(outline))
+            if cut or overlap or outline or centre:
+                hit = sorted(set(cut) | set(overlap) | set(outline) | set(centre))
                 reasons.append("不可避免的交叉：与 " + "、".join(hit) + " 相交")
                 el._resolved["crossings"] = hit
             boxes = cand.get("boxes") or []
@@ -1457,43 +1459,61 @@ class _ViewLayout:
         """Final pass: move an automatic linear dimension whose text/line still touches something."""
         ann = ("dim", "note", "datum", "gtol", "rough")
         for e in self.els("dim"):
-            if not e._prims or e._intent.get("circle") or e._intent["type"] == "aligned":
+            if not e._prims or e._intent.get("circle"):
                 continue
             boxes = self._text_boxes(e)
             if not boxes:
                 continue
             obst = _Obstacles()
             for o in self.d._els.values():
-                if o._intent.get("view") != self.name or not o._prims or o.id == e.id:
+                prims = self.parts.get(o.id) or ()
+                if o._intent.get("view") != self.name or not prims or o.id == e.id:
                     continue
                 obst.kinds[o.id] = o.kind
-                obst.add_prims(o.id, o._prims)
+                obst.add_prims(o.id, prims)
                 if o.kind in ann:
                     obst.ann.add(o.id)
             own_segs = [s for p in e._prims if not isinstance(p, Text) for s in prim_segments(p)]
-            cur = {"boxes": boxes, "segs": own_segs}
-            cur_conf = len(obst.conflicts(e.id, cur, 0.0))
-            if not cur_conf:
+            own_lines = [(p.p, p.q) for p in e._prims if isinstance(p, Line)]
+            cur = {"boxes": boxes, "segs": own_segs, "cross": own_lines}
+            cur_key = (len(obst.conflicts(e.id, cur, 0.0)), len(obst.crossings(e.id, cur)))
+            if cur_key == (0, 0):
                 continue
             fixed = {
                 f: e._layout.get(f)
                 for f in ("side", "row", "offset")
                 if e._layout.get(f) is not None
             }
+            cands = (
+                aligned_cands(self, e) if e._intent["type"] == "aligned" else self.linear_cands(e)
+            )
             best, best_key = None, None
-            for cand in self.linear_cands(e):
+            for cand in cands:
                 if any(cand["fields"].get(f) != v for f, v in fixed.items()):
                     continue
-                key = (len(obst.conflicts(e.id, cand, 0.0)), cand.get("self_hit") or 0)
+                key = (
+                    len(obst.conflicts(e.id, cand, 0.0)),
+                    len(obst.crossings(e.id, cand)),
+                )
                 if best_key is None or key < best_key:
                     best, best_key = cand, key
-            if best is None or best_key[0] >= cur_conf:
+            if best is None or best_key >= cur_key:
                 continue
             e._prims = list(best["prims"])
             e._resolved.update(best["fields"])
             e._reason = (e._reason + "；" if e._reason else "") + "文字避让重排"
             self.parts[e._id] = list(best["prims"])
             e._resolved["bbox"] = list(prims_bbox(e._prims))
+            for stale in ("violations", "crossings", "corridors", "coincident_with_ref"):
+                e._resolved.pop(stale, None)
+            conf = obst.conflicts(e.id, best, 0.0)
+            cut = obst.crossings(e.id, best)
+            if conf or cut:
+                e._resolved["violations"] = [
+                    {"with": o, "kind": "overlap", "amount": round(v, 3)} for o, v in conf
+                ] + [{"with": o, "kind": "cross"} for o in cut]
+                if cut:
+                    e._resolved["crossings"] = sorted(cut)
 
     def _text_boxes(self, e):
         return [p.box for p in e._prims if isinstance(p, Text)]
@@ -1518,16 +1538,19 @@ class _ViewLayout:
                     continue
                 obst = _Obstacles()
                 for o in self.d._els.values():
-                    if o._intent.get("view") != self.name or not o._prims or o.id == e.id:
+                    prims = self.parts.get(o.id) or ()
+                    if o._intent.get("view") != self.name or not prims or o.id == e.id:
                         continue
                     obst.kinds[o.id] = o.kind
-                    obst.add_prims(o.id, o._prims)
+                    obst.add_prims(o.id, prims)
                     if o.kind in ann_kinds:
                         obst.ann.add(o.id)
-                cur = {"cross": cur_leader, "boxes": self._text_boxes(e)}
+                cur = {"cross": cur_leader, "boxes": self._text_boxes(e), "cross_dimlines": True}
+                bare = {k: v for k, v in cur.items() if k != "cross_dimlines"}
                 cur_key = (
                     len(obst.conflicts(e.id, cur, clearance)),
                     len(obst.crossings(e.id, cur)),
+                    len(obst.crossings(e.id, bare)),
                 )
                 best, best_key = None, cur_key
                 fixed = {
@@ -1536,9 +1559,11 @@ class _ViewLayout:
                 for cand in fn(self, e):
                     if any(cand["fields"].get(f) != v for f, v in fixed.items()):
                         continue
+                    bare = {k: v for k, v in cand.items() if k != "cross_dimlines"}
                     key = (
                         len(obst.conflicts(e.id, cand, clearance)),
                         len(obst.crossings(e.id, cand)),
+                        len(obst.crossings(e.id, bare)),
                     )
                     if key < best_key:
                         best, best_key = cand, key
@@ -1559,6 +1584,18 @@ class _ViewLayout:
                     ] + [{"with": o, "kind": "cross"} for o in cut]
                     if cut:
                         e._resolved["crossings"] = sorted(cut)
+                ref = self.parts.get(e._intent.get("ref") or "") or ()
+                best_overlap = 0.0
+                for a, b in leaders:
+                    for r_ in ref:
+                        if isinstance(r_, Line):
+                            best_overlap = max(
+                                best_overlap, collinear_overlap((a, b), (r_.p, r_.q))
+                            )
+                if best_overlap > 2.0:
+                    e._resolved["coincident_with_ref"] = [
+                        {"with": e._intent["ref"], "length": round(best_overlap, 2)}
+                    ]
                 e._reason = (e._reason + "；" if e._reason else "") + "为避免压图元 / 交叉调整引线"
                 self.parts[e._id] = list(best["prims"])
 
@@ -1839,6 +1876,11 @@ class _Layout:
             ox, oy = origins[name]
             for eid, prims in vl.parts.items():
                 d._els[eid]._prims += [move_prim(p, ox, oy) for p in prims]
+                leader = d._els[eid]._resolved.get("leader")
+                if leader:
+                    d._els[eid]._resolved["leader"] = [
+                        [[p[0] + ox, p[1] + oy], [q[0] + ox, q[1] + oy]] for p, q in leader
+                    ]
             v = vl.view
             full = vl.full
             v._resolved.update(
@@ -1891,19 +1933,6 @@ class _Layout:
             if loops:
                 hatches.append(loops)
 
-        def in_hatch(box):
-            cx, cy = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
-            for loops in hatches:
-                hits = 0
-                for lp in loops:
-                    if lp and lp[0] == "circle":
-                        hits += 1 if math.dist((cx, cy), lp[1]) <= lp[2] else 0
-                    else:
-                        hits += 1 if _point_in_poly((cx, cy), lp) else 0
-                if hits % 2 == 1:
-                    return True
-            return False
-
         offs = [
             (dx, dy)
             for mag in (
@@ -1926,17 +1955,23 @@ class _Layout:
             )
             for dx, dy in ((mag, 0.0), (-mag, 0.0), (0.0, mag), (0.0, -mag))
         ]
-        if e.kind in ("datum", "gtol", "rough"):
-            fixed_fields = ("at", "length", "dir")  # the leader and its label position are written
-        elif e.kind == "note":
-            fixed_fields = ("dir", "offset")
-        else:
-            fixed_fields = ("at", "offset")  # a written angle stays; its text may shift a little
         for _round in range(2):
             changed = False
             for e in els:
                 if e.kind in ("view", "feature", "raw", "chain") or not e._prims:
                     continue
+                if e.kind in ("datum", "gtol", "rough"):
+                    fixed_fields = (
+                        "at",
+                        "length",
+                        "dir",
+                    )  # the leader and its label position are written
+                elif e.kind == "note":
+                    fixed_fields = ("dir", "offset")
+                else:
+                    # a dimension's written angle stays (the dimension line is not touched); only the
+                    # auto-placed text may shift a few mm, a drafting adjustment, not a field change
+                    fixed_fields = ("offset",)
                 if any(e._layout.get(f) is not None for f in fixed_fields):
                     continue  # written position: report instead of moving it here
                 texts = [(i, pr) for i, pr in enumerate(e._prims) if isinstance(pr, Text)]
@@ -2191,6 +2226,11 @@ class _Layout:
                 if not moved:
                     break
         out = {n: (o[0] + dx, o[1] + dy) for n, o in origins.items()}
+        for n in names:  # a written at is an absolute sheet position for every basic view
+            at = vls[n].view._layout.get("at")
+            if at is not None:
+                ox, oy = vls[n].view._layout.get("offset", [0.0, 0.0])
+                out[n] = (at[0] + ox, at[1] + oy)
         for n in auxs:  # place(at=...) on an auxiliary view is an absolute sheet position
             at = vls[n].view._layout.get("at")
             if at is not None:

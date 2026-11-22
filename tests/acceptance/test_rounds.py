@@ -100,7 +100,6 @@ PLACEMENT_DEBT_FINAL = {
         ("place_ext_line", "D.gh"),
         ("place_ext_line", "D.gw"),
         ("place_row_spacing", "D.L"),
-        ("place_text_overlap", "D.ug"),
     },
 }
 

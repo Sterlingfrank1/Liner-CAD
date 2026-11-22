@@ -27,7 +27,7 @@ PMI 引线候选在 `pmi_layout.py`。写明的字段（`side` / `row` / `offset
    `resolved["violations"]` / `crossings`（DESIGN §4.6.3），不再只写在 reason 里。
 7. **收尾微调**：自动布局的视图组整体框在 A3 图框内并避开标题栏 / 技术要求区（`arrange`，
    写死 `place(at=…)` 的视图保持绝对位置）；极拥挤处只对**自动放置的单个文字**做 ≤40 mm 的
-   确定性微移（局部外推；写死 `at`/`length`/`dir`/`offset` 的元素一律不动，不移动尺寸线 / 箭头），
+   确定性微移（局部外推；尺寸写死的角度不动、只微移自动文字，PMI 写死 `at`/`length` 的整组不动，
    并把剖面线区域视为不可落字。
 8. **D1 review 两处 minor**：
    - ① `_concentric_with` 收窄为**整圆**才豁免公共圆心交叉；圆弧不再豁免（`test_concentric_arc_is_not_an_inherent_crossing`）。
@@ -118,22 +118,19 @@ D2 重排后参考图的 E5 债务签名变化，按 E2 机制在同一 PR 重�
 acceptance 的 8 轮最终表：`nesting D.L` 与 `text_overlap D.kd` 消除，出现 `row_spacing D.L`（轮次把写死的
 `D.L` 移到第 2 排后与外侧自动排的间距 2.0 < 7，属于轮次移动的已知代价，总项数 9 → 8，无新增 E5 规则）。
 
-## D1 review minor ② 的实测（D2 后仍贴合 6 处，均已上报）
+## D1 review minor ② 的实测（只比较结构性引线，未翻译坐标系前会误报）
 
-只比较**结构性引线**（`resolved["leader"]`）与引用图元，不再把公差框线 / 肩线当引线；共线长度 >2 mm
-才上报，写进 `placement.resolved["coincident_with_ref"]`：
+引线元数据 `resolved["leader"]` 已随视图平移转换到图纸坐标；只比较该结构性引线与引用图元，
+不再把公差框线 / 肩线当引线（Codex R1/R2 指出并用测试锁定）：
 
 | 用例 | PMI | 引用 | 共线长度 |
 |---|---|---|---|
 | L2/fork/bearing_support | G.par | D.d | 21.0 |
+| L2/fork/clevis | R.pin | D.dp | 28.0 |
 | L2/fork/link | G.par | D.d2 | 16.0 |
-| L2/shaft/pump_shaft | DT.B | D.d4 | 12.73 |
-| L2/shaft/shaft | DT.B | D.d5 | 12.73 |
-| L2/shaft/spline_shaft | DT.A | D.d2 | 12.73 |
-| L2/shaft/spline_shaft | DT.B | D.d5 | 12.73 |
 
-D1 状态复核到的 bearing_seat G.par↔D.d、gearbox_base R.b1↔D.d1、clevis R.pin↔D.dp 在 D2 重排后不再贴合，
-无需上报；shaft 三例是 D2 后新增的真实端部贴合（轴类基准落在端部尺寸线延长线上），照实上报。
+共 3 处，全部写进 `placement.resolved["coincident_with_ref"]` 并在 reason 说明；D1 状态复核到的另 3 处
+（bearing_seat G.par↔D.d、gearbox_base R.b1↔D.d1、clevis R.pin↔D.dp 之外的）在 D2 重排后不再贴合，无需上报。
 ## 回归用例（`tests/test_layout_d2.py`，G2 为首个 commit）
 
 - 同心直径对（合成圆视图 + bearing_seat / bearing_support / link 三例）不交叉。

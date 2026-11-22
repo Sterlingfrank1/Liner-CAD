@@ -163,6 +163,17 @@ def test_written_view_at_is_not_moved_by_the_frame_clamp():
     assert v._resolved["origin"] == [360.0, 25.0]
 
 
+def test_written_at_on_a_secondary_view_is_absolute_too():
+    d = Drawing()
+    front = d.view("front")
+    front.rect((0, 0), 80, 40, name="b")
+    left = d.view("left")
+    left.rect((0, 0), 40, 20, name="c")
+    left.place(at=(300, 100))
+    layout(d)
+    assert left._resolved["origin"] == [300.0, 100.0]
+
+
 def test_concentric_arc_is_not_an_inherent_crossing():
     from linercad.layout import Arc, _Obstacles
 

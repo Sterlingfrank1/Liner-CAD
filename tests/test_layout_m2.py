@@ -21,10 +21,8 @@ ALLOWED = {  # baseline: leaders fixed by the example or attached to a nested in
         ("R.bore", "D.ds"),
         ("R.bore", "R.spig"),
         ("R.spig", "R.bore"),
-        # D2 re-placed the frame dimensions of this crowded cover: the written datum / gtol
-        # leaders now run across two extension lines that no candidate can avoid
-        ("DT.A", "D.ds"),
-        ("DT.A", "D.dc"),
+        # D2 re-placed the frame dimensions: the written gtol leader now runs across the
+        # extension lines of the aligned tap dimension; all candidate lengths / shifts cross it
         ("G.pos", "D.tap"),
     },
     "pulley": {("DT.A", "D.Dh"), ("R.bore", "D.Dh"), ("R.flank", "D.e")},
