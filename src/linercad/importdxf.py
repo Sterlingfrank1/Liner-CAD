@@ -113,6 +113,7 @@ def dim_kind(e) -> str:
     return DIM_KINDS.get(t) or DIM_UNSUPPORTED.get(t) or f"type{t}"
 
 
+FRAME_LAYER_CN = {"图框", "图框层", "标题", "标题层", "标题栏", "标题栏层"}
 FRAME_LAYER_NAMES = {
     "FRAME",
     "FRAME_LAYER",
@@ -122,14 +123,16 @@ FRAME_LAYER_NAMES = {
     "TITLE_BLOCK",
     "BORDER",
     "BORDER_LAYER",
+    "SHEET",
     "SHEET_FRAME",
+    "SHEET_BORDER",
     "图框",
     "图框层",
+    "标题",
+    "标题层",
     "标题栏",
     "标题栏层",
-    "标题层",
 }
-FRAME_BLOCK_WORDS = ("TITLE", "FRAME", "MXB", "图框", "标题")
 
 
 def _decoded(name) -> str:
@@ -139,23 +142,27 @@ def _decoded(name) -> str:
         return str(name)
 
 
+def _clean_name(name) -> str:
+    up = _decoded(name).strip().upper()
+    while up and (up[0].isdigit() or up[0] in "_- "):
+        up = up[1:].strip()
+    return up
+
+
 def is_frame_layer(name) -> bool:
     """Does this layer belong to the source sheet frame / title block?
 
-    只认完整层名（避免把普通层名里的 FRAME_MEMBER / TITLE_BAR 之类误判成图框层）：
-    去掉数字前缀后必须正好是图框/标题栏层名之一；中文层名取包含匹配。
+    只认完整层名：中文必须是图框/标题栏层名本身；英文走白名单或两段式
+    FRAME_*/TITLE_*/BORDER_*（FRAME_MEMBER、TITLE_BAR 之类普通层不匹配）。
     """
-    raw = _decoded(name).strip()
-    if not raw:
+    up = _clean_name(name)
+    if not up:
         return False
-    up = raw.upper().strip()
-    while up and (up[0].isdigit() or up[0] in "_- "):
-        up = up[1:].strip()
-    if "图框" in up or "标题栏" in up:
+    if up in FRAME_LAYER_CN or up in FRAME_LAYER_NAMES:
         return True
     parts = [p for p in up.replace("-", "_").replace(" ", "_").split("_") if p]
     head = ("FRAME", "TITLE", "BORDER")
-    tail = ("FRAME", "TITLE", "BORDER", "LAYER", "BLOCK", "SHEET")
+    tail = ("FRAME", "TITLE", "BORDER", "LAYER", "BLOCK", "SHEET", "BORDER")
     if len(parts) == 1:
         return parts[0] in head
     if len(parts) == 2:
@@ -164,8 +171,17 @@ def is_frame_layer(name) -> bool:
 
 
 def is_frame_block(name) -> bool:
-    up = _decoded(name).upper()
-    return any(w.upper() in up for w in FRAME_BLOCK_WORDS)
+    """Title/frame block names only (FRAME_MEMBER / DETAIL_PART are not title blocks)."""
+    up = _clean_name(name)
+    if not up:
+        return False
+    if "图框" in up or "标题栏" in up:
+        return True
+    if "MXB" in up or "TITLE" in up or "FRAME" in up:
+        parts = [p for p in up.replace("-", "_").replace(" ", "_").split("_") if p]
+        tail = ("BLOCK", "BORDER", "FRAME", "TITLE", "RECORD", "MXB", "SHEET")
+        return bool(parts) and parts[-1] in tail
+    return False
 
 
 def frame_semantics(doc) -> dict:
@@ -177,9 +193,8 @@ def frame_semantics(doc) -> dict:
         if is_frame_layer(e.dxf.layer):
             if e.dxf.layer not in layers:
                 layers.append(e.dxf.layer)
-            if e.dxftype() == "INSERT" and is_frame_block(e.dxf.name):
-                if e.dxf.name not in blocks:
-                    blocks.append(e.dxf.name)
+            if e.dxftype() == "INSERT" and e.dxf.name not in blocks:
+                blocks.append(e.dxf.name)
             counts[e.dxftype()] = counts.get(e.dxftype(), 0) + 1
     for e in doc.modelspace().query("INSERT"):
         if is_frame_block(e.dxf.name) and e.dxf.name not in blocks:
@@ -1370,6 +1385,18 @@ def render_png(doc, out) -> Path:
     return out
 
 
+def _title_attribs(doc, title_blocks) -> list:
+    """Attached ATTRIBs of title/frame blocks plus top-level ATTRIBs on frame layers."""
+    wanted = set(title_blocks)
+    out = []
+    for e in doc.modelspace():
+        if e.dxftype() == "INSERT" and e.dxf.name in wanted:
+            out.extend(getattr(e, "attribs", ()))
+        elif e.dxftype() == "ATTRIB" and is_frame_layer(e.dxf.layer):
+            out.append(e)
+    return out
+
+
 def _all_attribs(doc) -> list:
     out = [e for e in doc.modelspace().query("ATTRIB")]
     for br in doc.modelspace().query("INSERT"):
@@ -1421,7 +1448,7 @@ def inspect(path, tmp_dir=None) -> dict:
     }
     out["title"] = {
         "blocks": frame["blocks"],
-        "attribs": len(_all_attribs(doc)),
+        "attribs": len(_title_attribs(doc, frame["blocks"])),
     }
     if ext:
         sheet, scale = guess_sheet(ext[2] - ext[0], ext[3] - ext[1])

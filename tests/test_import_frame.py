@@ -162,6 +162,45 @@ def test_inspect_counts_attached_title_attribs(tmp_path):
     assert out["title"]["attribs"] >= 1
 
 
+def test_declared_frame_layer_aliases_are_absorbed(tmp_path):
+    doc = _doc()
+    msp = doc.modelspace()
+    msp.add_line((0, 0), (10, 0), dxfattribs={"layer": "SHEET_FRAME"})
+    msp.add_line((0, 0), (0, 10), dxfattribs={"layer": "标题层"})
+    src = tmp_path / "aliases.dxf"
+    doc.saveas(src)
+    d, imp = imported(src)
+    assert imp.counts["frame"]["absorbed"].get("LINE") == 2, imp.counts["frame"]
+    assert not [e for e in d._els.values() if e.kind == "edge"]
+
+
+def test_chinese_frame_word_inside_an_ordinary_layer_is_not_absorbed(tmp_path):
+    doc = _doc()
+    msp = doc.modelspace()
+    msp.add_line((0, 0), (10, 0), dxfattribs={"layer": "图框_MEMBER"})
+    src = tmp_path / "reverse.dxf"
+    doc.saveas(src)
+    d, imp = imported(src)
+    assert imp.counts["frame"]["absorbed"] == {}
+    layers = {e._intent.get("dxf", {}).get("layer") for e in d._els.values() if e.kind == "edge"}
+    assert "图框_MEMBER" in layers
+
+
+def test_foreign_block_attrib_is_not_reported_as_title(tmp_path):
+    doc = _doc()
+    msp = doc.modelspace()
+    blk = doc.blocks.new("DETAIL_PART")
+    blk.add_attdef("SCALE", insert=(0, 0), height=2.5)
+    ref = msp.add_blockref("DETAIL_PART", (0, 0), dxfattribs={"layer": "DETAIL"})
+    ref.add_attrib("SCALE", "1:2", (1, 1), dxfattribs={"layer": "DETAIL"})
+    src = tmp_path / "detail.dxf"
+    doc.saveas(src)
+    out = importdxf.inspect(src)
+    assert out["title"]["blocks"] == []
+    assert out["title"]["attribs"] == 0
+    assert out["frame"]["absorbed"] == {}
+
+
 def test_build_has_one_frame_and_no_source_frame_copy(tmp_path):
     src = make_frame_dxf(tmp_path / "frame.dxf")
     d = tmp_path / "part"
