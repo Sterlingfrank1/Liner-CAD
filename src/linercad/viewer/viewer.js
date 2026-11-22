@@ -5,7 +5,7 @@ const $ = (id) => document.getElementById(id);
 const S = { version: -1, model: null, byId: {}, sel: [], svg: null, vb: null, full: null, params: [],
   values: {}, dragging: false, previewTimer: null, previewSeq: 0, fitted: false,
   versions: [], pick: [], cmp: null, busy: false,
-  previewIds: new Set(), previewFindings: [], paramError: null, resolved: {}, previewActive: false, unplaced: [], statusOrig: {}, savedScroll: 0 };  // B3/B6
+  previewIds: new Set(), previewFindings: [], paramError: null, resolved: {}, previewActive: false, unplaced: [], statusOrig: {}, savedScroll: 0, previewPending: false };  // B3/B6
 
 async function api(path, body) {
   const opt = body === undefined ? { headers: { "X-LCAD-Token": TOKEN } } : { method: "POST", body: JSON.stringify(body),
@@ -29,9 +29,11 @@ async function poll() {
 function updatePreviewBadge() {
   const b = $("preview-badge");
   b.hidden = !S.previewActive;
-  if (S.previewActive) {
-    b.textContent = S.dragging ? "预览（未写回）· 拖动中…" : "预览（未写回）· 点「写回源码」提交";
-  }
+  if (!S.previewActive) return;
+  if (S.paramError) b.textContent = "预览（未写回）· 被规则拒绝";
+  else if (S.previewPending) b.textContent = "预览（未写回）· 计算中…";
+  else if (S.dragging) b.textContent = "预览（未写回）· 拖动中…";
+  else b.textContent = "预览（未写回）· 点「写回源码」提交";
 }
 
 function setStatus(st) {
@@ -51,11 +53,17 @@ function setStatus(st) {
   el.className = "cnt " + (errs ? "st-error" : "st-ok");
   wl.textContent = warns + " warn";
   wl.className = "cnt " + (warns ? "st-warn" : "st-ok");
-  ml.textContent = st.message ? "“" + st.message + "”" : "";
-  ml.title = st.message || "";
-  $("st-full").textContent = st.message || "";
-  if (st.build_error) {
-    $("st-full").textContent = "构建失败：" + st.build_error.message;
+  if (st.build_error) {  // M2 contract: a build error is shown in the status bar itself
+    const text = "构建失败：" + st.build_error.message;
+    ml.textContent = text;
+    ml.title = text;
+    ml.className = "msg-line st-error";
+    $("st-full").textContent = text;
+  } else {
+    ml.textContent = st.message ? "“" + st.message + "”" : "";
+    ml.title = st.message || "";
+    ml.className = "msg-line";
+    $("st-full").textContent = st.message || "";
   }
 }
 
@@ -423,7 +431,7 @@ function paramRow(p) {
     if (v === v0) delete S.values[p.name]; else S.values[p.name] = v;
     row.classList.toggle("changed", v !== v0);
     row.classList.add("pending"); row.clearBad();
-    S.dragging = true; S.previewActive = true;  // B3: Esc can withdraw while the request is in flight
+    S.dragging = true; S.previewActive = true; S.previewPending = true;  // B3/B4
     updatePreviewBadge();
     schedulePreview();
   });
@@ -438,7 +446,7 @@ function schedulePreview() {
     try { r = await api("/api/preview", { values, seq }); } catch (e) { r = { ok: false, error: { message: String(e) } }; }
     if (seq !== S.previewSeq || r.superseded) return;  // a newer drag superseded this one
     S.dragging = false;
-    updatePreviewBadge();
+    S.previewPending = false;
     const rows = [...document.querySelectorAll(".param")];
     for (const row of rows) row.classList.remove("pending");
     const msg = $("param-msg");
@@ -450,6 +458,7 @@ function schedulePreview() {
       S.previewIds = new Set(r.affected || []);  // B3: red on the elements that cover the parameter
       S.previewActive = true;
       S.unplaced = [];
+      updatePreviewBadge();
       colour(); inspect();
       const bad = new Set(Object.keys(values));  // the changed rows, and the row whose rule failed
       if (r.error.id) bad.add(r.error.id);
@@ -461,6 +470,7 @@ function schedulePreview() {
     S.previewActive = true;
     S.unplaced = r.unplaced || [];
     S.paramError = null;
+    updatePreviewBadge();
     msg.className = "msg";
     msg.textContent = Object.keys(values).length ? `预览 ${r.timing_ms} ms` +
       (r.stale_ops && r.stale_ops.length ? `\n失效的日志操作：${r.stale_ops.map((s) => `${s.edit} ${s.op} ${s.id || ""}`).join("；")}` : "") : "";
@@ -586,8 +596,7 @@ function zoomTo(id) {
 const VER_OPEN_KEY = "lcad-viewer:versions-open";
 const PARAMS_SCROLL_KEY = "lcad-viewer:params-scroll";
 function preserveScroll() {
-  const top = $("params").scrollTop;
-  if (top <= 0) return;  // do not overwrite the remembered position with a transient 0
+  const top = $("params").scrollTop;  // a user scroll to the top is a position like any other
   S.savedScroll = top;
   try { sessionStorage.setItem(PARAMS_SCROLL_KEY, String(top)); } catch (e) {}
 }

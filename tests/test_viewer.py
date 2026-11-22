@@ -487,6 +487,26 @@ def test_b1_params_api_reports_slider_ranges(flange_dir, tmp_path):
     assert q["name"] == "L" and q["range"] == {"min": 5.0, "max": 15.0}
 
 
+def test_b1_fallback_range_is_step_aligned(tmp_path):
+    p = tmp_path / "d"
+    txn.init(p)
+    (p / "drawing.py").write_text(
+        "from linercad import Drawing, Param\n"
+        "d = Drawing(sheet='A3', std='GB', scale='1:1')\n"
+        "P = d.params(A=Param(11), B=Param(5, min=5, max=5))\n"
+        "f = d.view('front')\n"
+        "f.turned('b', [(0, 5), (P.A, 5)])\n"
+        "f.dim.linear('A', (0, 5), (P.A, 5), value=P.A, side='bottom')\n"
+        "d.title(name='t')\n",
+        encoding="utf-8",
+    )
+    ps = {q["name"]: q for q in Viewer(p).params()["params"]}
+    a = ps["A"]
+    assert a["range"]["min"] < 11 < a["range"]["max"]
+    assert (11 - a["range"]["min"]) % 1 == 0  # the default is on the auto-step grid
+    assert ps["B"]["range"] == {"min": 5.0, "max": 5.0}  # a declared fixed range is kept
+
+
 def test_b1_slider_scale_rendered():
     from importlib import resources
 
@@ -533,7 +553,7 @@ def test_b4_preview_marking_text_exists():
     js = (resources.files("linercad.viewer") / "viewer.js").read_text(encoding="utf-8")
     html = (resources.files("linercad.viewer") / "index.html").read_text(encoding="utf-8")
     assert "preview-badge" in html and "未写回" in html
-    for needle in ("拖动中", "写回源码", "preview-badge"):
+    for needle in ("拖动中", "写回源码", "preview-badge", "计算中", "被规则拒绝"):
         assert needle in js, needle
 
 
@@ -563,7 +583,7 @@ def test_b5_status_bar_rendering():
     js = (pkg / "viewer.js").read_text(encoding="utf-8")
     css = (pkg / "viewer.css").read_text(encoding="utf-8")
     html = (pkg / "index.html").read_text(encoding="utf-8")
-    for needle in ("st-errors", "st-warnings", "st-msg", "expanded"):
+    for needle in ("st-errors", "st-warnings", "st-msg", "expanded", "构建失败"):
         assert needle in js, needle
     for needle in ("st-errors", "st-warnings", "st-msg"):
         assert needle in html, needle
