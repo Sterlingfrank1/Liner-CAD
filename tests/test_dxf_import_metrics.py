@@ -154,9 +154,9 @@ def test_dimension_retention(report):
 def test_text_retention_is_honest_about_notes(report):
     text = report["files"][0]["metrics"]["text_retention"]
     assert text["source"] == 7  # technical note, MTEXT, %%c20, two duplicates, two title texts
-    assert text["as_text"] == 0  # importer has no regular text element yet (C2 target)
-    assert text["rate"] == 0.0
-    assert text["as_note"] == 7 and text["note_rate"] == 1.0
+    assert text["as_text"] == 7  # C2: all TEXT / MTEXT are plain text elements now
+    assert text["rate"] == 1.0
+    assert text["as_note"] == 0 and text["note_rate"] == 0.0
     assert text["dims_fallback_notes"] == 1  # the far radius dimension, not a text source
 
 
@@ -185,10 +185,10 @@ def test_frame_title_handling(report):
     assert m["single_frame_ok"] is False  # imported frame edges duplicate it (C4 target)
     # title texts: 2 modelspace + 1 template text inside the title block definition
     assert m["title_texts"] == 3
-    assert m["title_texts_as_text"] == 0
-    assert m["title_texts_as_note"] == 2
-    assert m["title_text_rate"] == 0.0
-    assert m["title_note_rate"] == round(2 / 3, 4)
+    assert m["title_texts_as_text"] == 2  # modelspace title texts are plain text elements now
+    assert m["title_texts_as_note"] == 0
+    assert m["title_text_rate"] == round(2 / 3, 4)
+    assert m["title_note_rate"] == 0.0
     assert m["title_attrib_fields"] == 2  # insert attribute + top-level ATTRIB with a free tag
     assert m["title_attrib_retained"] == 0
 
@@ -201,7 +201,7 @@ def test_title_text_reading_rises_with_a_regular_text_element(fixture_doc):
     ]
     m = metrics.frame_title(fixture_doc, None, created)
     assert m["title_texts_as_text"] == 1  # the template text is now kept as ordinary text
-    assert m["title_texts_as_note"] == 1
+    assert m["title_texts_as_note"] == 1  # the msp title text is still only a note here
     assert m["title_text_rate"] == round(1 / 3, 4)
 
 
@@ -309,16 +309,16 @@ def test_edit_round_verifies_both_operations(report):
     round_ = report["files"][0]["metrics"]["edit_round"]
     assert round_["ok"] is True, round_
     assert round_["build_ok"] is True
-    assert round_["moved_dim"].startswith("D.")
+    assert round_["moved_element"].startswith("D.")
     assert round_["move_args"] and set(round_["move_args"]) & {"dx", "dy"}
-    assert round_["changed_note"].startswith("N.")
+    assert round_["changed_element"].startswith("N.")
 
 
 def test_move_candidates_prefer_the_side_normal():
     model = {
         "elements": [
-            {"id": "D.right", "placement": {"side": "right"}},
-            {"id": "D.bottom", "placement": {"side": "bottom"}},
+            {"id": "D.right", "kind": "dim", "placement": {"side": "right"}},
+            {"id": "D.bottom", "kind": "dim", "placement": {"side": "bottom"}},
         ]
     }
     candidates = metrics._move_candidates(model)
@@ -361,7 +361,7 @@ def test_summary_aggregates(report):
     s = report["summary"]
     assert s["files"] == 1
     assert s["entities"]["retained"] < s["entities"]["source"]
-    assert s["text_retention"]["rate"] == 0.0 and s["text_retention"]["note_rate"] == 1.0
+    assert s["text_retention"]["rate"] == 1.0 and s["text_retention"]["note_rate"] == 0.0
     assert s["hatch_retention"] == 0.0
     assert s["layer_names_preserved"] >= 1
     assert s["sheet_guess_available_rate"] == 1.0 and s["sheet_guess_fits_rate"] == 1.0
@@ -369,8 +369,8 @@ def test_summary_aggregates(report):
     assert s["inspect_match_rate"] == 1.0
     assert s["frame_edges"]["source"] == 1 and s["frame_edges"]["rate"] == 1.0
     assert s["model_frames"] == 1 and s["single_frame_ok_rate"] == 0.0
-    assert s["title_text_retention"] == 0.0
-    assert s["title_note_retention"] == round(2 / 3, 4)
+    assert s["title_text_retention"] == round(2 / 3, 4)
+    assert s["title_note_retention"] == 0.0
 
 
 def test_cli_writes_json(tmp_path):

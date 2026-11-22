@@ -86,9 +86,16 @@ def _rate(retained: int, source: int):
 
 
 def _source_text(e) -> str:
-    if e.dxftype() == "MTEXT":
-        return importdxf.clean_text(e.plain_text())
-    return importdxf.clean_text(e.dxf.text)
+    # independent reading of the source entity (not the importer's parser)
+    from ezdxf.lldxf.encoding import decode_dxf_unicode
+
+    raw = e.plain_text(fast=False) if e.dxftype() == "MTEXT" else e.dxf.text
+    try:
+        raw = decode_dxf_unicode(raw)
+    except Exception:  # noqa: BLE001
+        pass
+    parts = [importdxf.clean_text(part) for part in raw.split("\n")]
+    return "\n".join(parts)
 
 
 def _decode(name) -> str:
@@ -284,7 +291,7 @@ def _would_import(doc, e) -> bool:
         return False
     if bucket == "edges":
         return any(_edge_ok(seg) for seg in importdxf._segments(e))
-    if bucket == "notes":
+    if bucket in ("notes", "texts"):
         return bool(_source_text(e))
     if bucket == "raw":
         return _raw_would_import(e)
@@ -297,7 +304,7 @@ def _would_import(doc, e) -> bool:
 def entity_retention(doc, counts: dict) -> dict:
     source = Counter(e.dxftype() for e in _msp(doc))
     retained = Counter()
-    for bucket in ("edges", "raw", "notes"):
+    for bucket in ("edges", "raw", "texts", "notes"):
         for label, n in counts.get("from", {}).get(bucket, {}).items():
             if label in source:
                 retained[label] += n
@@ -531,15 +538,21 @@ def inspect_cli(path: Path, doc=None) -> dict:
 def _move_candidates(model) -> list:
     """[(dim id, move kwargs)] ordered so the first one is most likely to move successfully."""
     out = []
+    groups = {"dim": [], "text": []}
     for e in model["elements"]:
-        eid = e["id"]
-        if not eid.startswith("D."):
-            continue
-        side = (e.get("placement") or {}).get("side")
-        order = ("dx", "dy") if side in ("left", "right") else ("dy", "dx")
-        for axis in order:
-            for delta in (1.0, -1.0):
-                out.append((eid, axis, delta))
+        if e.get("kind") in groups:
+            groups[e["kind"]].append(e)
+    for kind in ("dim", "text"):
+        for e in groups[kind]:
+            eid = e["id"]
+            if kind == "dim":
+                side = (e.get("placement") or {}).get("side")
+                order = ("dx", "dy") if side in ("left", "right") else ("dy", "dx")
+            else:
+                order = ("dx", "dy")
+            for axis in order:
+                for delta in (1.0, -1.0):
+                    out.append((eid, axis, delta))
     return out
 
 
@@ -555,16 +568,18 @@ def edit_round(path: Path) -> dict:
         model = json.loads(model_path.read_text(encoding="utf-8"))
         ids = [e["id"] for e in model["elements"]]
         notes = sorted(i for i in ids if i.startswith("N."))
+        texts = sorted(e["id"] for e in model["elements"] if e["kind"] == "text")
+        editable = notes + texts
         candidates = _move_candidates(model)
-        if not candidates or not notes:
+        if not candidates or not editable:
             return {
                 "ok": False,
-                "error": "no movable dimension / note to edit",
+                "error": "no movable dimension / editable text to edit",
                 "candidates": len(candidates),
-                "notes": len(notes),
+                "editable": len(editable),
                 "build_ok": False,
             }
-        note = notes[0]
+        note = editable[0]
         script = part / ".linercad" / "tmp" / "c1_edit_round.py"
         script.parent.mkdir(parents=True, exist_ok=True)
         body = [
@@ -582,17 +597,32 @@ def edit_round(path: Path) -> dict:
             )
         body.append(f'    d["{note}"].set(text="C1 \u6539\u4e00\u6bb5\u6587\u5b57")')
         script.write_text("\n".join(body) + "\n", encoding="utf-8")
+        before = {e["id"]: e for e in model["elements"]}
         code, out = _cli(part, "edit", str(script), "-m", "C1 edit round")
         ops = out.get("ops") or []
         moved = [op for op in ops if op.get("op") == "move"]
         changed = [op for op in ops if op.get("op") == "set" and op.get("id") == note]
         ok_edit = code == 0
         ok_build = ok_edit and (part / ".linercad" / "build" / "drawing.dxf").is_file()
+        moved_ok = text_ok = False
+        if ok_build and moved and changed:
+            try:
+                after = {
+                    e["id"]: e
+                    for e in json.loads(model_path.read_text(encoding="utf-8"))["elements"]
+                }
+                mid = moved[0]["id"]
+                moved_ok = mid in after and after[mid] != before.get(mid)
+                text_ok = after.get(note, {}).get("intent", {}).get("text") == "C1 改一段文字"
+            except (OSError, ValueError):
+                moved_ok = text_ok = False
         return {
-            "ok": bool(ok_edit and ok_build and moved and changed),
-            "moved_dim": moved[0]["id"] if moved else None,
+            "ok": bool(ok_edit and ok_build and moved and changed and moved_ok and text_ok),
+            "moved_element": moved[0]["id"] if moved else None,
             "move_args": moved[0].get("args") if moved else None,
-            "changed_note": note if changed else None,
+            "changed_element": note if changed else None,
+            "moved_ok": moved_ok,
+            "text_ok": text_ok,
             "edit_code": code,
             "build_ok": bool(ok_build),
             "errors": out.get("errors"),
