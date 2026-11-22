@@ -27,7 +27,7 @@
 | 40 例 geometry / completeness | 1.0（35 例）/ 1.0（5 例） | **1.0 / 1.0** |
 | `run.py --baseline` 回归项 | — | **`regressions: []`**（exit 0） |
 
-**为什么 E5 数字不变（不是退化）**：E5 的 `place_dim_cross` / `place_dim_outline` / `place_nesting` / `place_row_spacing` 按设计只判 **frame 型（线性 / 对齐）尺寸**；`_leader_dim()` 明确把圆形直径 / 半径这类引线型尺寸排除，引线型尺寸的尺寸界线由 `place_ext_line` 治理（不判与其他尺寸线的交叉）。D1 改的正是引线型圆尺寸，所以五范例与 40 例 D 族数字与 E5 合并时一致；本卡收益体现在本机计数与渲染上（见下），D2 修线性 / 多层尺寸时会直接反映到 E5 的交叉、间距、嵌套子项。
+**为什么 E5 数字不变（不是退化）**：E5 的 `place_dim_outline` / `place_nesting` / `place_row_spacing` 按设计只判 frame 型（线性 / 对齐）尺寸；`place_dim_cross` 虽也判引线型尺寸线，但 D1 修复的交叉对象是尺寸界线与中心线（如 gear_blank Φ92 与 D.kd 的尺寸界线、与水平中心线共线），本就不在 `place_dim_cross`（只判尺寸线）的计量范围内，引线与轮廓的交叉也不被 `place_dim_outline` 计量。D1 的收益（尺寸线 1→0、非同心轮廓 8→3）因此落在本地计数与渲染图上；D2 修线性 / 多层尺寸时会直接反映到 E5 的交叉、间距、嵌套子项。
 
 补充（本机计数，同一 45 用例；口径见各节）：自动圆形引线与其它尺寸线交叉 1→0、与非同心轮廓线交叉 8→3（3 个穷举 24 方向 × 6 长度后不可避免，见下表）、共线重合 0→0；有交叉的自动圆形引线 9→3；写死 `at` 0 改动。自动角度变化 8 处（L1/drill_blind_4x10 D.dh/D.pcd、drill_blind_6x8 D.dh/D.pcd、section_aligned_3x12 D.dh、L2/box/bearing_seat D.dh、gearbox_base D.dh、L2/disc/gear_blank D.pcd），明细见 PR 正文。
 
