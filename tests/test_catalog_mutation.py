@@ -111,11 +111,15 @@ def test_mutation_detection_and_false_positive_rates(report):
         assert data["detection_rate"] == 1.0, (rule, data)
         assert data["detected"] == data["mutations"], (rule, data)
         assert data["false_positives"] == 0, (rule, data)
+        assert data["base_findings"] == 0, (rule, data)
+        assert data["target"] is not None, (rule, data)  # every mutation is anchored on an id
     assert report["totals"]["mutations"] >= len(checks.RULES)
+    assert report["totals"]["skipped_cases"] == 0
 
 
 def test_mutation_report_mentions_known_placement_debt(report):
     assert report["known_debt"]["total"] > 0  # E5's frozen debt is excluded but reported
+    assert report["known_debt"]["exact"]  # the frozen signatures equal the actual reference set
     assert report["totals"]["false_positives"] == 0
 
 

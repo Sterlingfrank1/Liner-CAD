@@ -31,6 +31,7 @@ import run as evals  # noqa: E402
 from linercad import catalog, checks, place  # noqa: E402
 from linercad.layout import Circle, Line, Solid, Text, layout  # noqa: E402
 from linercad.runtime import build  # noqa: E402
+from linercad.source3d import MissingExtra  # noqa: E402
 
 KNOWN_DEBT = HERE / "known-debt.json"
 
@@ -64,14 +65,18 @@ def _build_case(case):
         shutil.rmtree(work, ignore_errors=True)
 
 
+def _signature(finding) -> str:
+    return json.dumps(finding.get("measured") or {}, sort_keys=True, ensure_ascii=False)
+
+
 def known_debt() -> dict:
-    """{case id: {(rule, id), ...}} of the frozen reference findings."""
+    """{case id: {(rule, id, measured signature), ...}} of the frozen reference findings."""
     if not KNOWN_DEBT.exists():
         return {}
     data = json.loads(KNOWN_DEBT.read_text(encoding="utf-8"))
     return {
-        case_id: {(rule, eid) for rule, eid in pairs}
-        for case_id, pairs in data.get("cases", {}).items()
+        case_id: {(rule, eid, sig) for rule, eid, sig in entries}
+        for case_id, entries in data.get("cases", {}).items()
     }
 
 
@@ -264,6 +269,7 @@ def _frame_like(d, rule):
 
 def m_line_width(d):
     d.std["lines"]["thick"]["width"] = 0.31
+    return "T.frame"
 
 
 def m_text_height(d):
@@ -280,10 +286,12 @@ def m_text_height(d):
 
 def m_scale(d):
     d.scale_text = "1:7"
+    return "T.title.scale"
 
 
 def m_sheet(d):
     d.template["size"] = [111.0, 222.0]
+    return "T.frame"
 
 
 def m_conv_dim(d):
@@ -364,6 +372,7 @@ def m_param_cover(d):
     from linercad import Param
 
     d.P._params["MUTANT"] = Param(5)  # one d.params() call per drawing; the rule reads the set
+    return "P.MUTANT"
 
 
 def m_dev_order(d):
@@ -806,12 +815,12 @@ def reference_pass(cases=None):
     for case in cases:
         try:
             res = _build_case(case)
-        except Exception as e:  # noqa: BLE001 - needs an optional dependency: skip the case
+        except MissingExtra as e:  # an optional dependency is the only tolerated reason
             skipped.append({"id": case["id"], "reason": f"{type(e).__name__}: {e}"})
             continue
         found = _findings(res.d)
         cid = case["id"]
-        per_case[cid] = [(f["rule"], f["id"]) for f in found]
+        per_case[cid] = [(f["rule"], f["id"], _signature(f)) for f in found]
         for rule, n in found.opportunities.items():
             opportunities[rule] = opportunities.get(rule, 0) + n
             if n and rule not in {f["rule"] for f in found} and rule not in clean:
@@ -830,8 +839,8 @@ def false_positives(ref):
     out = {}
     for cid, findings in ref["cases"].items():
         debt = ref["known_debt"].get(cid, set())
-        for rule, eid in findings:
-            if (rule, eid) in debt:
+        for rule, eid, sig in findings:
+            if (rule, eid, sig) in debt:
                 continue
             out[rule] = out.get(rule, 0) + 1
     return out
@@ -853,6 +862,8 @@ def run_report(cases=None) -> dict:
             "detection_rate": 0.0,
             "false_positives": fps.get(rule, 0),
             "opportunities": ref["opportunities"].get(rule, 0),
+            "reference_opportunities": ref["opportunities"].get(rule, 0),
+            "mutation_base_opportunities": None,
             "base": None,
         }
         if mutator is not None:
@@ -872,19 +883,24 @@ def run_report(cases=None) -> dict:
                     base_found = _findings(d, stale, log_ops)
                     data["_base_ids"] = {f["id"] for f in base_found if f["rule"] == rule}
                     data["base_findings"] = len(data["_base_ids"])
-                    if not isinstance(base, str):  # a purpose-built clean fixture is its reference
-                        data["opportunities"] = base_found.opportunities.get(rule, 0)
-                        data["false_positives"] = sum(1 for f in base_found if f["rule"] == rule)
+                    if not isinstance(base, str):
+                        # a purpose-built clean fixture is its reference; only rules without a
+                        # reference-drawing opportunity use the fixture numbers for FP accounting
+                        base_opp = base_found.opportunities.get(rule, 0)
+                        base_fps = sum(1 for f in base_found if f["rule"] == rule)
+                        data["mutation_base_opportunities"] = base_opp
+                        if data["reference_opportunities"] == 0:
+                            data["opportunities"] = base_opp
+                            data["false_positives"] = base_fps
                     stale = (STALE_OP,) if rule == "stale_op" else ()
-                    target = None if rule == "stale_op" else mutator(d)
+                    target = STALE_OP["id"] if rule == "stale_op" else mutator(d)
                     found = _findings(d, stale, log_ops)
                     ids = {f["id"] for f in found if f["rule"] == rule}
                     base_ids = data.pop("_base_ids", set())
                     data["target"] = target
                     data["mutations"] = 1
                     ok = rule in {f["rule"] for f in found}
-                    if target is not None:
-                        ok = ok and target in ids
+                    ok = ok and target is not None and target in ids
                     ok = ok and not (base_ids & ids)
                     data["detected"] = 1 if ok else 0
                     data["detection_rate"] = float(data["detected"])
@@ -904,7 +920,24 @@ def run_report(cases=None) -> dict:
         "false_positives": total_fp,
     }
     debt = json.loads(KNOWN_DEBT.read_text(encoding="utf-8")) if KNOWN_DEBT.exists() else {}
-    report["known_debt"] = {"total": debt.get("total", 0), "cases": len(debt.get("cases", {}))}
+    actual = {
+        (cid, rule, eid, sig)
+        for cid, findings in ref["cases"].items()
+        for rule, eid, sig in findings
+        if rule.startswith("place_")
+    }
+    frozen = {
+        (cid, rule, eid, sig)
+        for cid, entries in ref["known_debt"].items()
+        for rule, eid, sig in entries
+    }
+    report["known_debt"] = {
+        "total": debt.get("total", 0),
+        "cases": len(debt.get("cases", {})),
+        "exact": actual == frozen,
+        "unfrozen": sorted(actual - frozen)[:5],
+        "stale": sorted(frozen - actual)[:5],
+    }
     report["totals"]["skipped_cases"] = len(ref.get("skipped", []))
     return report
 
@@ -939,8 +972,8 @@ def _baseline_table() -> list[str]:
         )
     out.append("")
     out.append(
-        "原 34 条规则（除新增径向引线规则外）在 40 例上仍 0 违规，G/T 仍 1.0；"
-        "D 的下降全部来自新增规则的已知真阳性（同时冻结进 evals/known-debt.json）。"
+        "原 34 条规则没有新增违规（E5 的 77 条债务不变），新增的 20 条来自 place_leader_cross；"
+        "G/T 仍 1.0，D 的下降全部来自新增规则的已知真阳性（同时冻结进 evals/known-debt.json）。"
     )
     out.append("")
     return out
@@ -955,7 +988,9 @@ def markdown(report) -> str:
     t = report["totals"]
     lines.append(
         f"- 规则数：{t['rules']}；变异数：{t['mutations']}；检出：{t['detected']}；"
-        f"检出率：{t['detection_rate']}；参考图误报：{t['false_positives']}"
+        f"检出率：{t['detection_rate']}；参考图误报：{t['false_positives']}；"
+        f"跳过用例：{t.get('skipped_cases', 0)}；"
+        f"债务冻结精确：{report['known_debt']['exact']}"
     )
     lines.append(
         f"- 冻结已知债务（E5 排布 + 径向引线交叉现存违规）：{report['known_debt']['total']} 条，"
@@ -963,12 +998,14 @@ def markdown(report) -> str:
     )
     lines.append("")
     lines.extend(_baseline_table())
-    lines.append("| 规则 | 机会数（参考图） | 变异 | 检出 | 检出率 | 误报 | 基线 |")
-    lines.append("|---|---|---|---|---|---|---|")
+    lines.append("| 规则 | 参考图机会 | 变异基座机会 | 变异 | 检出 | 检出率 | 误报 | 基线 |")
+    lines.append("|---|---|---|---|---|---|---|---|")
     for rule, d in sorted(report["rules"].items()):
         lines.append(
-            f"| {rule} | {d['opportunities']} | {d['mutations']} | {d['detected']} | "
-            f"{d['detection_rate']:.0%} | {d['false_positives']} | {d['base'] or '—'} |"
+            f"| {rule} | {d['reference_opportunities']} | "
+            f"{d.get('mutation_base_opportunities') or '—'} | {d['mutations']} | "
+            f"{d['detected']} | {d['detection_rate']:.0%} | {d['false_positives']} | "
+            f"{d['base'] or '—'} |"
         )
     lines.append("")
     return "\n".join(lines) + "\n"
@@ -990,7 +1027,12 @@ def main(argv=None):
         )
     return (
         0
-        if report["totals"]["detection_rate"] == 1.0 and report["totals"]["false_positives"] == 0
+        if (
+            report["totals"]["detection_rate"] == 1.0
+            and report["totals"]["false_positives"] == 0
+            and report["totals"].get("skipped_cases", 0) == 0
+            and report["known_debt"]["exact"]
+        )
         else 1
     )
 

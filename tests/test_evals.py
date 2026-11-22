@@ -69,6 +69,11 @@ def test_mutation_report_has_full_detection_and_no_false_positives():
     assert rep["totals"]["detection_rate"] == 1.0, rep["totals"]
     assert rep["totals"]["false_positives"] == 0, rep["totals"]
     assert rep["totals"]["mutations"] >= len(rep["rules"])
+    assert rep["totals"]["skipped_cases"] == 0
+    assert rep["known_debt"]["exact"]
+    for rule, data in rep["rules"].items():
+        assert data["base_findings"] == 0, rule
+        assert data["target"] is not None, rule
     # the new radial-leader rule's mandated negative example is gear_blank Φ92
     leader = rep["rules"]["place_leader_cross"]
     assert leader["base"] == "L2/disc/gear_blank" and leader["target"] == "D.pcd"
