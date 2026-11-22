@@ -97,17 +97,27 @@ def test_dry_run_failure_has_the_same_structure_as_edit(shaft):
     assert real["rolled_back"] is True
 
 
-def test_dry_run_stale_op_failure_matches_edit(shaft):
-    script = write_script(
-        shaft,
-        '    d["D.L"].suppress()\n    d.raw("D.L").entities[0].dxf.color = 1\n',
-    )
+def test_dry_run_stale_op_failure_matches_edit(shaft, monkeypatch):
+    from linercad.errors import StaleOp
+
+    script = write_script(shaft, '    d["D.L"].place(side="top")\n')
+    real_build = txn.build
+
+    def stale_build(*args, **kwargs):
+        if kwargs.get("current_edit"):
+            raise StaleOp("本次修改的 raw 操作无法应用：模拟", id="D.L")
+        return real_build(*args, **kwargs)
+
+    monkeypatch.setattr(txn, "build", stale_build)
     before = repo_state(shaft)
-    code, dry = cli("-C", str(shaft), "edit", str(script), "-m", "试改", "--dry-run")
-    assert code == 1 and not dry["ok"] and dry["error"]["code"] == "stale"
-    assert repo_state(shaft) == before
-    code, real = cli("-C", str(shaft), "edit", str(script), "-m", "试改")
-    assert code == 1 and real["error"]["code"] == dry["error"]["code"]
+    with pytest.raises(StaleOp) as dry_err:
+        txn.edit(shaft, script, "试改", dry_run=True)
+    assert dry_err.value.code == "stale"
+    assert repo_state(shaft) == before  # a failed dry run writes nothing either
+    with pytest.raises(StaleOp) as real_err:
+        txn.edit(shaft, script, "试改")
+    assert real_err.value.code == dry_err.value.code
+    assert real_err.value.message == dry_err.value.message
 
 
 def test_dry_run_no_ops_matches_edit(shaft):
@@ -126,3 +136,18 @@ def test_dry_run_python_api(shaft):
     out = txn.edit(shaft, script, "试改", dry_run=True)
     assert out["ok"] and out["dry_run"] is True and out["commit"] is None
     assert repo_state(shaft) == before
+
+
+def test_dry_run_does_not_start_the_viewer(shaft, monkeypatch):
+    monkeypatch.delenv("LCAD_NO_VIEW", raising=False)
+    monkeypatch.delenv("CI", raising=False)
+    script = write_script(shaft, '    d["D.L"].place(side="top")\n')
+    code, out = cli("-C", str(shaft), "edit", str(script), "-m", "试改", "--dry-run")
+    assert code == 0 and out["ok"]
+    assert not (shaft / ".linercad" / "viewer.json").exists()
+
+
+def test_dry_run_without_a_message_is_allowed(shaft):
+    script = write_script(shaft, '    d["D.L"].place(side="top")\n')
+    code, out = cli("-C", str(shaft), "edit", str(script), "--dry-run")
+    assert code == 0 and out["ok"] and out["dry_run"] is True
