@@ -566,6 +566,8 @@ def main(argv=None):
         json.dumps(rep, ensure_ascii=False, indent=1), encoding="utf-8", newline="\n"
     )
     print(json.dumps(rep["summary"], ensure_ascii=False))
+    mutation_ok = True
+    problems = []
     if a.mutation:
         import mutate
 
@@ -575,8 +577,13 @@ def main(argv=None):
         Path(a.out).write_text(
             json.dumps(rep, ensure_ascii=False, indent=1), encoding="utf-8", newline="\n"
         )
+        mutation_ok = (
+            report["totals"]["detection_rate"] == 1.0
+            and report["totals"]["false_positives"] == 0
+            and report["totals"].get("skipped_cases", 0) == 0
+            and report["known_debt"]["exact"]
+        )
         print(json.dumps({"mutation": report["totals"]}, ensure_ascii=False))
-    problems = []
     if a.baseline:
         try:
             base = json.loads(Path(a.baseline).read_text(encoding="utf-8"))
@@ -585,10 +592,12 @@ def main(argv=None):
         else:
             problems = compare_baseline(rep, base)
     clean = rep["summary"]["passed"] == rep["summary"]["cases"]
-    failed = not clean or bool(problems)
+    failed = not clean or bool(problems) or not mutation_ok
     if a.save_baseline:
         vector = baseline_vector(rep)
         blocked = list(problems)
+        if not mutation_ok:
+            blocked.append("mutation gate failed")
         if not clean:
             blocked.append("run is not clean (passed != cases)")
         if a.level or a.case or a.no_geo or a.drawings:
@@ -617,6 +626,8 @@ def main(argv=None):
         print(
             json.dumps({"baseline": str(a.baseline), "regressions": problems}, ensure_ascii=False)
         )
+    if not mutation_ok:
+        print(json.dumps({"mutation_gate": "failed"}, ensure_ascii=False))
     return 1 if failed else 0
 
 

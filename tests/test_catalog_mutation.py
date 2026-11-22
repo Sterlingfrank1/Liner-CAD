@@ -45,7 +45,7 @@ def test_catalog_covers_every_rule():
     assert set(ids) == set(checks.RULES)
 
 
-def test_catalog_entry_schema_and_functions(report):
+def test_catalog_entry_schema_and_functions():
     functions = mutate.rule_functions()
     for e in catalog.load()["rule"]:
         for key in (
@@ -70,6 +70,9 @@ def test_catalog_entry_schema_and_functions(report):
         assert e["clause_status"] in ("read", "pending", "design")
         assert e["positive"].strip() and e["negative"].strip()
         assert "参考图" in e["positive"] or "fixture" in e["positive"], e["id"]
+        if "FIXTURES[" in e["positive"]:  # a named fixture must exist in the mutation framework
+            name = e["positive"].split("FIXTURES[")[1].split("]")[0].strip("'")
+            assert name in mutate.FIXTURES, (e["id"], name)
         if e["clause_status"] == "pending":
             # no clause / table number may be invented: the clause is the standard number only
             assert e["clause"] == e["std"], e["id"]
@@ -99,11 +102,9 @@ def test_clause_precision_policy():
             assert e["clause_status"] == "pending", rule
 
 
-def test_every_done_rule_has_a_mutation_operator(report):
-    ops = mutate.MUTATORS
+def test_every_done_rule_has_a_mutation_operator():
     for e in catalog.load()["rule"]:
-        assert e["id"] in ops, e["id"]
-        assert report["rules"][e["id"]]["mutations"] >= 1, e["id"]
+        assert e["id"] in mutate.MUTATORS, e["id"]
 
 
 def test_mutation_detection_and_false_positive_rates(report):
@@ -115,12 +116,60 @@ def test_mutation_detection_and_false_positive_rates(report):
         assert data["target"] is not None, (rule, data)  # every mutation is anchored on an id
     assert report["totals"]["mutations"] >= len(checks.RULES)
     assert report["totals"]["skipped_cases"] == 0
+    for rule, data in report["rules"].items():
+        assert data["mutation_base_opportunities"] is not None, rule
 
 
 def test_mutation_report_mentions_known_placement_debt(report):
     assert report["known_debt"]["total"] > 0  # E5's frozen debt is excluded but reported
     assert report["known_debt"]["exact"]  # the frozen signatures equal the actual reference set
     assert report["totals"]["false_positives"] == 0
+
+
+def test_mutation_flag_fails_the_run_when_the_report_is_not_clean(monkeypatch, tmp_path):
+    import run as evals_run
+
+    bad = {
+        "rules": {
+            "closed_loop": {
+                "mutations": 1,
+                "detected": 0,
+                "detection_rate": 0.0,
+                "false_positives": 0,
+                "opportunities": 1,
+                "reference_opportunities": 1,
+                "mutation_base_opportunities": 1,
+                "base": None,
+                "base_findings": 0,
+                "target": None,
+            }
+        },
+        "totals": {
+            "rules": 1,
+            "mutations": 1,
+            "detected": 0,
+            "detection_rate": 0.0,
+            "false_positives": 0,
+            "skipped_cases": 0,
+        },
+        "known_debt": {"total": 0, "cases": 0, "exact": False},
+    }
+    fake = type(sys)("mutate")
+    fake.run_report = lambda **k: bad
+    monkeypatch.setitem(sys.modules, "mutate", fake)
+    code = evals_run.main(
+        [
+            "--level",
+            "L1",
+            "--case",
+            "L1/thread_ext_M20",
+            "--no-geo",
+            "--mutation",
+            "--out",
+            str(tmp_path / "report.json"),
+        ]
+    )
+    assert code == 1  # a clean summary must not hide a failed mutation report
 
 
 def test_radial_leader_crossing_rule():

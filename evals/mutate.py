@@ -883,6 +883,7 @@ def run_report(cases=None) -> dict:
                     base_found = _findings(d, stale, log_ops)
                     data["_base_ids"] = {f["id"] for f in base_found if f["rule"] == rule}
                     data["base_findings"] = len(data["_base_ids"])
+                    data["mutation_base_opportunities"] = base_found.opportunities.get(rule, 0)
                     if not isinstance(base, str):
                         # a purpose-built clean fixture is its reference; only rules without a
                         # reference-drawing opportunity use the fixture numbers for FP accounting
@@ -1007,7 +1008,8 @@ def markdown(report) -> str:
             f"{d['detected']} | {d['detection_rate']:.0%} | {d['false_positives']} | "
             f"{d['base'] or '—'} |"
         )
-    lines.append("")
+    while lines and not lines[-1]:
+        lines.pop()
     return "\n".join(lines) + "\n"
 
 
