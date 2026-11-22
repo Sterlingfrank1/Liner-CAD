@@ -75,7 +75,10 @@ def git(dir, *args):
 def test_eight_rounds(tmp_path, part):
     d = tmp_path / part
     code, out = lcad(tmp_path, "init", str(d), "--from", part)
-    assert code == 0 and out["warnings"] == [], out
+    # E5 records the current placement debt of the reference drawings (D1/D2 remove it); every
+    # other pack must stay warning-free here.
+    other = [f for f in out["warnings"] if f.get("pack") != "placement"]
+    assert code == 0 and other == [], out
     commits = 1
     for k, (msg, kind, payload) in enumerate(ROUNDS[part], 1):
         log_before = (d / "drawing.actions.jsonl").read_bytes()
