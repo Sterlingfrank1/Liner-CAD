@@ -25,6 +25,15 @@ async function poll() {
   setTimeout(poll, 1000);
 }
 
+// B4: the canvas badge says what the preview is and, once the drag ends, how to commit it
+function updatePreviewBadge() {
+  const b = $("preview-badge");
+  b.hidden = !S.previewActive;
+  if (S.previewActive) {
+    b.textContent = S.dragging ? "预览（未写回）· 拖动中…" : "预览（未写回）· 点「写回源码」提交";
+  }
+}
+
 function setStatus(st) {
   S.previewActive = !!st.preview;
   if (typeof st.preview_seq === "number") S.previewSeq = Math.max(S.previewSeq, st.preview_seq);
@@ -33,7 +42,7 @@ function setStatus(st) {
   bar.classList.toggle("has-warn", !st.build_error && !st.errors && st.warnings > 0);
   bar.classList.toggle("is-preview", !!st.preview);
   $("canvas-wrap").classList.toggle("is-preview", !!st.preview);  // marked on the canvas too
-  $("preview-badge").hidden = !st.preview;
+  updatePreviewBadge();
   $("st-text").title = st.status || "";
   $("st-text").textContent = (st.status || "") + (st.preview ? " · 预览中（未写回）" : "") +
     (st.build_error ? " · 构建失败：" + st.build_error.message : "");
@@ -397,6 +406,7 @@ function paramRow(p) {
     row.classList.toggle("changed", v !== v0);
     row.classList.add("pending"); row.clearBad();
     S.dragging = true; S.previewActive = true;  // B3: Esc can withdraw while the request is in flight
+    updatePreviewBadge();
     schedulePreview();
   });
   btn.onclick = () => writeback(p.name, +inp.value);
@@ -410,6 +420,7 @@ function schedulePreview() {
     try { r = await api("/api/preview", { values, seq }); } catch (e) { r = { ok: false, error: { message: String(e) } }; }
     if (seq !== S.previewSeq || r.superseded) return;  // a newer drag superseded this one
     S.dragging = false;
+    updatePreviewBadge();
     const rows = [...document.querySelectorAll(".param")];
     for (const row of rows) row.classList.remove("pending");
     const msg = $("param-msg");
@@ -451,6 +462,7 @@ async function releasePreview() {
   S.values = {};
   S.previewActive = false;
   S.unplaced = [];
+  updatePreviewBadge();
   const seq = ++S.previewSeq;
   const r = await api("/api/preview", { values: {}, seq });
   clearPreviewFindings();
