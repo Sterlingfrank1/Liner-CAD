@@ -71,11 +71,53 @@ def git(dir, *args):
     ).stdout
 
 
+#: E5 placement debt of each example at init (frozen: D1/D2 shrink these lists deliberately);
+#: the rounds themselves must not add placement warnings of a different kind beyond the init debt
+PLACEMENT_DEBT = {
+    "shaft": {
+        ("place_dim_outline", "D.d1"),
+        ("place_dim_outline", "D.d2"),
+        ("place_dim_outline", "D.d3"),
+        ("place_dim_outline", "D.d5"),
+        ("place_ext_line", "D.gh"),
+        ("place_ext_line", "D.gw"),
+        ("place_nesting", "D.L"),
+        ("place_text_overlap", "D.kd"),
+    },
+    "flange": set(),
+    "bracket": set(),
+}
+
+#: placement debt after the eight edit rounds (frozen the same way; the rounds intentionally move
+#: dimensions into crowded places, so this set is a separate yardstick from the init debt)
+PLACEMENT_DEBT_FINAL = {
+    "shaft": {
+        ("place_dim_outline", "D.d1"),
+        ("place_dim_outline", "D.d2"),
+        ("place_dim_outline", "D.d3"),
+        ("place_dim_outline", "D.d5"),
+        ("place_ext_line", "D.gh"),
+        ("place_ext_line", "D.gw"),
+        ("place_nesting", "D.L"),
+        ("place_text_overlap", "D.kd"),
+        ("place_text_overlap", "D.ug"),
+    },
+    "flange": set(),
+    "bracket": set(),
+}
+
+
 @pytest.mark.parametrize("part", list(ROUNDS))
 def test_eight_rounds(tmp_path, part):
     d = tmp_path / part
     code, out = lcad(tmp_path, "init", str(d), "--from", part)
-    assert code == 0 and out["warnings"] == [], out
+    # E5 records the current placement debt of the reference drawings (D1/D2 remove it); every
+    # other pack must stay warning-free here.
+    other = [f for f in out["warnings"] if f.get("pack") != "placement"]
+    assert code == 0 and other == [], out
+    # E5 placement debt of the shaft example, frozen here; D1/D2 shrink it in their own PRs
+    debt = {(f["rule"], f["id"]) for f in out["warnings"] if f.get("pack") == "placement"}
+    assert debt == PLACEMENT_DEBT[part], debt
     commits = 1
     for k, (msg, kind, payload) in enumerate(ROUNDS[part], 1):
         log_before = (d / "drawing.actions.jsonl").read_bytes()
@@ -104,6 +146,13 @@ def test_eight_rounds(tmp_path, part):
         if kind != "fail":
             assert re.fullmatch(rf"e\d+ · {re.escape(msg)}", subj[0])
         assert set(git(d, "ls-files").split()) == SOURCES
+    # E5: after the eight rounds the placement debt must be exactly the frozen final set (the
+    # rounds move annotations on purpose; a new rule/id pair is a placement regression)
+    code, out = lcad(d, "check")
+    assert code == 0
+    placement = {(w["rule"], w["id"]) for w in out["packs"]["placement"]}
+    if placement != PLACEMENT_DEBT_FINAL[part]:
+        raise AssertionError(sorted(placement))
     assert git(d, "status", "--porcelain").strip() == ""
     code, out = lcad(d, "context")
     assert code == 0

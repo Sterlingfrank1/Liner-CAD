@@ -1,7 +1,7 @@
 """Evaluation runner (SPEC M1 §8): builds every L1 / L2 case, runs the checks and the geometry
 comparison, writes report.json. Adding a case means adding files, never code.
 
-    uv run python evals/run.py [--level L1|L2] [--case ID] [--drawings DIR] [--out report.json]
+    uv run python evals/run.py [--level L1|L2|L3] [--case ID] [--drawings DIR] [--out report.json]
     uv run python evals/run.py --baseline evals/baseline.json   # nonzero exit on regression
     uv run python evals/run.py --save-baseline evals/baseline.json
 
@@ -65,6 +65,19 @@ def discover(level=None, case=None):
                     if hasattr(tpl, "model")
                     else None,
                     "views": getattr(tpl, "VIEWS", [{"name": "front", "mode": "plain"}]),
+                }
+            )
+    if level == "L3":  # assembly cases: built from their own directory, no 3D model
+        for dr in sorted((HERE / "L3").glob("*/drawing.py")):
+            out.append(
+                {
+                    "id": f"L3/{dr.parent.name}",
+                    "level": "L3",
+                    "family": "assembly",
+                    "dir": dr.parent,
+                    "drawing_src": dr.read_text(encoding="utf-8"),
+                    "model": None,
+                    "views": [],
                 }
             )
     if level in (None, "L2"):
@@ -179,6 +192,13 @@ def run_case(case, drawings=None, geo=True):
                 work,
                 dirs_exist_ok=True,
                 ignore=shutil.ignore_patterns(".git", ".linercad"),
+            )
+        elif case.get("level") == "L3" and case.get("dir"):  # assembly: components live beside it
+            shutil.copytree(
+                case["dir"],
+                work,
+                dirs_exist_ok=True,
+                ignore=shutil.ignore_patterns(".linercad", "__pycache__", "*.jsonl"),
             )
         else:
             (work / "drawing.py").write_text(case["drawing_src"], encoding="utf-8")
@@ -516,7 +536,7 @@ def compare_baseline(report, base):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--level", choices=["L1", "L2"])
+    ap.add_argument("--level", choices=["L1", "L2", "L3"])
     ap.add_argument("--case")
     ap.add_argument("--drawings")
     ap.add_argument("--no-geo", action="store_true")

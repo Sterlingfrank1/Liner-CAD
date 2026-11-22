@@ -209,7 +209,9 @@ def check(dir):
     from .runtime import build
 
     res = build(dir)
-    packs = {p: [] for p in ("drafting", "dimensioning", "tolerancing", "surface", "layout")}
+    packs = {
+        p: [] for p in ("drafting", "dimensioning", "tolerancing", "surface", "layout", "placement")
+    }
     for f in res.findings:
         packs.setdefault(f.get("pack") or RULES.get(f["rule"], "layout"), []).append(f)
     errors = sum(1 for f in res.findings if f.get("severity") == "error")

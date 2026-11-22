@@ -36,14 +36,17 @@ RULES = {
 
 
 def _v1_rules():
+    from . import place
     from .rules import PACKS
 
     for pack, fns in PACKS.items():
         for fn in fns:
             RULES[fn.__name__] = pack
+    for fn in place.RULES:
+        RULES[fn.__name__] = "placement"
+    FAMILY_OVERRIDES.update(place.FAMILY_OVERRIDES)
 
 
-_v1_rules()
 AXIS_NAME = {"X": "长对正", "Z": "高平齐", "Y": "宽相等"}
 MAX_CORRIDOR = 50.0
 OWN_ZONE = ("frame", "table.cell")
@@ -55,8 +58,11 @@ PACK_FAMILY = {
     "tolerancing": "T",
     "surface": "T",
     "layout": "G",
+    "placement": "D",  # D.place; the balloon rules override to A below
 }
 FAMILY_OVERRIDES = {"stale_op": "P"}
+
+_v1_rules()
 
 #: Clause statements of the layout rules (the rule packs carry theirs in rules.CLAUSES).
 LAYOUT_CLAUSES = {
@@ -327,6 +333,12 @@ def run(d, stale_ops=(), log_ops=()):
             got, n = fn(d)
             raw += got
             opps[fn.__name__] = n
+    from . import place
+
+    for fn in place.RULES:
+        got, n = fn(d)
+        raw += got
+        opps[fn.__name__] = n
     stds = d.std.get("checks", {})
     for f in raw:
         f["pack"] = RULES.get(f["rule"], "layout")
