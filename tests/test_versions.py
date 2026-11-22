@@ -196,6 +196,171 @@ def test_diff_in_a_subdirectory_of_a_bigger_repo(tmp_path):
     assert len(worktrees(tmp_path)) == 1
 
 
+# ---- B7: a whole-view translation is one view move, not one layout change per element -------------
+
+
+def _el(view, bbox, kind="edge", origin=None):
+    return {"kind": kind, "intent": {"view": view}, "bbox": bbox, "view": view, "origin": origin}
+
+
+def test_compare_merges_a_whole_view_translation():
+    # real snapshots contain the view element V.<name>: it is the explicit anchor of the view move
+    a = {
+        "V.left": _el("left", [0, 0, 60, 20], origin=[0, 0]),
+        "E.left.1": _el("left", [0, 0, 10, 10]),
+        "E.left.2": _el("left", [20, 0, 30, 10]),
+        "E.front.1": _el("front", [100, 0, 110, 10]),
+    }
+    b = {
+        "V.left": _el("left", [10, 5, 70, 25], origin=[10, 5]),
+        "E.left.1": _el("left", [10, 5, 20, 15]),
+        "E.left.2": _el("left", [30, 5, 40, 15]),
+        "E.front.1": _el("front", [100, 0, 110, 10]),
+    }
+    out = versions.compare(a, b)
+    assert out["view_moves"] == [{"view": "left", "dx": 10.0, "dy": 5.0, "elements": 3}]
+    assert out["layout_changed"] == [] and out["details"] == {}
+    # an element that moved differently from its view stays in layout_changed (the real extra move)
+    b["E.left.2"] = _el("left", [35, 10, 45, 20])
+    out = versions.compare(a, b)
+    assert out["view_moves"] == [{"view": "left", "dx": 10.0, "dy": 5.0, "elements": 2}]
+    assert out["layout_changed"] == ["E.left.2"]
+
+
+def test_compare_view_anchor_wins_over_a_lone_child():
+    a = {
+        "V.left": _el("left", [0, 0, 40, 10], origin=[0, 0]),
+        "E.left.1": _el("left", [0, 0, 5, 5]),
+    }
+    b = {
+        "V.left": _el("left", [10, 0, 50, 10], origin=[10, 0]),
+        "E.left.1": _el("left", [25, 0, 30, 5]),
+    }
+    out = versions.compare(a, b)
+    assert out["view_moves"] == [{"view": "left", "dx": 10.0, "dy": 0.0, "elements": 1}]
+    assert out["layout_changed"] == ["E.left.1"]
+
+
+def test_compare_does_not_treat_a_shape_change_as_a_view_move():
+    # the view origin is unchanged (only the content grew): V's bbox grows with the content
+    a = {
+        "V.left": _el("left", [0, 0, 40, 40], origin=[50, 60]),
+        "E.left.1": _el("left", [0, 0, 20, 20]),
+    }
+    b = {
+        "V.left": _el("left", [0, 0, 80, 80], origin=[50, 60]),
+        "E.left.1": _el("left", [0, 0, 40, 40]),
+    }
+    out = versions.compare(a, b)
+    assert out["view_moves"] == []
+    assert out["layout_changed"] == ["E.left.1", "V.left"]
+
+
+def test_compare_absorbs_a_multi_view_composite_element():
+    def el(view, bbox, prims, origin=None):
+        item = _el(view, bbox, origin=origin)
+        item["prims"] = prims
+        return item
+
+    a = {
+        "V.front": el("front", [100, 0, 110, 10], [], origin=[100, 0]),
+        "V.left": el("left", [0, 0, 10, 10], [], origin=[0, 0]),
+        "E.front.1": el("front", [100, 0, 110, 10], [[100, 0, 110, 10]]),
+        "E.left.1": el("left", [0, 0, 10, 10], [[0, 0, 10, 10]]),
+        # a section label: its union bbox spans both views, one primitive per view
+        "S.A": el("front", [0, 0, 110, 10], [[100, 0, 110, 10], [0, 0, 10, 10]]),
+    }
+    b = {
+        "V.front": el("front", [90, 0, 100, 10], [], origin=[90, 0]),
+        "V.left": el("left", [10, 0, 20, 10], [], origin=[10, 0]),
+        "E.front.1": el("front", [90, 0, 100, 10], [[90, 0, 100, 10]]),
+        "E.left.1": el("left", [10, 0, 20, 10], [[10, 0, 20, 10]]),
+        "S.A": el("front", [10, 0, 100, 10], [[90, 0, 100, 10], [10, 0, 20, 10]]),
+    }
+    out = versions.compare(a, b)
+    assert out["view_moves"] == [
+        {"view": "front", "dx": -10.0, "dy": 0.0, "elements": 2},
+        {"view": "left", "dx": 10.0, "dy": 0.0, "elements": 2},
+    ]
+    assert out["layout_changed"] == []  # both parts follow a reported view move: no extra change
+
+
+def test_compare_counts_the_view_element_when_its_bbox_changed():
+    def el(bbox, prims, origin):
+        item = _el("left", bbox, origin=origin)
+        item["prims"] = prims
+        return item
+
+    a = {
+        "V.left": el([0, 0, 40, 10], [], [0, 0]),
+        "E.left.1": el([0, 0, 5, 5], [[0, 0, 5, 5]], None),
+        "E.left.2": el([20, 0, 25, 5], [[20, 0, 25, 5]], None),
+    }
+    b = {
+        "V.left": el([15, 0, 55, 10], [], [10, 0]),  # the view moved, its content union grew
+        "E.left.1": el([10, 0, 15, 5], [[10, 0, 15, 5]], None),
+        "E.left.2": el([40, 0, 45, 5], [[40, 0, 45, 5]], None),
+    }
+    out = versions.compare(a, b)
+    assert out["view_moves"] == [{"view": "left", "dx": 10.0, "dy": 0.0, "elements": 2}]
+    assert out["layout_changed"] == ["E.left.2"]
+
+
+def test_compare_requires_a_strict_majority_without_an_anchor():
+    a = {}
+    b = {}
+    for i, dx in enumerate((10, 10, 5, -5)):
+        a[f"E.left.{i}"] = _el("left", [0, 0, 10, 10])
+        b[f"E.left.{i}"] = _el("left", [dx, 0, 10 + dx, 10])
+    out = versions.compare(a, b)
+    assert out["view_moves"] == []  # the top group is exactly half: not a view translation
+    assert out["layout_changed"] == sorted(a)
+
+
+def test_compare_reports_no_view_move_for_conflicting_translations():
+    a = {"E.left.1": _el("left", [0, 0, 10, 10]), "E.left.2": _el("left", [20, 0, 30, 10])}
+    b = {"E.left.1": _el("left", [10, 0, 20, 10]), "E.left.2": _el("left", [10, 0, 20, 10])}
+    out = versions.compare(a, b)  # +10 and -10 tie: no single common translation
+    assert out["view_moves"] == []
+    assert out["layout_changed"] == ["E.left.1", "E.left.2"]
+
+
+def test_compare_keeps_a_lone_moved_element_as_layout_change():
+    a = {"E.top.1": _el("top", [0, 0, 5, 5])}
+    b = {"E.top.1": _el("top", [3, 0, 8, 5])}
+    out = versions.compare(a, b)
+    assert out["view_moves"] == []  # one element does not prove the whole view moved
+    assert out["layout_changed"] == ["E.top.1"]
+
+
+@pytest.fixture
+def moved_view_repo(tmp_path):
+    from linercad import txn
+
+    p = tmp_path / "moved"
+    txn.init(p, from_="flange")
+    s = script(p, "mv.py", 'd.view("left").move(dx=2)')
+    assert lcad(p, "edit", s, "-m", "左视图右移 2mm")[0] == 0
+    return p
+
+
+def test_diff_reports_view_moves_for_the_real_drawing(moved_view_repo):
+    out = lcad(moved_view_repo, "diff", "e0", "e1")[1]
+    moves = {m["view"]: m for m in out["view_moves"]}
+    assert set(moves) == {"front", "left"}  # the layout re-centres the group around the sheet
+    assert moves["left"]["dx"] == 1.0 and moves["front"]["dx"] == -1.0
+    assert all(m["elements"] >= 2 for m in moves.values())
+    assert out["counts"]["view_moves"] == len(out["view_moves"])
+    assert "V.left" not in out["layout_changed"]  # the view itself is part of its translation
+    # a pure view move leaves no extra layout change: the section label S.A is a composite whose
+    # primitives each follow one of the two views, so it is explained too (not a false positive)
+    assert out["layout_changed"] == []
+    svg = Path(out["svg"]).read_text(encoding="utf-8")
+    # the absorbed view elements stay blue in the overlay, so the moved view is still visible
+    for moved in ("E.left.outer.1", "S.A"):
+        assert f'class="df-chg" data-id="{moved}"' in svg
+
+
 # ---- lcad export ---------------------------------------------------------------------------------
 
 
