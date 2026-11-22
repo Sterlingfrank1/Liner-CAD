@@ -43,7 +43,14 @@ def home() -> Path:
 
 
 def path(name) -> Path:
-    return home() / str(name)
+    name = str(name)
+    if not NAME_RE.fullmatch(name):
+        raise InvalidArgument(
+            f"模板名 {name!r} 不合法",
+            candidates=names(),
+            hint="用字母/数字开头，只含字母、数字、_ . -，最长 64 字符",
+        )
+    return home() / name
 
 
 def exists(name) -> bool:
@@ -161,9 +168,20 @@ def save(source_dir, name, description="", force=False, build_result=None) -> di
         (tmp / MANIFEST).write_text(
             json.dumps(manifest, ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
         )
+        backup = None
         if target.exists():
-            shutil.rmtree(target)
-        tmp.replace(target)
+            # move the old template aside first; restore it if publishing the new one fails
+            backup = root / f".{name}.old-{os.getpid()}"
+            shutil.rmtree(backup, ignore_errors=True)
+            target.replace(backup)
+        try:
+            tmp.replace(target)
+        except BaseException:
+            if backup is not None:
+                backup.replace(target)
+            raise
+        if backup is not None:
+            shutil.rmtree(backup, ignore_errors=True)
         return manifest
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -199,10 +217,18 @@ def apply_sets(text: str, sets: dict, template_name=None) -> str:
         try:
             text = rewrite_param(text, name, value)
         except LinerError as e:
-            m = re.search(r"参数 (\w+)", e.message) if template_name else None
+            candidates = []
+            if template_name:
+                try:
+                    candidates = [p.get("name") for p in info(template_name).get("params", [])]
+                except LinerError:
+                    pass
+            if not candidates:
+                found = re.search(r"([A-Za-z_]\w*)=Param", e.message)
+                candidates = [found.group(1)] if found else []
             raise InvalidArgument(
                 f"--set {name}={value:g} 不能应用：{e.message}",
-                candidates=[m.group(1)] if m else [],
+                candidates=[c for c in candidates if c],
                 hint=e.hint,
             ) from e
     return text

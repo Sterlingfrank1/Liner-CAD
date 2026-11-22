@@ -258,14 +258,13 @@ def init(dir, from_=None, sheet=None, from_dxf=None, sets=None):
 
     user_template = None
     if from_ is not None and from_ not in EXAMPLES:
-        if usertemplates.exists(from_):
-            user_template = str(
-                from_
-            )  # a saved user template shadows nothing: examples win on ties
+        known = usertemplates.names()
+        if from_ in known:
+            user_template = str(from_)  # a saved user template shadows nothing: examples win
         else:
             raise InvalidArgument(
                 f"没有范例或用户模板 {from_!r}",
-                candidates=list(EXAMPLES) + usertemplates.names(),
+                candidates=list(EXAMPLES) + known,
             )
     if from_ is not None and from_dxf is not None:
         raise InvalidArgument("--from 和 --from-dxf 只能用一个")
@@ -289,6 +288,7 @@ def init(dir, from_=None, sheet=None, from_dxf=None, sets=None):
     created = []
     had_repo = repo_root(dir) is not None
     try:
+        extras = []
         if dxf_src is not None:
             text0 = DXF_STARTER.format(ref=REF_DXF, sheet=sheet, scale=guess["scale"])
             if not (dir / REF_DXF).exists():

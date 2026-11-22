@@ -497,6 +497,7 @@ def save_template(dir, name, description="", force=False):
     """Save the current drawing as a reusable user template (requires check 0 error)."""
     from . import txn, usertemplates
 
+    name = usertemplates.validate_name(name)
     dir = Path(dir)
     res = build(dir)
     errors = [f for f in res.findings if f.get("severity") == "error"]

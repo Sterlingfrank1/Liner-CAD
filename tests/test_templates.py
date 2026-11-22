@@ -139,3 +139,43 @@ def test_init_from_user_template_rejects_sheet_override(tmp_path, drawing):
     commands.save_template(drawing, "sheet-fixed")
     code, out = _cli("init", str(tmp_path / "s"), "--from", "sheet-fixed", "--sheet", "A4")
     assert code == 1 and "--sheet" in out["error"]["message"]
+
+
+def test_init_set_rejects_non_finite_values(tmp_path, drawing):
+    commands.save_template(drawing, "finite-tpl")
+    for raw in ("nan", "inf", "-inf"):
+        code, out = _cli(
+            "init",
+            str(tmp_path / f"nf-{raw.replace('-', 'm')}"),
+            "--from",
+            "finite-tpl",
+            "--set",
+            f"L={raw}",
+        )
+        assert code == 1 and "有限" in out["error"]["message"], (raw, out)
+
+
+def test_init_template_name_cannot_escape_the_template_root(tmp_path):
+    code, out = _cli("init", str(tmp_path / "esc"), "--from", "../escape")
+    assert code == 1 and "没有范例或用户模板" in out["error"]["message"]
+    assert out["error"]["candidates"]  # lists the real templates, not the escaped path
+    assert not (tmp_path / "esc" / "drawing.py").exists()
+
+
+def test_set_unknown_parameter_lists_template_params(tmp_path, drawing):
+    commands.save_template(drawing, "cand-tpl")
+    code, out = _cli("init", str(tmp_path / "cand"), "--from", "cand-tpl", "--set", "NOPE=1")
+    assert code == 1 and {"L", "l1"} & set(out["error"]["candidates"])
+
+
+def test_save_template_name_is_normalized(drawing):
+    out = commands.save_template(drawing, "  foo  ")
+    assert out["template"]["name"] == "foo"
+    assert out["path"].endswith(os.sep + "foo")
+
+
+def test_cli_help_mentions_template_commands_and_set():
+    from linercad.cli import COMMANDS
+
+    assert "save" in COMMANDS["template"] and "list" in COMMANDS["template"]
+    assert "--set" in COMMANDS["init"]
