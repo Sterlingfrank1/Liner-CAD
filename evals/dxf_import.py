@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -41,6 +42,29 @@ RAW_TYPES = tuple(importdxf.RAW_TYPES)
 NOTE_TYPES = tuple(importdxf.NOTE_TYPES)
 TITLE_BLOCK_WORDS = ("TITLE", "FRAME", "\u56fe\u6846", "\u6807\u9898", "MXB")
 TITLE_LAYER_WORDS = ("TITLE", "FRAME", "\u56fe\u6846", "\u6807\u9898")
+TITLE_FIELD_WORDS = (
+    "\u56fe\u53f7",
+    "\u540d\u79f0",
+    "\u6750\u6599",
+    "\u6bd4\u4f8b",
+    "\u56fe\u5e45",
+    "\u8bbe\u8ba1",
+    "\u5ba1\u6838",
+    "\u65e5\u671f",
+    "\u91cd\u91cf",
+    "\u9636\u6bb5",
+    "\u5355\u4f4d",
+    "\u6570\u91cf",
+    "\u7248\u672c",
+    "TITLE",
+    "NAME",
+    "MATERIAL",
+    "SCALE",
+    "SHEET",
+    "DATE",
+    "MASS",
+    "DRAWING",
+)
 
 
 # ---- small helpers --------------------------------------------------------------------------
@@ -60,14 +84,24 @@ def _source_text(e) -> str:
     return importdxf.clean_text(e.dxf.text)
 
 
+def _decode(name) -> str:
+    r"""DXF layer / block names may store CJK as \U+XXXX escapes; decode for matching."""
+    return re.sub(r"\\U\+([0-9A-Fa-f]{4})", lambda m: chr(int(m.group(1), 16)), str(name))
+
+
 def _title_name(name) -> bool:
-    up = str(name).upper()
+    up = _decode(name).upper()
     return any(w in up for w in TITLE_BLOCK_WORDS)
 
 
 def _title_layer(name) -> bool:
-    up = str(name).upper()
+    up = _decode(name).upper()
     return any(w in up for w in TITLE_LAYER_WORDS)
+
+
+def _title_field(tag) -> bool:
+    up = _decode(tag).upper()
+    return any(w in up for w in TITLE_FIELD_WORDS)
 
 
 def _msp(doc):
@@ -129,7 +163,7 @@ def layer_retention(doc) -> dict:
         if ok:
             imported += 1
         else:
-            not_imported.append(lay["name"])
+            not_imported.append(_decode(lay["name"]))
     return {
         "source_layers": len(layers),
         "layers_with_content": len(with_content),
@@ -171,7 +205,9 @@ def frame_title(doc, d) -> dict:
     ents = _msp(doc)
     inserts = [e for e in ents if e.dxftype() == "INSERT" and _title_name(e.dxf.name)]
     attribs = sum(len(getattr(br, "attribs", ())) for br in inserts)
-    attribs += sum(1 for e in ents if e.dxftype() == "ATTRIB" and _title_layer(e.dxf.layer))
+    # PCCAD-style files keep the title-block attributes as top-level ATTRIB entities
+    attribs += sum(1 for e in ents if e.dxftype() == "ATTRIB" and _title_field(e.dxf.tag))
+    attribs += sum(1 for e in ents if e.dxftype() == "ATTDEF" and _title_field(e.dxf.tag))
     title_texts = [e for e in ents if e.dxftype() in NOTE_TYPES and _title_layer(e.dxf.layer)]
     texts = [_source_text(e) for e in title_texts]
     imported = Counter(_imported_notes(d))
