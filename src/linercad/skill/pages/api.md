@@ -83,7 +83,7 @@ d.chain("axial", closing="l5", increase=["D.L"], decrease=["D.l1", "D.l2"], requ
 
 特征项目：`straightness flatness circularity cylindricity profile_line profile_surface parallelism perpendicularity angularity position concentricity symmetry circular_runout total_runout`。形状公差不带基准；方向、跳动、同轴、对称必须带基准。
 
-**资源库**：`from linercad import res`；`res.fit("H7", 30)`、`res.thread("M20x1.5")`、`res.key(32)`、`res.center_hole("B", 2.5)`（A / B / R / C 型；R 型 `res.center_hole("R", 2.5)` 给 `d2` 等，C 型 `res.center_hole("C", "M6", length=10)` 的代号是 `CM6L10/10.5`，不给 `length` 时只有 `CM6`）、`res.spline("6x23x26x6")`、`res.general_tol("m", 45)`。数值都带标准号，不要自己编。退刀槽和越程槽取资源库：`res.thread_undercut("M24x1.5")`（外螺纹槽宽 `g1_min`–`g2_max`、槽底 `dg` 与公差，`kind="int"` 为内螺纹）、`res.thread_runout("M24x1.5")`（收尾和肩距）、`res.grinding_groove(30)`（`options` 列出该直径可选的 b1 / b2 / h / r，`b1=` 选一档）。结果里 `verified` 为 False 的表只有一个来源，用了要在交付说明里提一句。
+**资源库**：`from linercad import res`；`res.fit("H7", 30)`、`res.thread("M20x1.5")`、`res.key(32)`、`res.center_hole("B", 2.5)`（A / B / R / C 型；R 型 `res.center_hole("R", 2.5)` 给 `d2` 等，C 型 `res.center_hole("C", "M6", length=10)` 的代号是 `CM6L10/10.5`，不给 `length` 时只有 `CM6`）、`res.spline("6x23x26x6")`、`res.general_tol("m", 45)`、`res.gtol("circular_runout")`（几何公差特征项目：类别、是否必须有基准、允许的被测要素、公差带形状、允许的修饰符与条款号，来自 GB/T 1182-2018；`res.gtol_rows()` 给表 1 的 19 项）。数值都带标准号，不要自己编。退刀槽和越程槽取资源库：`res.thread_undercut("M24x1.5")`（外螺纹槽宽 `g1_min`–`g2_max`、槽底 `dg` 与公差，`kind="int"` 为内螺纹）、`res.thread_runout("M24x1.5")`（收尾和肩距）、`res.grinding_groove(30)`（`options` 列出该直径可选的 b1 / b2 / h / r，`b1=` 选一档）。结果里 `verified` 为 False 的表只有一个来源，用了要在交付说明里提一句。
 
 ## 引用与查询
 

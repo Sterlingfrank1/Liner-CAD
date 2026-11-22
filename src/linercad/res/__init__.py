@@ -25,6 +25,8 @@ __all__ = [
     "fit",
     "general_tol",
     "grinding_groove",
+    "gtol",
+    "gtol_rows",
     "it",
     "key",
     "rough_series",
@@ -300,11 +302,16 @@ def spline(spec: str) -> dict:
 
 
 def datum_excluded(std: str = "GB") -> dict:
-    """Letters that must not be datum letters under ``std`` ("GB" or "ISO"): ``{"std", "letters",
-    "verified", "source"}``; ``verified`` False = the list could not be checked against the standard."""
+    """Letters the source of ``std`` recommends not to use as datum letters ("GB": GB/T 17851-2010
+    clause 6.2 note 2; "ISO": a PTC Creo software rule, ISO 5459 itself was not read):
+    ``{"std", "letters", "verified", "source"}``. It is a recommendation (in a note for GB, in
+    software rules for ISO), not a prohibition - the datum_letter check reports a warning.
+    ``verified`` False = the list could not be checked against the standard itself (both lists are
+    single-lineage: see the file's [meta])."""
     data = _table("datum")
-    if std not in data:
-        raise InvalidArgument(f"未知标准档 {std!r}", candidates=list(data))
+    types = [k for k in data if k != "meta"]
+    if std not in types:
+        raise InvalidArgument(f"未知标准档 {std!r}", candidates=types)
     return {**data[std], "letters": list(data[std]["letters"])}
 
 
@@ -544,6 +551,103 @@ def grinding_groove(d: float, b1: float | None = None) -> dict:
         "options": options,
         "std": meta["std"],
         "verified": meta["verified"],
+    }
+
+
+# ----------------------------------------------- GB/T 1182-2018 geometric tolerances (A4)
+
+
+_DATUM_RULE = {"no": "none", "yes": "required", "optional": "optional"}
+
+
+def _deep_copy(value):
+    if isinstance(value, dict):
+        return {k: _deep_copy(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_deep_copy(v) for v in value]
+    return value
+
+
+def _row_copy(row: dict) -> dict:
+    return {k: _deep_copy(v) for k, v in row.items()}
+
+
+def gtol_rows() -> list[dict]:
+    """The 19 entries of GB/T 1182-2018 table 1 (几何特征符号), in table order: 6 form, 5
+    orientation, 6 location and 2 run-out specifications (position is one entry; profile of a line
+    / of a surface appears once per category). Each entry has id, char (the key used by
+    pmi.CHARS), zh, category, datum ("no" / "yes" / "optional"), clause (table-1 subclause),
+    target_natures (integral / derived), targets (allowed measured elements), zone_shapes,
+    modifiers (unconditional), modifier_conditions (symbol + when + clause for conditional ones),
+    note and modifiers_unverified (symbols that belong to cross-referenced standards that were not
+    extracted). The codes are described in the TOML file; a copy is returned, so callers may edit
+    it."""
+    data = _table("gtol")
+    rows = []
+    for row in data["row"]:
+        copy = _row_copy(row)
+        copy["modifiers_unverified"] = list(data["meta"]["modifiers_unverified"])
+        rows.append(copy)
+    return rows
+
+
+def gtol(char: str) -> dict:
+    """Specification data of geometric characteristic char (e.g. "straightness", "position",
+    "profile_surface", "circular_runout"; the 14 keys of linercad.pmi.CHARS) from
+    GB/T 1182-2018: {"char", "zh", "categories", "datum", "target_natures", "targets",
+    "zone_shapes", "modifiers", "modifier_conditions", "modifiers_unverified", "parameters",
+    "clauses", "rows", "std", "iso", "verified"}.
+
+    datum is the datum rule for T.syntax: "none" = a shape tolerance, no datum allowed;
+    "required" = a datum is needed; "optional" = both forms occur in the standard (position, and
+    the profile tolerances depending on whether they are used as form, orientation or location
+    specifications). targets / zone_shapes / modifiers are the union over the table-1 entries of
+    the characteristic; rows keeps those entries separately. The file [meta] keeps
+    verified = false: one copy of the standard was read and several clauses were not (see
+    unread there)."""
+    data = _table("gtol")
+    rows = [r for r in data["row"] if r["char"] == char]
+    if not rows:
+        names = list(dict.fromkeys(r["char"] for r in data["row"]))
+        raise InvalidArgument(
+            f"没有几何公差特征项目 {char!r}",
+            candidates=names,
+            values={"char": char},
+            hint="用 pmi 的特征项目键（如 straightness、position、profile_surface）",
+        )
+    datum = {r["datum"] for r in rows}
+    rule = _DATUM_RULE[datum.pop()] if len(datum) == 1 else "optional"
+
+    def union(key: str) -> list:
+        return list(dict.fromkeys(v for r in rows for v in r[key]))
+
+    return {
+        "char": char,
+        "zh": rows[0]["zh"],
+        "categories": list(dict.fromkeys(r["category"] for r in rows)),
+        "datum": rule,
+        "target_natures": union("target_natures"),
+        "targets": union("targets"),
+        "zone_shapes": union("zone_shapes"),
+        "modifiers": union("modifiers"),
+        "modifier_conditions": [
+            _deep_copy(c)
+            for c in {
+                (c["symbol"], c["when"], c["clause"]): c
+                for r in rows
+                for c in r.get("modifier_conditions", ())
+            }.values()
+        ],
+        "modifiers_unverified": list(data["meta"]["modifiers_unverified"]),
+        "parameters": {k: v for k, v in data["parameters"].items() if k != "note"},
+        "clauses": list(dict.fromkeys(r["clause"] for r in rows)),
+        "rows": [
+            dict(_row_copy(r), modifiers_unverified=list(data["meta"]["modifiers_unverified"]))
+            for r in rows
+        ],
+        "std": data["meta"]["std"],
+        "iso": data["meta"]["iso"],
+        "verified": data["meta"]["verified"],
     }
 
 
