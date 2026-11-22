@@ -117,3 +117,25 @@ def test_init_unknown_template_lists_examples_and_user_templates(tmp_path, drawi
 def test_template_list_empty_is_ok():
     out = commands.template_list()
     assert out["ok"] and out["templates"] == [] and out["home"]
+
+
+def test_template_copies_model_py_and_init_without_set(tmp_path, drawing):
+    (drawing / "model.py").write_text("# 3D 来源占位\n", encoding="utf-8")
+    commands.save_template(drawing, "with-model", "含 model.py")
+    target = tmp_path / "from-model"
+    code, out = _cli("init", str(target), "--from", "with-model")
+    assert code == 0 and out["ok"] and out.get("template") == "with-model"
+    assert (target / "model.py").is_file() and (target / "drawing.py").is_file()
+
+
+def test_template_list_cli(tmp_path, drawing):
+    commands.save_template(drawing, "cli-list-tpl", "CLI 列出")
+    code, out = _cli("template", "list")
+    assert code == 0 and out["ok"]
+    assert [t["name"] for t in out["templates"]] == ["cli-list-tpl"]
+
+
+def test_init_from_user_template_rejects_sheet_override(tmp_path, drawing):
+    commands.save_template(drawing, "sheet-fixed")
+    code, out = _cli("init", str(tmp_path / "s"), "--from", "sheet-fixed", "--sheet", "A4")
+    assert code == 1 and "--sheet" in out["error"]["message"]

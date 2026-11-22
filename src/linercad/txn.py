@@ -269,6 +269,11 @@ def init(dir, from_=None, sheet=None, from_dxf=None, sets=None):
             )
     if from_ is not None and from_dxf is not None:
         raise InvalidArgument("--from 和 --from-dxf 只能用一个")
+    if user_template is not None and sheet:
+        raise InvalidArgument(
+            "用户模板自带图幅，不能再用 --sheet",
+            hint="需要别的图幅：改模板 drawing.py 的 Drawing(sheet=...) 后重新 template save",
+        )
     dxf_src, guess = None, None
     if from_dxf is not None:
         from . import importdxf
