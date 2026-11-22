@@ -93,6 +93,21 @@ def _islands(hatch, text_boxes):
     return out
 
 
+def _alignment(align) -> TextEntityAlignment:
+    """(halign, valign) of the source entity -> ezdxf TEXT alignment."""
+    halign, valign = align
+    if halign == 3:
+        return TextEntityAlignment.ALIGNED
+    if halign == 5:
+        return TextEntityAlignment.FIT
+    if halign == 4:
+        return TextEntityAlignment.MIDDLE
+    col = {0: "LEFT", 1: "CENTER", 2: "RIGHT"}.get(halign, "LEFT")
+    row = {0: "", 1: "BOTTOM_", 2: "MIDDLE_", 3: "TOP_"}.get(valign, "")
+    name = (row + col) if row else ("CENTER" if col == "CENTER" else col)
+    return getattr(TextEntityAlignment, name, TextEntityAlignment.MIDDLE_CENTER)
+
+
 def _write(msp, pr, std, text_boxes):
     lay = {"layer": _layer(std, pr.layer)}
     if isinstance(pr, Line):
@@ -110,6 +125,23 @@ def _write(msp, pr, std, text_boxes):
     if isinstance(pr, Poly):
         return msp.add_lwpolyline(list(pr.pts), dxfattribs=lay)
     if isinstance(pr, Text):
+        if pr.exact_height and pr.anchor is not None and pr.align is not None:
+            # imported TEXT / MTEXT: keep the DXF height, style, source layer and alignment verbatim
+            doc = msp.doc
+            style = pr.style or "LC"
+            if not doc.styles.has_entry(style):
+                doc.styles.add(style, font=std["text"]["font"])
+            layer = pr.layer_name or _layer(std, pr.layer)
+            if not doc.layers.has_entry(layer):
+                doc.layers.add(layer, color=7)
+            t = msp.add_text(
+                pr.text,
+                height=pr.height,
+                rotation=pr.rot,
+                dxfattribs={"layer": layer, "style": style, "width": std["text"]["width_factor"]},
+            )
+            t.set_placement(pr.anchor, align=_alignment(pr.align))
+            return t
         t = msp.add_text(
             pr.text,
             height=dxf_height(pr.text, pr.height, std, pr.cjk),

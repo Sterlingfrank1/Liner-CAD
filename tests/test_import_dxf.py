@@ -102,7 +102,7 @@ def test_inspect_reports_layers_types_extents_and_a_png(tmp_path):
     maps = out["maps_to"]
     assert maps["edges"] == {"CIRCLE": 3, "LINE": 14, "LWPOLYLINE": 1}
     assert sum(maps["dims"].values()) == 8 and maps["dims"]["radius"] == 1
-    assert maps["notes"] == {"MTEXT": 1, "TEXT": 1}
+    assert maps["texts"] == {"MTEXT": 1, "TEXT": 1} and maps["notes"] == {}
     assert maps["raw"] == {"ELLIPSE": 1, "SPLINE": 1}
     assert maps["skipped"] == {"HATCH": 1, "INSERT": 1, "POINT": 1}
     assert out["sheet"] == {"sheet": "A4", "scale": "1:1"}

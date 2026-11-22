@@ -26,16 +26,18 @@ from pathlib import Path
 
 import ezdxf
 from ezdxf import units as dxf_units
+from ezdxf.lldxf.encoding import decode_dxf_unicode
 
 from .errors import InvalidArgument, NotFound
 from .model import DRAW_DIR, Element, RawEl, check_name
+from .text import text_size
 
 EDGE_TYPES = ("LINE", "ARC", "CIRCLE", "LWPOLYLINE", "POLYLINE")
 RAW_TYPES = ("SPLINE", "ELLIPSE")
 NOTE_TYPES = ("TEXT", "MTEXT")
 DIM_KINDS = {0: "linear", 1: "aligned", 2: "angular", 3: "diameter", 4: "radius", 5: "angular3p"}
 DIM_UNSUPPORTED = {6: "ordinate"}
-BUCKETS = ("edges", "dims", "notes", "raw", "skipped")
+BUCKETS = ("edges", "dims", "texts", "notes", "raw", "skipped")
 SHEETS = ("A4", "A3", "A2", "A1", "A0")
 SCALE_STEPS = (2, 5, 10, 20, 50, 100, 200, 500, 1000)
 DIM_MARGIN = 25.0  # sheet mm kept free around the geometry for dimensions when guessing the sheet
@@ -121,7 +123,7 @@ def classify(e) -> tuple[str, str]:
         k = dim_kind(e)
         return ("dims", k) if k in DIM_KINDS.values() else ("skipped", f"DIMENSION({k})")
     if t in NOTE_TYPES:
-        return "notes", t
+        return "texts", t
     if t in RAW_TYPES:
         return "raw", t
     return "skipped", t
@@ -249,7 +251,7 @@ def _extents(doc, k) -> list | None:
                     if e.dxf.hasattr(a):
                         v = e.dxf.get(a)
                         add(v[0], v[1])
-            elif bucket == "notes":
+            elif bucket in ("notes", "texts"):
                 v = e.dxf.insert
                 add(v[0], v[1])
             elif t == "SPLINE":
@@ -564,59 +566,94 @@ def _note(ctx, text, p) -> bool:
 
 
 def _text(ctx, e) -> bool:
-    """TEXT / MTEXT → a plain text element (no leader), keeping position, height, rotation,
-    alignment and style. MTEXT keeps its line breaks."""
+    """TEXT / MTEXT -> a plain text element (no leader), keeping position, height, rotation,
+    alignment and style. MTEXT keeps its line breaks (decoded and cleaned line by line)."""
     k = ctx.k
-    raw = e.plain_text() if e.dxftype() == "MTEXT" else e.dxf.text
-    if e.dxftype() == "MTEXT" and "\n" in raw:
-        # clean_text() collapses newlines; MTEXT line breaks must survive into the element
+    is_mtext = e.dxftype() == "MTEXT"
+    if is_mtext:
+        raw = e.plain_text(fast=False)  # fast mode drops lines of long MTEXT
+    else:
+        raw = e.dxf.text
+    raw = _decode_text(raw)
+    if is_mtext:
         text = "\n".join(clean_text(part) for part in raw.split("\n"))
     else:
         text = clean_text(raw)
-    if not text:
+    if not text.strip():
         return False
-    if e.dxftype() == "MTEXT":
-        h = float(e.dxf.get("char_height", 2.5))
-        rot = float(e.dxf.get("rotation", 0.0))
+    intent = {"view": ctx.view.name, "text": text}
+    if is_mtext:
+        h = float(e.dxf.get("char_height", 2.5) or 2.5)
+        rot = float(e.get_rotation())
         p = e.dxf.insert
         attachment = int(e.dxf.get("attachment_point", 1))
         halign, valign = _mtext_align(attachment)
-        style = str(e.dxf.get("style", "Standard"))
+        intent.update(
+            attachment=attachment,
+            line_spacing=float(e.dxf.get("line_spacing_factor", 1.0) or 1.0),
+            align="attachment",
+        )
     else:
-        h = float(e.dxf.get("height", 2.5))
+        h = float(e.dxf.get("height", 2.5) or 2.5)
         rot = float(e.dxf.get("rotation", 0.0))
         p = e.dxf.insert
         halign = int(e.dxf.get("halign", 0))
         valign = int(e.dxf.get("valign", 0))
+        align = {0: "left", 1: "center", 2: "right", 3: "aligned", 4: "middle", 5: "fit"}.get(
+            halign, "left"
+        )
         if (halign or valign) and e.dxf.hasattr("align_point"):
-            p = e.dxf.align_point
-        style = str(e.dxf.get("style", "Standard"))
-    intents = {
-        "view": ctx.view.name,
-        "text": text,
-        "at": [_r6(p[0] * k), _r6(p[1] * k)],
-        "height": _r6(h * k),
-        "rotation": _r6(rot),
-        "halign": halign,
-        "valign": valign,
-        "style": style,
-        "layer": str(e.dxf.get("layer", "0")),
-        "dxf": {"layer": str(e.dxf.layer), "handle": str(e.dxf.handle)},
-    }
-    name = ctx.d._auto_name("T", (), "txt")
-    if not text or not (intents["height"] > 0):
+            a2 = e.dxf.align_point
+            if halign in (3, 4, 5):
+                dx, dy = (a2[0] - p[0]) * k, (a2[1] - p[1]) * k
+                dist = math.hypot(dx, dy)
+                if halign in (3, 5) and dist > 1e-9:
+                    rot = math.degrees(math.atan2(dy, dx))
+                if halign == 3 and dist > 1e-9 and h > 0:
+                    w1 = text_size(text, h, ctx.d.std)[0]
+                    if w1 > 1e-9:
+                        h = h * dist / w1  # ALIGNED scales the text to fit between the points
+                if halign == 5:
+                    intent["fit_width"] = _r6(dist)
+                p = a2
+            else:
+                p = a2
+        intent.update(align=align, line_spacing=1.0)
+    intent.update(
+        at=[_r6(p[0] * k), _r6(p[1] * k)],
+        height=_r6(h * k),
+        rotation=_r6(rot),
+        halign=halign,
+        valign=valign,
+        style=str(e.dxf.get("style", "Standard")),
+        layer=str(e.dxf.get("layer", "0")),
+        dxf={"layer": str(e.dxf.layer), "handle": str(e.dxf.handle)},
+        insert=[_r6(e.dxf.insert[0] * k), _r6(e.dxf.insert[1] * k)],
+    )
+    if e.dxf.hasattr("align_point"):
+        intent["align_point"] = [_r6(e.dxf.align_point[0] * k), _r6(e.dxf.align_point[1] * k)]
+    if not (intent["height"] > 0):
         return False
-    ctx.own(ctx.d._add(PlainText(ctx.d, f"T.{name}", intents, refs=[ctx.view.id])))
+    name = ctx.d._auto_name("T", (), "txt")
+    ctx.own(ctx.d._add(PlainText(ctx.d, f"T.{name}", intent, refs=[ctx.view.id])))
     ctx.texts += 1
     return True
 
 
+def _decode_text(raw: str) -> str:
+    """DXF \\U+xxxx escapes -> real Unicode where possible."""
+    try:
+        return decode_dxf_unicode(raw)
+    except Exception:  # noqa: BLE001 - a damaged string must not kill the import
+        return raw
+
+
 def _mtext_align(attachment: int) -> tuple:
-    """MTEXT attachment point 1..9 → (horizontal 0/1/2, vertical 0/1/2) as in DXF TEXT aligment."""
+    """MTEXT attachment point 1..9 -> (halign 0/1/2, TEXT-style valign 3/2/1)."""
     col = (attachment - 1) % 3
     row = (attachment - 1) // 3
     halign = (0, 1, 2)[col]
-    valign = (2, 1, 0)[row]  # top → valign 0 (baseline-like), middle → 1, bottom → 2
+    valign = (3, 2, 1)[row]  # top -> valign 3, middle -> 2, bottom -> 1
     return halign, valign
 
 
@@ -853,7 +890,7 @@ def import_dxf(d, path, view="front"):
         else:
             skipped[f"{label}(degenerate)"] = skipped.get(f"{label}(degenerate)", 0) + 1
 
-    for stage in (("edges", "raw"), ("dims", "notes")):  # geometry first: dimensions look edges up
+    for stage in (("edges", "raw"), ("dims", "texts")):  # geometry first: dimensions look edges up
         for e in ents:
             bucket, label = classify(e)
             if bucket == "skipped":
@@ -863,7 +900,7 @@ def import_dxf(d, path, view="front"):
                 if not _visible(doc, e):
                     skipped[f"{label}(layer off)"] = skipped.get(f"{label}(layer off)", 0) + 1
                     continue
-                fn = {"edges": _edges, "raw": _raw, "dims": _dimension, "notes": _text}[bucket]
+                fn = {"edges": _edges, "raw": _raw, "dims": _dimension, "texts": _text}[bucket]
                 done(bucket, label, fn(ctx, e))
     imp._intent.update(
         sha256=content_hash(src),
@@ -874,7 +911,7 @@ def import_dxf(d, path, view="front"):
             "edges": dict(sorted(ctx.roles.items())),
             "dims": made["dims"] - ctx.fallback,
             "notes": ctx.fallback,
-            "texts": ctx.texts,
+            "texts": made["texts"],
             "raw": made["raw"],
             "skipped": dict(sorted(skipped.items())),
             "dims_as_notes": ctx.fallback,

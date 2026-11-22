@@ -113,6 +113,112 @@ def test_c1_metric_as_text_rises_and_notes_do_not(text_dxf):
     assert entry["metrics"]["entity_retention"]["by_type"]["MTEXT"]["rate"] == 1.0
 
 
+def make_alignment_dxf(path):
+    doc = ezdxf.new("R2018", setup=True)
+    doc.units = units.MM
+    msp = doc.modelspace()
+    msp.add_line((0, 0), (120, 0))
+    bottom = msp.add_mtext("bottom-left", dxfattribs={"layer": "TEXT"})
+    bottom.dxf.attachment_point = 7
+    bottom.set_location((60, 20))
+    middle = msp.add_text("ABCD", height=4.0, dxfattribs={"layer": "TEXT"})
+    middle.dxf.halign = 4  # MIDDLE: centred on the second alignment point
+    middle.dxf.align_point = (80, 30)
+    aligned = msp.add_text("WXYZ", height=4.0, dxfattribs={"layer": "TEXT"})
+    aligned.dxf.halign = 3  # ALIGNED: stretched between the two points
+    aligned.dxf.align_point = (40, 5)
+    rotated = msp.add_mtext("direction", dxfattribs={"layer": "TEXT"})
+    rotated.dxf.text_direction = (0, 1, 0)  # 90 degrees
+    rotated.set_location((10, 90))
+    escaped = msp.add_text("%%c20 \\U+4E2D", height=3.5, dxfattribs={"layer": "TEXT"})
+    escaped.set_placement((5, 100))
+    spaced = msp.add_mtext("line one\nline two", dxfattribs={"layer": "TEXT"})
+    spaced.dxf.line_spacing_factor = 2.0
+    spaced.set_location((10, 40))
+    doc.saveas(path)
+    return path
+
+
+def test_mtext_attachment_top_left_anchor(tmp_path):
+    src = make_text_dxf(tmp_path / "t.dxf")
+    d, _imp, texts = imported(src)
+    mtext = next(e for e in texts if "第一行" in e.text)
+    ox, oy = d["V.front"]._resolved["origin"]
+    box = mtext._prims[0].box
+    assert abs(box[0] - ox - 60.0) <= 0.01  # left edge at the insertion point
+    assert abs(box[3] - oy - 50.0) <= 0.01  # top edge at the insertion point
+
+
+def test_mtext_attachments_keep_their_corner(tmp_path):
+    src = make_alignment_dxf(tmp_path / "align.dxf")
+    d, _imp, texts = imported(src)
+    bottom = next(e for e in texts if e.text == "bottom-left")
+    assert bottom._intent["halign"] == 0 and bottom._intent["valign"] == 1
+    ox, oy = d["V.front"]._resolved["origin"]
+    box = bottom._prims[0].box
+    assert abs(box[0] - ox - 60.0) <= 0.01
+    assert abs(box[1] - oy - 20.0) <= 0.01  # bottom edge at the insertion point
+
+
+def test_text_middle_and_aligned_alignment(tmp_path):
+    src = make_alignment_dxf(tmp_path / "align.dxf")
+    d, _imp, texts = imported(src)
+    ox, oy = d["V.front"]._resolved["origin"]
+    middle = next(e for e in texts if e.text == "ABCD")
+    box = middle._prims[0].box
+    assert abs((box[0] + box[2]) / 2 - ox - 80.0) <= 0.01  # centred on align_point
+    aligned = next(e for e in texts if e.text == "WXYZ")
+    box = aligned._prims[0].box
+    assert abs(box[2] - ox - 40.0) <= 0.6  # ends at the second alignment point
+    assert abs(aligned._intent["rotation"] - 7.125) <= 0.01  # derived from the two points
+
+
+def test_text_direction_rotation_and_unicode_escapes(tmp_path):
+    src = make_alignment_dxf(tmp_path / "align.dxf")
+    _d, _imp, texts = imported(src)
+    rotated = next(e for e in texts if e.text == "direction")
+    assert abs(rotated._intent["rotation"] - 90.0) <= 0.01
+    escaped = next(e for e in texts if e.text.startswith("Φ"))
+    assert escaped.text == "Φ20 中"
+
+
+def test_mtext_line_spacing_factor(tmp_path):
+    src = make_alignment_dxf(tmp_path / "align.dxf")
+    _d, _imp, texts = imported(src)
+    spaced = next(e for e in texts if e.text.startswith("line one"))
+    assert spaced._intent["line_spacing"] == 2.0
+    y = [p.at[1] for p in spaced._prims if hasattr(p, "text")]
+    assert len(y) == 2, spaced.text
+    expected = 2.5 * (5.0 / 3.0) * 2.0  # MTEXT default char height * DXF base spacing * factor
+    assert abs((y[0] - y[1]) - expected) <= 0.01
+
+
+def test_build_keeps_height_style_layer_and_position(tmp_path):
+    src = make_text_dxf(tmp_path / "text.dxf")
+    d = tmp_path / "part"
+    code, out = lcad(tmp_path, "init", str(d), "--from-dxf", str(src))
+    assert code == 0, out
+    doc = ezdxf.readfile(d / ".linercad/build/drawing.dxf")
+    texts = [e for e in doc.modelspace() if e.dxftype() == "TEXT"]
+    first = next(e for e in texts if e.dxf.text.startswith("技术要求"))
+    assert abs(first.dxf.height - 5.0) <= 0.01  # no GB character-height conversion
+    assert abs(first.dxf.rotation - 30.0) <= 0.01
+    assert first.dxf.style == "Standard"
+    assert first.dxf.layer == "TEXT"
+    p = first.dxf.insert
+    assert abs(p[0] - 20.0) <= 0.01 and abs(p[1] - 30.0) <= 0.01
+
+
+def test_c1_edit_round_edits_a_text_when_there_is_no_note(tmp_path):
+    import dxf_import as metrics
+
+    src = make_text_dxf(tmp_path / "text.dxf")
+    entry = metrics.evaluate_file(src)
+    round_ = entry["metrics"]["edit_round"]
+    assert round_["ok"] is True, round_
+    assert round_["changed_note"].startswith("T.")
+
+
 def test_edit_an_imported_text_and_rebuild(tmp_path):
     src = make_text_dxf(tmp_path / "text.dxf")
     d = tmp_path / "part"

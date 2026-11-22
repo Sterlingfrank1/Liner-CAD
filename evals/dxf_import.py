@@ -86,12 +86,16 @@ def _rate(retained: int, source: int):
 
 
 def _source_text(e) -> str:
-    if e.dxftype() == "MTEXT":
-        raw = e.plain_text()
-        if "\n" in raw:  # MTEXT line breaks are part of the text (C2 keeps them)
-            return "\n".join(importdxf.clean_text(part) for part in raw.split("\n"))
-        return importdxf.clean_text(raw)
-    return importdxf.clean_text(e.dxf.text)
+    # independent reading of the source entity (not the importer's parser)
+    from ezdxf.lldxf.encoding import decode_dxf_unicode
+
+    raw = e.plain_text(fast=False) if e.dxftype() == "MTEXT" else e.dxf.text
+    try:
+        raw = decode_dxf_unicode(raw)
+    except Exception:  # noqa: BLE001
+        pass
+    parts = [importdxf.clean_text(part) for part in raw.split("\n")]
+    return "\n".join(parts)
 
 
 def _decode(name) -> str:
@@ -287,7 +291,7 @@ def _would_import(doc, e) -> bool:
         return False
     if bucket == "edges":
         return any(_edge_ok(seg) for seg in importdxf._segments(e))
-    if bucket == "notes":
+    if bucket in ("notes", "texts"):
         return bool(_source_text(e))
     if bucket == "raw":
         return _raw_would_import(e)
@@ -300,7 +304,7 @@ def _would_import(doc, e) -> bool:
 def entity_retention(doc, counts: dict) -> dict:
     source = Counter(e.dxftype() for e in _msp(doc))
     retained = Counter()
-    for bucket in ("edges", "raw", "notes"):
+    for bucket in ("edges", "raw", "texts", "notes"):
         for label, n in counts.get("from", {}).get(bucket, {}).items():
             if label in source:
                 retained[label] += n
@@ -534,15 +538,21 @@ def inspect_cli(path: Path, doc=None) -> dict:
 def _move_candidates(model) -> list:
     """[(dim id, move kwargs)] ordered so the first one is most likely to move successfully."""
     out = []
+    groups = {"dim": [], "text": []}
     for e in model["elements"]:
-        eid = e["id"]
-        if not eid.startswith("D."):
-            continue
-        side = (e.get("placement") or {}).get("side")
-        order = ("dx", "dy") if side in ("left", "right") else ("dy", "dx")
-        for axis in order:
-            for delta in (1.0, -1.0):
-                out.append((eid, axis, delta))
+        if e.get("kind") in groups:
+            groups[e["kind"]].append(e)
+    for kind in ("dim", "text"):
+        for e in groups[kind]:
+            eid = e["id"]
+            if kind == "dim":
+                side = (e.get("placement") or {}).get("side")
+                order = ("dx", "dy") if side in ("left", "right") else ("dy", "dx")
+            else:
+                order = ("dx", "dy")
+            for axis in order:
+                for delta in (1.0, -1.0):
+                    out.append((eid, axis, delta))
     return out
 
 

@@ -317,8 +317,8 @@ def test_edit_round_verifies_both_operations(report):
 def test_move_candidates_prefer_the_side_normal():
     model = {
         "elements": [
-            {"id": "D.right", "placement": {"side": "right"}},
-            {"id": "D.bottom", "placement": {"side": "bottom"}},
+            {"id": "D.right", "kind": "dim", "placement": {"side": "right"}},
+            {"id": "D.bottom", "kind": "dim", "placement": {"side": "bottom"}},
         ]
     }
     candidates = metrics._move_candidates(model)

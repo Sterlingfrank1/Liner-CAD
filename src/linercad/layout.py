@@ -52,6 +52,11 @@ class Text:
     layer: str
     box: tuple  # (x0, y0, x1, y1)
     cjk: bool | None = None  # metric override for mixed-language blocks (technical notes)
+    exact_height: bool = False  # imported text keeps the DXF height verbatim
+    style: str | None = None
+    layer_name: str | None = None
+    align: tuple | None = None  # (halign, valign) of the source TEXT / MTEXT
+    anchor: tuple | None = None  # sheet-coordinate insertion point of the source entity
 
 
 @dataclass(frozen=True)
@@ -300,7 +305,20 @@ def arrow(tip, d, std, layer="dim"):
     return Solid((tuple(tip), (bx + nx, by + ny), (bx - nx, by - ny)), layer)
 
 
-def make_text(s, at, h, std, rot=0, layer="dim", cjk=None):
+def make_text(
+    s,
+    at,
+    h,
+    std,
+    rot=0,
+    layer="dim",
+    cjk=None,
+    exact_height=False,
+    style=None,
+    layer_name=None,
+    align=None,
+    anchor=None,
+):
     w, hh = text_size(s, h, std, cjk)
     if abs(rot % 180 - 90) < 1e-9:
         box = (at[0] - hh / 2, at[1] - w / 2, at[0] + hh / 2, at[1] + w / 2)
@@ -310,7 +328,9 @@ def make_text(s, at, h, std, rot=0, layer="dim", cjk=None):
         c, s_ = abs(math.cos(math.radians(rot))), abs(math.sin(math.radians(rot)))
         bw, bh = (w * c + hh * s_) / 2, (w * s_ + hh * c) / 2
         box = (at[0] - bw, at[1] - bh, at[0] + bw, at[1] + bh)
-    return Text(s, tuple(at), h, rot, layer, box, cjk)
+    return Text(
+        s, tuple(at), h, rot, layer, box, cjk, exact_height, style, layer_name, align, anchor
+    )
 
 
 def center_piece(a, b, std):
@@ -1311,7 +1331,8 @@ class _ViewLayout:
 
     def plain_texts(self):
         """Imported plain text elements (DXF TEXT / MTEXT): no leader, fixed position / height /
-        rotation from the source, MTEXT line breaks stacked as separate text lines."""
+        rotation / alignment / style from the source; MTEXT line breaks stacked per line with the
+        source line-spacing factor (DXF base 5/3)."""
         from .text import has_cjk
 
         for e in self.els("text"):
@@ -1321,29 +1342,55 @@ class _ViewLayout:
             halign = i.get("halign", 0)
             valign = i.get("valign", 0)
             lines = str(i["text"]).split("\n")
-            spacing = self.std.get("text", {}).get("line_spacing", 1.5)
+            factor = i.get("line_spacing") or 1.0
+            step = h * (5.0 / 3.0) * factor
             c, s_ = math.cos(math.radians(rot)), math.sin(math.radians(rot))
             x0, y0 = self.P(i["at"])
+            insert = self.P(i.get("insert", i["at"]))
             cjk = has_cjk(i["text"]) or None
+            sizes = [text_size(line, h, self.std, cjk) for line in lines]
+            n = len(lines)
+            if valign == 3:  # MTEXT top: first line's top edge at the insertion point
+                dy0 = -sizes[0][1] / 2.0
+            elif valign == 2:  # MTEXT middle: block centred at the insertion point
+                dy0 = (n - 1) * step / 2.0
+            elif valign == 1:  # MTEXT bottom: last line's bottom edge at the insertion point
+                dy0 = (n - 1) * step + sizes[-1][1] / 2.0
+            else:  # TEXT baseline
+                dy0 = sizes[0][1] / 2.0
             prims = []
-            for k, line in enumerate(lines):
-                w, hh = text_size(line, h, self.std, cjk)
-                if halign == 1:
-                    dx = 0.0
+            for k, (line, (w, hh)) in enumerate(zip(lines, sizes)):
+                if halign == 0:
+                    dx = w / 2.0
+                elif halign in (3, 5):  # ALIGNED / FIT: anchor is the second alignment point
+                    dx = -w / 2.0
                 elif halign == 2:
                     dx = -w / 2.0
-                else:
-                    dx = w / 2.0
-                if valign == 2:
-                    dy = 0.0
-                elif valign == 3:
-                    dy = -hh / 2.0
-                else:
-                    dy = hh / 2.0
-                ly = dy - k * h * spacing
+                else:  # center / middle
+                    dx = 0.0
+                ly = dy0 - k * step
                 px = x0 + dx * c - ly * s_
                 py = y0 + dx * s_ + ly * c
-                prims.append(make_text(line, (px, py), h, self.std, rot, layer="text", cjk=cjk))
+                line_anchor = (
+                    insert[0] + k * step * s_,
+                    insert[1] - k * step * c,
+                )
+                prims.append(
+                    make_text(
+                        line,
+                        (px, py),
+                        h,
+                        self.std,
+                        rot,
+                        layer="text",
+                        cjk=cjk,
+                        exact_height=True,
+                        style=i.get("style"),
+                        layer_name=i.get("layer"),
+                        align=(halign, valign),
+                        anchor=line_anchor,
+                    )
+                )
             self.put(e, prims)
 
     def section_labels(self):
