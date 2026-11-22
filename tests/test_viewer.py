@@ -240,14 +240,61 @@ def test_late_preview_is_ignored_and_errors_recorded(shaft):
     assert snap["param_errors"]["error"]["code"] == "param"
 
 
-def test_context_at_sel_warns_on_an_old_selection(shaft):
+def test_context_at_sel_refuses_an_old_selection(shaft):
     v = Viewer(shaft)
     v.select(["D.L"])
     script = shaft / ".linercad" / "tmp" / "m.py"
     script.write_text('def apply(d):\n    d["D.L"].place(side="top")\n', encoding="utf-8")
     txn.edit(shaft, script, "挪")
+    with pytest.raises(LinerError) as err:
+        commands.context(shaft, ["@sel"])
+    assert err.value.code == "selection_stale"
+    assert "当前没有有效选中" in err.value.message
+    assert "e0" in err.value.message and "e1" in err.value.message
+    assert err.value.hint and "@ID" in err.value.hint
+
+
+def test_context_at_sel_refuses_an_expired_selection(shaft):
+    from datetime import UTC, datetime
+
+    v = Viewer(shaft)
+    v.select(["D.L"])
+    path = shaft / ".linercad/selection.json"
+    sel = json.loads(path.read_text(encoding="utf-8"))
+    sel["time"] = datetime(2000, 1, 1, tzinfo=UTC).isoformat(timespec="seconds")
+    path.write_text(json.dumps(sel), encoding="utf-8")
+    with pytest.raises(LinerError) as err:
+        commands.context(shaft, ["@sel"])
+    assert err.value.code == "selection_stale" and "当前没有有效选中" in err.value.message
+    assert "超时" in err.value.message or "过期" in err.value.message
+
+
+def test_context_at_sel_reports_no_selection(shaft):
+    with pytest.raises(LinerError) as err:
+        commands.context(shaft, ["@sel"])
+    assert err.value.code == "selection_stale" and "当前没有有效选中" in err.value.message
+
+
+def test_selection_refs_carry_value_tolerance_and_view(shaft):
+    from datetime import datetime
+
+    v = Viewer(shaft)
+    v.select(["D.d2", "D.d1", "D.L"])
+    sel = json.loads((shaft / ".linercad/selection.json").read_text(encoding="utf-8"))
+    line = " ".join(item["ref"] for item in sel["items"])
+    assert line == "@D.d2（Φ30k6，主视图） @D.d1（M24×1.5-6g，主视图） @D.L（200，主视图）"
     ctx = commands.context(shaft, ["@sel"])
-    assert "e0" in ctx["warning"] and ctx["items"][0]["element"]["id"] == "D.L"
+    assert [x["element"]["id"] for x in ctx["items"]] == ["D.d2", "D.d1", "D.L"]
+    assert ctx["selection"]["fresh"] is True and ctx["selection"]["ids"] == ["D.d2", "D.d1", "D.L"]
+    assert datetime.fromisoformat(ctx["selection"]["time"]).year >= 2026
+
+
+def test_viewer_copy_reference_ui():
+    from importlib import resources
+
+    js = (resources.files("linercad.viewer") / "viewer.js").read_text(encoding="utf-8")
+    for needle in ("复制引用", "Ctrl+Shift+C", "selectionRefs", "refs.join"):
+        assert needle in js, needle
 
 
 @pytest.fixture
