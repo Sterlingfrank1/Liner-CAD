@@ -5,10 +5,20 @@
 - 规则数：35；变异数：35；检出：35；检出率：1.0；参考图误报：0
 - 冻结已知债务（E5 排布 + 径向引线交叉现存违规）：97 条，分布在 20 个参考图；变异框架把已知债务算真阳性
 
-| 规则 | 机会数（40 例） | 变异 | 检出 | 检出率 | 误报 | 基线 |
+## baseline 变更（新增项，不是退化）
+
+| 族 | E5 基线 | E2 基线 | 变化 | 来源 |
+|---|---|---|---|---|
+| G | 1.0 (4417/0) | 1.0 (4417/0) | +0 机会 / +0 违规 | 不变 |
+| D | 0.972252 (2775/77) | 0.965688 (2827/97) | +52 机会 / +20 违规 | 新增 place_leader_cross 规则的 20 条真实交叉 |
+| T | 1.0 (247/0) | 1.0 (247/0) | +0 机会 / +0 违规 | 不变 |
+
+原 34 条规则（除新增径向引线规则外）在 40 例上仍 0 违规，G/T 仍 1.0；D 的下降全部来自新增规则的已知真阳性（同时冻结进 evals/known-debt.json）。
+
+| 规则 | 机会数（参考图） | 变异 | 检出 | 检出率 | 误报 | 基线 |
 |---|---|---|---|---|---|---|
 | center_mark | 73 | 1 | 1 | 100% | 0 | L1/spline_6x23x26x6 |
-| chain_limit | 0 | 1 | 1 | 100% | 0 | fixture:chain_limit |
+| chain_limit | 1 | 1 | 1 | 100% | 0 | fixture:chain_limit |
 | closed_loop | 215 | 1 | 1 | 100% | 0 | L1/thread_ext_M20 |
 | conv_dim | 33 | 1 | 1 | 100% | 0 | L1/thread_ext_M20 |
 | datum_letter | 19 | 1 | 1 | 100% | 0 | L2/disc/bearing_cap |
@@ -22,13 +32,13 @@
 | overlap | 809 | 1 | 1 | 100% | 0 | L1/thread_ext_M20 |
 | param_cover | 219 | 1 | 1 | 100% | 0 | L2/box/bearing_seat |
 | place_arrow | 373 | 1 | 1 | 100% | 0 | L1/thread_ext_M20 |
-| place_balloon_align | 0 | 1 | 1 | 100% | 0 | fixture:place_balloon_align |
-| place_balloon_cross | 0 | 1 | 1 | 100% | 0 | fixture:place_balloon_cross |
-| place_balloon_spacing | 0 | 1 | 1 | 100% | 0 | fixture:place_balloon_spacing |
-| place_dim_cross | 365 | 1 | 1 | 100% | 0 | fixture:place_dim_cross |
+| place_balloon_align | 1 | 1 | 1 | 100% | 0 | fixture:place_balloon_align |
+| place_balloon_cross | 2 | 1 | 1 | 100% | 0 | fixture:place_balloon_cross |
+| place_balloon_spacing | 1 | 1 | 1 | 100% | 0 | fixture:place_balloon_spacing |
+| place_dim_cross | 2 | 1 | 1 | 100% | 0 | fixture:place_dim_cross |
 | place_dim_outline | 287 | 1 | 1 | 100% | 0 | L1/thread_ext_M20 |
 | place_ext_line | 245 | 1 | 1 | 100% | 0 | L1/thread_ext_M20 |
-| place_leader_cross | 52 | 1 | 1 | 100% | 0 | L2/disc/gear_blank |
+| place_leader_cross | 55 | 1 | 1 | 100% | 0 | L2/disc/gear_blank |
 | place_nesting | 72 | 1 | 1 | 100% | 0 | L1/thread_ext_M20 |
 | place_row_spacing | 72 | 1 | 1 | 100% | 0 | L1/thread_ext_M20 |
 | place_text_direction | 285 | 1 | 1 | 100% | 0 | L1/thread_ext_M20 |
@@ -39,7 +49,7 @@
 | scale | 41 | 1 | 1 | 100% | 0 | L1/thread_ext_M20 |
 | section_ref | 30 | 1 | 1 | 100% | 0 | L1/keyway_d28 |
 | sheet | 40 | 1 | 1 | 100% | 0 | L1/thread_ext_M20 |
-| stale_op | 0 | 1 | 1 | 100% | 0 | fixture:stale_op |
+| stale_op | 1 | 1 | 1 | 100% | 0 | fixture:stale_op |
 | text_height | 809 | 1 | 1 | 100% | 0 | L1/thread_ext_M20 |
 | view_align | 46 | 1 | 1 | 100% | 0 | L1/spline_6x23x26x6 |
 

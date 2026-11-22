@@ -93,8 +93,12 @@ def check() -> list[str]:
             problems.append(f"{rid}: function {e.get('fn')} not found")
         if e.get("status") not in ("done", "J-only", "todo"):
             problems.append(f"{rid}: bad status {e.get('status')}")
-        if e.get("clause_status") not in ("read", "pending"):
+        if e.get("clause_status") not in ("read", "pending", "design"):
             problems.append(f"{rid}: bad clause_status {e.get('clause_status')}")
         if e.get("clause_status") == "pending" and e.get("clause") != e.get("std"):
             problems.append(f"{rid}: pending clause must be the standard number only")
+        if e.get("clause_status") == "design" and not str(e.get("clause", "")).startswith(
+            "DESIGN §"
+        ):
+            problems.append(f"{rid}: design clause must be a DESIGN section")
     return problems

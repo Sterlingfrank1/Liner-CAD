@@ -34,7 +34,10 @@ from linercad.runtime import build  # noqa: E402
 
 KNOWN_DEBT = HERE / "known-debt.json"
 
-#: a stale operation log entry for the stale_op mutation
+#: a valid operation log entry (the reference for the stale_op opportunity count) and the stale
+#: entry the mutation injects
+VALID_LOG = [{"edit": "e1", "line": 1, "op": "set", "id": "D.x"}]
+
 STALE_OP = {
     "edit": "e3",
     "line": 4,
@@ -50,12 +53,15 @@ STALE_OP = {
 
 def _build_case(case):
     work = Path(tempfile.mkdtemp())
-    (work / "drawing.py").write_text(case["drawing_src"], encoding="utf-8")
-    if case.get("dir"):
-        for f in Path(case["dir"]).iterdir():
-            if f.is_file() and f.name != "drawing.py" and f.suffix in (".py", ".step", ".stp"):
-                shutil.copy2(f, work / f.name)
-    return build(work)
+    try:
+        (work / "drawing.py").write_text(case["drawing_src"], encoding="utf-8")
+        if case.get("dir"):
+            for f in Path(case["dir"]).iterdir():
+                if f.is_file() and f.name != "drawing.py" and f.suffix in (".py", ".step", ".stp"):
+                    shutil.copy2(f, work / f.name)
+        return build(work)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
 
 def known_debt() -> dict:
@@ -301,12 +307,17 @@ def m_section_ref(d):
 
 
 def m_center_mark(d):
+    target = None
+    for e in d._els.values():
+        if e.kind == "edge" and e._intent.get("shape") == "circle" and e.role == "thick":
+            target = e._intent.get("feature") or e.id
+            break
     ids = [eid for eid, e in d._els.items() if e.kind == "center"]
-    if not ids:
-        raise AssertionError("no centre lines")
+    if not ids or target is None:
+        raise AssertionError("no centre lines / circle")
     for eid in ids:
         d._els.pop(eid, None)
-    return ids[0]
+    return target
 
 
 def m_duplicate(d):
@@ -383,8 +394,19 @@ def m_general_tol(d):
     for e in d._els.values():
         if e.kind == "note" and e._intent.get("gentol"):
             e._intent["gentol"] = None
-            return e.id
-    raise AssertionError("no general-tolerance note")
+            break
+    else:
+        raise AssertionError("no general-tolerance note")
+    for dim in d._els.values():
+        i = dim._intent
+        if (
+            dim.kind == "dim"
+            and i.get("type") in ("linear", "dia", "rad", "aligned")
+            and not i.get("tolerance")
+            and not i.get("reference")
+        ):
+            return dim.id
+    raise AssertionError("no untoleranced dimension")
 
 
 def m_chain_limit(d):
@@ -414,12 +436,24 @@ def m_rough_default(d):
 
 
 def m_rough_fit(d):
+    from linercad import res
+
     roughs = [e for e in d._els.values() if e.kind == "rough"]
     if not roughs:
         raise AssertionError("no roughness symbols")
+    target = None
+    for e in d._els.values():
+        t = e._intent.get("tolerance") if e.kind == "dim" else None
+        if not t or t.get("kind") != "fit":
+            continue
+        if res.fit(t["code"], e._intent["value"])["it"] <= 7:
+            target = e.id
+            break
+    if target is None:
+        raise AssertionError("no IT<=7 fit dimension")
     for e in roughs:
         e._intent["ref"] = None
-    return roughs[0].id
+    return target
 
 
 def m_overlap(d):
@@ -463,7 +497,7 @@ def m_view_align(d):
             i = e._intent
             i["p1"] = [i["p1"][0] + 5.0, i["p1"][1] + 5.0]
             i["p2"] = [i["p2"][0] + 5.0, i["p2"][1] + 5.0]
-            return e.id
+            return f"V.{e.view}"
     raise AssertionError("no line edge outside the front view")
 
 
@@ -645,8 +679,12 @@ def m_place_leader_cross(d):
         if info is None:
             continue
         others.append((e, info[1]))
-        if info[0] == "leader" and e._intent.get("circle"):
+        if info[0] == "leader" and place._is_radial_text(info[1]["texts"]):
             leaders.append((e, info[1]))
+    # D1 review: gear_blank's Φ92 is the required negative example - use the largest radial
+    # dimension of the drawing, whatever element id it happens to have
+    leaders.sort(key=lambda item: -(item[0]._intent.get("value") or 0.0))
+    leaders = leaders[:1]
     for e, info in leaders:
         for other, oinfo in others:
             if other is e:
@@ -676,7 +714,7 @@ def m_place_balloon_align(d):
         Circle((circle.c[0] + 6.0, circle.c[1]), circle.r, circle.layer) if p is circle else p
         for p in el._prims
     ]
-    return el.id
+    return d["B.b0"].id  # the group-level finding points at the first balloon
 
 
 def m_place_balloon_spacing(d):
@@ -753,8 +791,8 @@ def rule_functions() -> dict:
 # ---- report ------------------------------------------------------------------------------------
 
 
-def _findings(d, stale=()):
-    return checks.run(d, stale)
+def _findings(d, stale=(), log_ops=()):
+    return checks.run(d, stale, log_ops)
 
 
 def reference_pass(cases=None):
@@ -784,6 +822,7 @@ def reference_pass(cases=None):
         "clean": clean,
         "known_debt": debt,
         "case_ids": [c["id"] for c in cases],
+        "skipped": skipped,
     }
 
 
@@ -829,15 +868,29 @@ def run_report(cases=None) -> dict:
             if d is not None:
                 stale = ()
                 try:
-                    if rule == "stale_op":
-                        stale = (STALE_OP,)
-                    else:
-                        mutator(d)
-                    fired = {f["rule"] for f in _findings(d, stale)}
+                    log_ops = VALID_LOG if rule == "stale_op" else ()
+                    base_found = _findings(d, stale, log_ops)
+                    data["_base_ids"] = {f["id"] for f in base_found if f["rule"] == rule}
+                    data["base_findings"] = len(data["_base_ids"])
+                    if not isinstance(base, str):  # a purpose-built clean fixture is its reference
+                        data["opportunities"] = base_found.opportunities.get(rule, 0)
+                        data["false_positives"] = sum(1 for f in base_found if f["rule"] == rule)
+                    stale = (STALE_OP,) if rule == "stale_op" else ()
+                    target = None if rule == "stale_op" else mutator(d)
+                    found = _findings(d, stale, log_ops)
+                    ids = {f["id"] for f in found if f["rule"] == rule}
+                    base_ids = data.pop("_base_ids", set())
+                    data["target"] = target
                     data["mutations"] = 1
-                    data["detected"] = 1 if rule in fired else 0
+                    ok = rule in {f["rule"] for f in found}
+                    if target is not None:
+                        ok = ok and target in ids
+                    ok = ok and not (base_ids & ids)
+                    data["detected"] = 1 if ok else 0
                     data["detection_rate"] = float(data["detected"])
+                    data.pop("_base_ids", None)
                 except Exception as e:  # noqa: BLE001 - a broken operator is reported, not fatal
+                    data.pop("_base_ids", None)
                     data["error"] = f"{type(e).__name__}: {e}"
         total_mut += data["mutations"]
         total_det += data["detected"]
@@ -856,6 +909,43 @@ def run_report(cases=None) -> dict:
     return report
 
 
+#: the E5 baseline this card started from (kept here so the evidence states old vs new)
+E5_BASELINE = {
+    "G": {"score": 1.0, "opportunities": 4417, "violations": 0},
+    "D": {"score": 0.972252, "opportunities": 2775, "violations": 77},
+    "T": {"score": 1.0, "opportunities": 247, "violations": 0},
+}
+
+
+def _baseline_table() -> list[str]:
+    out = []
+    path = ROOT / "evals" / "baseline.json"
+    if not path.exists():
+        return out
+    new = json.loads(path.read_text(encoding="utf-8"))["families"]
+    out.append("## baseline 变更（新增项，不是退化）")
+    out.append("")
+    out.append("| 族 | E5 基线 | E2 基线 | 变化 | 来源 |")
+    out.append("|---|---|---|---|---|")
+    for fam, old in E5_BASELINE.items():
+        cur = new.get(fam, {})
+        d_opp = (cur.get("opportunities") or 0) - old["opportunities"]
+        d_viol = (cur.get("violations") or 0) - old["violations"]
+        why = "新增 place_leader_cross 规则的 20 条真实交叉" if fam == "D" else "不变"
+        out.append(
+            f"| {fam} | {old['score']} ({old['opportunities']}/{old['violations']}) | "
+            f"{cur.get('score')} ({cur.get('opportunities')}/{cur.get('violations')}) | "
+            f"+{d_opp} 机会 / +{d_viol} 违规 | {why} |"
+        )
+    out.append("")
+    out.append(
+        "原 34 条规则（除新增径向引线规则外）在 40 例上仍 0 违规，G/T 仍 1.0；"
+        "D 的下降全部来自新增规则的已知真阳性（同时冻结进 evals/known-debt.json）。"
+    )
+    out.append("")
+    return out
+
+
 def markdown(report) -> str:
     lines = []
     lines.append("# 规则变异报告（E2：检出率 / 误报率）")
@@ -872,7 +962,8 @@ def markdown(report) -> str:
         f"分布在 {report['known_debt']['cases']} 个参考图；变异框架把已知债务算真阳性"
     )
     lines.append("")
-    lines.append("| 规则 | 机会数（40 例） | 变异 | 检出 | 检出率 | 误报 | 基线 |")
+    lines.extend(_baseline_table())
+    lines.append("| 规则 | 机会数（参考图） | 变异 | 检出 | 检出率 | 误报 | 基线 |")
     lines.append("|---|---|---|---|---|---|---|")
     for rule, d in sorted(report["rules"].items()):
         lines.append(

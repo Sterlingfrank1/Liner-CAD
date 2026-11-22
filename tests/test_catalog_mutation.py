@@ -67,14 +67,17 @@ def test_catalog_entry_schema_and_functions(report):
         assert e["fn"] == e["id"]
         assert e["fn"] in functions
         assert isinstance(e["statement"], str) and e["statement"].strip()
-        assert e["clause_status"] in ("read", "pending")
+        assert e["clause_status"] in ("read", "pending", "design")
         assert e["positive"].strip() and e["negative"].strip()
+        assert "参考图" in e["positive"] or "fixture" in e["positive"], e["id"]
         if e["clause_status"] == "pending":
             # no clause / table number may be invented: the clause is the standard number only
             assert e["clause"] == e["std"], e["id"]
-        else:
+        elif e["clause_status"] == "read":
             assert e["clause"].startswith(e["std"])
             assert len(e["clause"]) > len(e["std"])
+        else:  # design: the authority is DESIGN.md, not a standard clause
+            assert e["clause"].startswith("DESIGN §")
 
 
 def test_clause_precision_policy():
@@ -84,9 +87,15 @@ def test_clause_precision_policy():
         assert e["std"] == std
         assert e["clause_status"] == "read"
         assert marker in e["clause"], e["clause"]
-    # everything else has not been read clause by clause, and says so instead of guessing
+    # two rules take their authority from DESIGN.md; everything else has not been read clause by
+    # clause and says so instead of guessing
     for rule, e in by_id.items():
-        if rule not in READ_CLAUSES:
+        if rule in READ_CLAUSES:
+            continue
+        if rule in ("param_cover", "stale_op"):
+            assert e["clause_status"] == "design", rule
+            assert e["clause"].startswith("DESIGN §"), rule
+        else:
             assert e["clause_status"] == "pending", rule
 
 

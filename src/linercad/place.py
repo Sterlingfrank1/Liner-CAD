@@ -367,6 +367,15 @@ def _all_edge_segments(d):
     return out
 
 
+#: a radial (diameter / radius) dimension is recognised by its own text, so imported drawings
+#: (whose elements carry no model intent) are judged exactly like native ones
+_RADIAL = __import__("re").compile(r"^(?:\d+\s*[×xX])?\s*(?:Φ|⌀|Ø|R)")
+
+
+def _is_radial_text(texts) -> bool:
+    return any(_RADIAL.match((t.text or "").strip()) for t in texts)
+
+
 def _arrow_size(solid):
     """(short side, long side) of the arrow triangle: base width and tip-to-base height."""
     pts = solid.pts
@@ -910,7 +919,7 @@ def place_leader_cross(d):
         if info is None:
             continue
         others.append((e, info[1]))
-        if info[0] == "leader" and e._intent.get("circle"):
+        if info[0] == "leader" and _is_radial_text(info[1]["texts"]):
             radial.append((e, info[1]))
     findings = []
     for e, info in radial:
