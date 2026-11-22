@@ -9,7 +9,7 @@ import ezdxf
 import pytest
 from ezdxf import units
 
-from linercad import Drawing, importdxf
+from linercad import Drawing, checks, importdxf
 from linercad.runtime import build
 
 DATA = Path(__file__).parent / "data" / "dxf"
@@ -264,7 +264,10 @@ def test_import_builds_without_errors(imported):
     res = build(d)
     assert not [f for f in res.findings if f["severity"] == "error"]
     rules = {f["rule"] for f in res.findings}
-    assert rules <= {"overlap", "general_tol"}, rules  # warnings a foreign drawing may carry
+    # warnings a foreign drawing may carry: the layout overlap / general tolerance gaps, plus the
+    # E5 placement metrics (they observe any drawing made of primitives, imported ones included)
+    allowed = {"overlap", "general_tol"} | {r for r in checks.RULES if r.startswith("place_")}
+    assert rules <= allowed, rules
     assert not res.stale
     el = res.d["I.ref"]
     assert el.kind == "import" and el.path == "ref.dxf" and el.counts["dims"] == 8

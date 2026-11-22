@@ -41,6 +41,7 @@ GROUPS = {
     "sheets",
     "title_block",
     "tech_notes",
+    "placement",  # E5: D.place / A.place numeric conventions
 }
 
 

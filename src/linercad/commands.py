@@ -209,11 +209,19 @@ def check(dir):
     from .runtime import build
 
     res = build(dir)
-    packs = {p: [] for p in ("drafting", "dimensioning", "tolerancing", "surface", "layout")}
+    packs = {
+        p: [] for p in ("drafting", "dimensioning", "tolerancing", "surface", "layout", "placement")
+    }
     for f in res.findings:
         packs.setdefault(f.get("pack") or RULES.get(f["rule"], "layout"), []).append(f)
     errors = sum(1 for f in res.findings if f.get("severity") == "error")
-    return {"ok": True, "errors": errors, "warnings": len(res.findings) - errors, "packs": packs}
+    return {
+        "ok": True,
+        "errors": errors,
+        "warnings": len(res.findings) - errors,
+        "packs": packs,
+        "opportunities": res.opportunities,
+    }
 
 
 def inspect_dxf(dir, file):

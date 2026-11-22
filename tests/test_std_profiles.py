@@ -290,7 +290,7 @@ def test_overlay_makes_the_company_practice_legal(acme):
     assert model["drawing"]["overlay"] == "acme" and model["drawing"]["projection"] == "first"
     # the same drawing judged by the plain GB profile is not legal: the overlay is what allows it
     d.std = load_std("GB")
-    found = rules.text_height(d)
+    found, _ = rules.text_height(d)
     assert found and all(f["rule"] == "text_height" for f in found)
 
 

@@ -1,4 +1,15 @@
 # Letters recommended not to be used as datum letters (a recommendation in a note, not a prohibition).
+[meta]
+stds = ["GB/T 1182-2018", "GB/T 17851-2010", "ISO 5459:2011"]
+checked = "2026-11-21"
+method = """Card A4 re-read the supplied GB/T 1182-2018 and GB/T 17851-2010 PDFs as page images on 2026-11-21, for the clauses about datums and datum systems: GB/T 1182-2018 8.2.4, table 1 and table 2/3, and GB/T 17851-2010 6.3.2 / 6.3.3. GB/T 17851-2010 clause 6.2 itself is NOT on the pages that were read - its wording still comes from the user-supplied page image of 2026-11-10, so the two letter lists are single-lineage and both [GB] and [ISO] keep verified = false."""
+conclusion = """In the clauses that were read, GB/T 1182-2018 8.2.4 (基准部分) sends datum and datum-annotation information to GB/T 17851 (见 GB/T 17851) and neither 8.2.4 nor table 1/2/3 of GB/T 1182-2018 names forbidden datum letters (this is a statement about the clauses read, not about the unread chapters). GB/T 17851-2010 clause 6.2 note 2 recommends not using I, O, Q and X; clause 6.3.2 gives the common-datum form A-B; clause 6.3.3 gives the priority order of a datum system (第一基准 / 第二基准 / 第三基准 in the third to fifth cell; the order affects the actual control result). 17851-2010 6.3.2 and 6.3.3 were read from the supplied PDF; 6.2 itself was not re-read and remains a single user-page-image source, hence verified = false."""
+unread = """GB/T 17851-2010 clause 6.2 was not re-read from the supplied PDF (only from the user page image of 2026-11-10); GB/T 17851-2010 clauses 4, 5 (in part), 7 (基准目标) and 8 (三基面体系) were not read; ISO 5459:2011 was not read at all - its letter list comes from a PTC Creo help page (a software rule). Ask the user for GB/T 17851-2010 6.2 and ISO 5459:2011 if an independent check of the letter lists is needed."""
+pending = [
+    "Re-read GB/T 17851-2010 6.2 from the standard text if the user supplies it (currently only a page image from 2026-11-10).",
+    "ISO 5459:2011 was not read; its I/O/Q/X list is a software-rule source in [ISO].source, not the standard clause.",
+]
+
 [ISO]
 std = "ISO 5459:2011"
 letters = ["I", "O", "Q", "X"]
@@ -7,6 +18,8 @@ source = "Datum label rule of the PTC Creo Parametric model-based definition hel
 
 [GB]
 std = "GB/T 17851-2010"
+clause = "6.2"
 letters = ["I", "O", "Q", "X"]
-verified = true
-source = "GB/T 17851-2010 clause 6.2 (基准字母) note 2: 建议不要用字母 I, O, Q 和 X. Read from a page image supplied by the user on 2026-11-10; clause 6.1 of that page refers the datum symbol to GB/T 1182, so GB/T 1182-2018 itself was not read. The longer list E F I J L M O P R thought to belong to GB/T 1182-1996 is not in this text and is not applied."
+verified = false
+source = """GB/T 17851-2010 clause 6.2 (基准字母) note 2: 建议不要用字母 I, O, Q 和 X. Read from a page image supplied by the user on 2026-11-10; that page image is the only source of the wording (the supplied PDF was not re-read at 6.2 on 2026-11-21), so verified = false per the single-lineage rule. \
+Card A4 checked the relationship to GB/T 1182-2018: its 8.2.4 sends datum information to GB/T 17851 and the clauses read in GB/T 1182-2018 (8.2.4, tables 1-3) contain no letter list (the unread chapters were not checked); GB/T 17851-2010 6.3.2 (common datum A-B) and 6.3.3 (first/second/third datum order) were read from the supplied PDF pages. The longer list E F I J L M O P R thought to belong to GB/T 1182-1996 is not in this text and is not applied."""
