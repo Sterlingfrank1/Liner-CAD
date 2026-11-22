@@ -32,7 +32,8 @@ def make_frame_dxf(path):
     blk = doc.blocks.new("PC_TITLE_BLOCK")
     blk.add_text("标题栏", height=3.5, dxfattribs={"layer": "FRAME"})
     blk.add_attdef("PARTNAME", insert=(0, 0), height=3.5, dxfattribs={"layer": "FRAME"})
-    msp.add_blockref("PC_TITLE_BLOCK", (20, 20), dxfattribs={"layer": "FRAME"})
+    ref = msp.add_blockref("PC_TITLE_BLOCK", (20, 20), dxfattribs={"layer": "FRAME"})
+    ref.add_attrib("PARTNAME", "磨头", (22, 22), dxfattribs={"layer": "FRAME"})
     # frame border: ordinary geometry on the frame layer
     for a, b in (
         ((0, 0), (100, 0)),
@@ -117,6 +118,50 @@ def test_cli_inspect_reports_frame_and_title(tmp_path):
     assert "PC_TITLE_BLOCK" in out["title"]["blocks"]
 
 
+def test_ordinary_frame_like_layer_names_are_not_absorbed(tmp_path):
+    doc = _doc()
+    msp = doc.modelspace()
+    msp.add_line((0, 0), (10, 0), dxfattribs={"layer": "FRAME_MEMBER"})
+    msp.add_line((10, 0), (10, 10), dxfattribs={"layer": "TITLE_BAR"})
+    src = tmp_path / "ordinary.dxf"
+    doc.saveas(src)
+    d, imp = imported(src)
+    assert imp.counts["frame"]["absorbed"] == {}
+    layers = {e._intent.get("dxf", {}).get("layer") for e in d._els.values() if e.kind == "edge"}
+    assert {"FRAME_MEMBER", "TITLE_BAR"} <= layers
+
+
+def test_hidden_frame_layer_is_not_absorbed(tmp_path):
+    doc = _doc()
+    msp = doc.modelspace()
+    frame_layer = doc.layers.add("FRAME")
+    frame_layer.off()
+    msp.add_line((0, 0), (10, 0), dxfattribs={"layer": "FRAME"})
+    src = tmp_path / "hidden.dxf"
+    doc.saveas(src)
+    entry = metrics.evaluate_file(src)
+    assert entry["import"]["counts"]["frame"]["absorbed"] == {}
+    assert entry["metrics"]["frame_title"]["frame_edges_absorbed"] == 0
+    assert entry["metrics"]["frame_title"]["single_frame_ok"] is False
+
+
+def test_raw_frame_geometry_is_not_counted_as_absorbed(tmp_path):
+    doc = _doc()
+    msp = doc.modelspace()
+    msp.add_ellipse((0, 0), major_axis=(10, 0), ratio=0.5, dxfattribs={"layer": "FRAME"})
+    src = tmp_path / "raw.dxf"
+    doc.saveas(src)
+    entry = metrics.evaluate_file(src)
+    assert entry["import"]["counts"]["frame"]["absorbed"] == {}
+    assert entry["metrics"]["entity_retention"]["by_type"]["ELLIPSE"]["rate"] == 1.0
+
+
+def test_inspect_counts_attached_title_attribs(tmp_path):
+    src = make_frame_dxf(tmp_path / "frame.dxf")
+    out = importdxf.inspect(src)
+    assert out["title"]["attribs"] >= 1
+
+
 def test_build_has_one_frame_and_no_source_frame_copy(tmp_path):
     src = make_frame_dxf(tmp_path / "frame.dxf")
     d = tmp_path / "part"
@@ -144,3 +189,5 @@ def test_build_has_one_frame_and_no_source_frame_copy(tmp_path):
     assert len(frames) == 1
     edges = [el for el in model["elements"] if el["kind"] == "edge"]
     assert not any(el["intent"].get("dxf", {}).get("layer") == "FRAME" for el in edges)
+    built = ezdxf.readfile(d / ".linercad/build/drawing.dxf")
+    assert "FRAME" not in {layer.dxf.name for layer in built.layers}

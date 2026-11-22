@@ -105,14 +105,14 @@ importdxf 现在把 HATCH 分类为 hatches 桶并导入为剖面线元素（kin
 
 | 指标 | C3 后 | C4 后 | 说明 |
 |---|---|---|---|
-| single_frame_ok_rate | 0.0 | **1.0** | 4/4 文件只剩 1 个模板图框 |
+| single_frame_ok_rate | 1.0 | **1.0** | 4/4 文件只剩 1 个模板图框 |
 | model_frames | 4 | 4 | 每图 1 个（模板） |
 | frame_edges retained / absorbed | 16 / — | **0 / 16** | 源图框边不再作为第二条图框叠入 |
 | entities | 256/325（0.7877） | **256/325（0.7877）** | 吸收的 16 条边按「转入模板语义」计 retained，不退化 |
-| layer content / names | 25/28、25 | **25/28、25** | 图框层名称按吸收层保留在报告 |
+| layer content / names | 25/28、**21**（吸收图框层不再算 element 带名；content 计为模板 frame 语义已表示） | **25/28、25** | 图框层名称按吸收层保留在报告 |
 | text / hatch / dims / title / sheet / inspect / edit | 67/67、4/4、25/26+1、0/64、4/4、4/4、4/4 | **逐项不变** | — |
 
-说明：C1 尺子把「吸收进模板图框语义」的源图框实体显式记为 `frame_edges_absorbed`（entity/layer 读数同时保留 retained），因此「C1 指标不退化」不是靠丢弃分母，而是把 C4 的语义转换单独记账；标题块模板文字/ATTRIB 仍是 0/64、0/60 的既知边界（C4 不改标题栏语义）。
+说明：C1 尺子把「吸收进模板图框语义」的源图框边显式记为 `frame_edges_absorbed`，同时 entity retained 计数不变（源图框边转入模板语义）；`single_frame_ok` 要求 model_frames=1、frame_edges_retained=0 且每条被识别源图框边都有吸收归属。识别口径=完整图框/标题栏层名（避开 FRAME_MEMBER 之类误伤），隐藏层不吸收，raw（SPLINE/ELLIPSE 等）不吸收仍按 raw 导入。局限：画在未命名/普通层上的源图框无法靠层名识别（不在 C4 自动识别范围，文档记录）。`names_preserved` 只统计模型元素实际携带的源层名（21），吸收图框层单列 `absorbed_layers`，不再伪装成 element 名。标题块模板文字/ATTRIB 仍是 0/64、0/60 的既知边界（C4 不改标题栏语义）。
 
 ## 口径用途（C2 / C3 / C4 的尺子）
 

@@ -113,7 +113,22 @@ def dim_kind(e) -> str:
     return DIM_KINDS.get(t) or DIM_UNSUPPORTED.get(t) or f"type{t}"
 
 
-FRAME_LAYER_WORDS = ("图框", "标题栏", "标题", "TITLE", "FRAME", "BORDER")
+FRAME_LAYER_NAMES = {
+    "FRAME",
+    "FRAME_LAYER",
+    "FRAME_BLOCK",
+    "TITLE",
+    "TITLE_LAYER",
+    "TITLE_BLOCK",
+    "BORDER",
+    "BORDER_LAYER",
+    "SHEET_FRAME",
+    "图框",
+    "图框层",
+    "标题栏",
+    "标题栏层",
+    "标题层",
+}
 FRAME_BLOCK_WORDS = ("TITLE", "FRAME", "MXB", "图框", "标题")
 
 
@@ -125,9 +140,27 @@ def _decoded(name) -> str:
 
 
 def is_frame_layer(name) -> bool:
-    """Does this layer belong to the source sheet frame / title block?"""
-    up = _decoded(name).upper()
-    return any(w.upper() in up for w in FRAME_LAYER_WORDS)
+    """Does this layer belong to the source sheet frame / title block?
+
+    只认完整层名（避免把普通层名里的 FRAME_MEMBER / TITLE_BAR 之类误判成图框层）：
+    去掉数字前缀后必须正好是图框/标题栏层名之一；中文层名取包含匹配。
+    """
+    raw = _decoded(name).strip()
+    if not raw:
+        return False
+    up = raw.upper().strip()
+    while up and (up[0].isdigit() or up[0] in "_- "):
+        up = up[1:].strip()
+    if "图框" in up or "标题栏" in up:
+        return True
+    parts = [p for p in up.replace("-", "_").replace(" ", "_").split("_") if p]
+    head = ("FRAME", "TITLE", "BORDER")
+    tail = ("FRAME", "TITLE", "BORDER", "LAYER", "BLOCK", "SHEET")
+    if len(parts) == 1:
+        return parts[0] in head
+    if len(parts) == 2:
+        return parts[0] in head and parts[1] in tail
+    return False
 
 
 def is_frame_block(name) -> bool:
@@ -521,6 +554,7 @@ class _Ctx:
         self.hatch_warnings = []
         self.frame_absorbed = {}
         self.frame_handles = []
+        self.frame_layers = []
 
     def own(self, el):
         el._refs.append(self.imp.id)
@@ -1220,11 +1254,13 @@ def import_dxf(d, path, view="front"):
                 if not _visible(doc, e):
                     skipped[f"{label}(layer off)"] = skipped.get(f"{label}(layer off)", 0) + 1
                     continue
-                if bucket in ("edges", "raw") and is_frame_layer(e.dxf.layer):
+                if bucket == "edges" and is_frame_layer(e.dxf.layer):
                     # C4: the source frame is absorbed into the template frame semantics; it must
                     # not be imported as a second, overlapping frame.
                     ctx.frame_absorbed[label] = ctx.frame_absorbed.get(label, 0) + 1
                     ctx.frame_handles.append(str(e.dxf.handle))
+                    if e.dxf.layer not in ctx.frame_layers:
+                        ctx.frame_layers.append(e.dxf.layer)
                     continue
                 fn = {
                     "edges": _edges,
@@ -1259,7 +1295,10 @@ def import_dxf(d, path, view="front"):
             "hatch_skipped": list(ctx.hatch_skipped),
             "hatch_warnings": list(ctx.hatch_warnings),
             "frame": {
-                **frame_semantics(doc),
+                "layers": [_decoded(n) for n in ctx.frame_layers],
+                "raw_layers": list(ctx.frame_layers),
+                "blocks": frame_semantics(doc)["blocks"],
+                "entities": frame_semantics(doc)["entities"],
                 "absorbed": dict(sorted(ctx.frame_absorbed.items())),
                 "absorbed_handles": list(ctx.frame_handles),
             },
@@ -1331,12 +1370,19 @@ def render_png(doc, out) -> Path:
     return out
 
 
+def _all_attribs(doc) -> list:
+    out = [e for e in doc.modelspace().query("ATTRIB")]
+    for br in doc.modelspace().query("INSERT"):
+        out.extend(getattr(br, "attribs", ()))
+    return out
+
+
 def _frame_absorbed(doc) -> dict:
-    """Entitity counts that the import will fold into the template frame semantics."""
+    """Visible edge counts that the import will fold into the template frame semantics."""
     out = {}
     for e in doc.modelspace():
         bucket, label = classify(e)
-        if bucket in ("edges", "raw") and is_frame_layer(e.dxf.layer):
+        if bucket == "edges" and is_frame_layer(e.dxf.layer) and _visible(doc, e):
             out[label] = out.get(label, 0) + 1
     return out
 
@@ -1375,7 +1421,7 @@ def inspect(path, tmp_dir=None) -> dict:
     }
     out["title"] = {
         "blocks": frame["blocks"],
-        "attribs": sum(1 for e in doc.modelspace().query("ATTRIB")),
+        "attribs": len(_all_attribs(doc)),
     }
     if ext:
         sheet, scale = guess_sheet(ext[2] - ext[0], ext[3] - ext[1])

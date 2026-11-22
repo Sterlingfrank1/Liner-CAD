@@ -174,7 +174,8 @@ def test_layer_retention(report):
     assert m["rate"] == round(7 / 8, 4)
     assert m["names_preserved"] >= 2
     assert "OUTLINE" in m["names_preserved_list"]
-    assert "TITLE_FRAME" in m["names_preserved_list"]  # the drawing frame is imported as edges
+    assert "TITLE_FRAME" in m["absorbed_layers"]  # C4: the source frame layer is absorbed
+    assert "TITLE_FRAME" in m["names_preserved_list"]  # its title text still carries the name
 
 
 def test_frame_title_handling(report):
