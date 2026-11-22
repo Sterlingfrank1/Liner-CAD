@@ -104,7 +104,8 @@ def test_inspect_reports_layers_types_extents_and_a_png(tmp_path):
     assert sum(maps["dims"].values()) == 8 and maps["dims"]["radius"] == 1
     assert maps["texts"] == {"MTEXT": 1, "TEXT": 1} and maps["notes"] == {}
     assert maps["raw"] == {"ELLIPSE": 1, "SPLINE": 1}
-    assert maps["skipped"] == {"HATCH": 1, "INSERT": 1, "POINT": 1}
+    assert maps["hatches"] == {"HATCH": 1}
+    assert maps["skipped"] == {"INSERT": 1, "POINT": 1}
     assert out["sheet"] == {"sheet": "A4", "scale": "1:1"}
     png = Path(out["png"])
     assert png.is_file() and png.suffix == ".png" and png.stat().st_size > 2000
@@ -203,7 +204,7 @@ def test_edges_by_role_and_polyline_bulges(imported):
     assert (
         i["counts"]["notes"] == 0 and i["counts"]["texts"] == 2
     )  # TEXT/MTEXT became text elements
-    assert i["counts"]["skipped"] == {"HATCH": 1, "INSERT": 1, "POINT": 1}
+    assert i["counts"]["skipped"] == {"INSERT": 1, "POINT": 1} and i["counts"]["hatches"] == 1
     assert i["units"] == "mm" and i["extents"] == [0.0, -55.0, 100.0, 60.0]
     assert i["path"] == "ref.dxf" and len(i["sha256"]) == 64
 
@@ -260,7 +261,8 @@ def test_notes_and_raw_curves(imported):
     assert ell.dxf.center.x == pytest.approx(ox + 50, abs=1e-3)
     assert ell.dxf.center.y == pytest.approx(oy + 12, abs=1e-3)
     assert [e for e in doc.modelspace() if e.dxftype() == "SPLINE"]
-    assert not {e.dxftype() for e in doc.modelspace()} & {"HATCH", "INSERT", "POINT"}
+    types = {e.dxftype() for e in doc.modelspace()}
+    assert "HATCH" in types and not types & {"INSERT", "POINT"}
 
 
 def test_import_builds_without_errors(imported):

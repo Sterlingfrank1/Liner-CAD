@@ -73,6 +73,31 @@ MTEXT 保留换行）。C1 尺子的读数变化（同一 4 样例、同一命�
 4 样例合计：text as_text 67/67；layer names 21；其余（entities 252/325、dims 25/26+1 note、hatch 0/4、
 图框 4 INSERT/16 边/model_frames 4/single_ok 0.0、sheet 4/4 fits、inspect 4/4 ok·png·匹配、edit_round 4/4）与 C1 基线一致。
 
+
+## C3 后（HATCH 导入为剖面线元素）：C1 指标变化
+
+importdxf 现在把 HATCH 分类为 hatches 桶并导入为剖面线元素（kind=hatch）：
+- 图案填充：pattern / angle / scale 写入元素意图，渲染与回写映射到本仓剖面线语汇（GB/T 4457.5，ANSI31 / 45° / spacing 3.0 为基；间距 = std spacing × pattern_scale，角度取源 pattern_angle）。
+- 实体填充：solid=True；layout/dxfout/svgout 按实体填充处理（dxfout set_solid_fill）。
+- 边界：多边形路径（含 bulge 圆弧）直接展平；edge 路径的 LINE/ARC 逐段展平（15° 折线，arc 点落在真实弧上，容差 0.01mm）；多个路径 → 多个 loop（islands 保留）。
+- 不能表示：渐变填充、非预定义图案类型、ELLIPSE/SPLINE 边界、空/退化路径——按源 dxf handle + 图层 + 原因记录，不静默。
+
+| 指标 | C2 后（C3 前） | C3 后 | 说明 |
+|---|---|---|---|
+| hatch_retention | 0/4（0.0） | **4/4（1.0）** | 4 个样例 HATCH 均保留 |
+| entity HATCH 保留 | 0/4 | **4/4（1.0）** | entities 总保留 252/325 → **256/325（0.7877）** |
+| layer content retention | 21/28（0.75） | **25/28（0.8929）** | 剖面线层不再是 skipped |
+| layer names_preserved | 21 | **25** | 剖面线元素带源图层 dxf 元数据 |
+| 其余（dims/text/图框/sheet/inspect/edit） | — | **逐项不变** | edit_round 4/4 |
+
+### 不能表示 / 部分丢失的报告（样例实测）
+
+- 4 个样例的 HATCH 都是 ANSI31、scale 0.5、angle 0（预定义图案）：整张 hatch 保留。
+- 每个样例另有 3 条**退化边界路径**（1 条空路径、1 条零面积回首路径等），按路径丢弃并报告：
+  counts.hatch_warnings 列出 {handle, layer, reason: "path 1/3/5: degenerate boundary"}；元素 intent.dropped_paths 保留同样明细；
+  有效边界（2 个四边形）仍导入为 loops，不因此整张丢失。
+- 渐变填充：整张 HATCH skipped（counts.hatch_skipped + skipped["HATCH(gradient)"]）；非预定义图案类型、ELLIPSE/SPLINE 边界同理（测试夹具覆盖 gradient 与 partial path）。
+
 ## 口径用途（C2 / C3 / C4 的尺子）
 
 - C2（普通文字 / 标题栏 / 图层）：以 text_retention.as_text、frame_title.title_texts_as_text、title_attrib_retained、

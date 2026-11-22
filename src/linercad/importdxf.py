@@ -27,6 +27,7 @@ from pathlib import Path
 import ezdxf
 from ezdxf import units as dxf_units
 from ezdxf.lldxf.encoding import decode_dxf_unicode
+from ezdxf.math import bulge_to_arc
 
 from .errors import InvalidArgument, NotFound
 from .model import DRAW_DIR, Element, RawEl, check_name
@@ -37,7 +38,7 @@ RAW_TYPES = ("SPLINE", "ELLIPSE")
 NOTE_TYPES = ("TEXT", "MTEXT")
 DIM_KINDS = {0: "linear", 1: "aligned", 2: "angular", 3: "diameter", 4: "radius", 5: "angular3p"}
 DIM_UNSUPPORTED = {6: "ordinate"}
-BUCKETS = ("edges", "dims", "texts", "notes", "raw", "skipped")
+BUCKETS = ("edges", "dims", "texts", "hatches", "notes", "raw", "skipped")
 SHEETS = ("A4", "A3", "A2", "A1", "A0")
 SCALE_STEPS = (2, 5, 10, 20, 50, 100, 200, 500, 1000)
 DIM_MARGIN = 25.0  # sheet mm kept free around the geometry for dimensions when guessing the sheet
@@ -124,6 +125,8 @@ def classify(e) -> tuple[str, str]:
         return ("dims", k) if k in DIM_KINDS.values() else ("skipped", f"DIMENSION({k})")
     if t in NOTE_TYPES:
         return "texts", t
+    if t == "HATCH":
+        return "hatches", "HATCH"
     if t in RAW_TYPES:
         return "raw", t
     return "skipped", t
@@ -457,6 +460,8 @@ class _Ctx:
         self.roles = {}  # role counts of the created edges
         self.fallback = 0
         self.texts = 0
+        self.hatch_skipped = []
+        self.hatch_warnings = []
 
     def own(self, el):
         el._refs.append(self.imp.id)
@@ -662,6 +667,143 @@ def _mtext_align(attachment: int) -> tuple:
     halign = (0, 1, 2)[col]
     valign = (3, 2, 1)[row]  # top -> valign 3, middle -> 2, bottom -> 1
     return halign, valign
+
+
+# ---- hatches -----------------------------------------------------------------------------------------
+
+
+def hatch_representable(e):
+    """(ok, reason): can this HATCH be mapped to the repository section-lining vocabulary?"""
+    if getattr(e, "gradient", None) is not None:  # gradient fills have no section-lining equivalent
+        return False, "gradient"
+    if int(e.dxf.get("solid_fill", 0) or 0):
+        return True, None
+    name = str(e.dxf.get("pattern_name") or "")
+    if not name:
+        return True, None  # no pattern lines at all: treat it as a solid fill
+    ptype = int(e.dxf.get("pattern_type", 1) or 1)
+    if ptype != 1:
+        return False, f"pattern {name} (type {ptype})"
+    return True, None
+
+
+def _arc_points(c, r, a0, a1, step=15.0):
+    span = (a1 - a0) % 360.0
+    if span < 1e-9:
+        span = 360.0
+    n = max(2, int(math.ceil(span / step)))
+    return [
+        (
+            c[0] + r * math.cos(math.radians(a0 + span * i / n)),
+            c[1] + r * math.sin(math.radians(a0 + span * i / n)),
+        )
+        for i in range(n + 1)
+    ]
+
+
+def _close_loop(points):
+    pts = [(float(x), float(y)) for x, y in points]
+    while len(pts) > 1 and math.dist(pts[0], pts[-1]) <= 1e-6:
+        pts.pop()
+    if len(pts) < 3:
+        return None, "degenerate boundary"
+    return pts, None
+
+
+def _loop_from_path(path):
+    btype = getattr(path.type, "name", str(path.type))
+    if btype == "POLYLINE":
+        verts = list(path.vertices)
+        n = len(verts)
+        if n < 3:
+            return None, "degenerate boundary"
+        pts = []
+        for i, (x, y, b) in enumerate(verts):
+            nx, ny, _nb = verts[(i + 1) % n]
+            if abs(float(b or 0.0)) < 1e-9:
+                pts.append((x, y))
+                continue
+            center, sa, ea, r = bulge_to_arc((x, y), (nx, ny), float(b))
+            arc = _arc_points((center.x, center.y), r, math.degrees(sa), math.degrees(ea))
+            pts.extend(arc[:-1])
+        return _close_loop(pts)
+    if btype == "EDGE":
+        pts = []
+        for edge in path.edges:
+            name = getattr(edge.type, "name", str(edge.type))
+            if name == "LINE":
+                seg = [
+                    (float(edge.start.x), float(edge.start.y)),
+                    (float(edge.end.x), float(edge.end.y)),
+                ]
+            elif name == "ARC":
+                seg = _arc_points(
+                    (float(edge.center.x), float(edge.center.y)),
+                    float(edge.radius),
+                    float(edge.start_angle),
+                    float(edge.end_angle),
+                )
+            elif name == "ELLIPSE":
+                return None, "ELLIPSE edge"
+            elif name == "SPLINE":
+                return None, "SPLINE edge"
+            else:
+                return None, f"{name} edge"
+            if pts and math.dist(pts[-1], seg[0]) <= 1e-6:
+                seg = seg[1:]
+            pts.extend(seg)
+        return _close_loop(pts)
+    return None, f"boundary path {btype}"
+
+
+def _hatch(ctx, e) -> bool:
+    ok, reason = hatch_representable(e)
+    if not ok:
+        ctx.hatch_skipped.append(
+            {"handle": str(e.dxf.handle), "layer": str(e.dxf.layer), "reason": reason}
+        )
+        return False
+    loops = []
+    dropped = []
+    for k, path in enumerate(e.paths, 1):
+        pts, bad = _loop_from_path(path)
+        if bad:
+            dropped.append(f"path {k}: {bad}")
+            ctx.hatch_warnings.append(
+                {
+                    "handle": str(e.dxf.handle),
+                    "layer": str(e.dxf.layer),
+                    "reason": f"path {k}: {bad}",
+                }
+            )
+            continue
+        loops.append({"points": [[_r6(x * ctx.k), _r6(y * ctx.k)] for x, y in pts]})
+    if not loops:
+        ctx.hatch_skipped.append(
+            {
+                "handle": str(e.dxf.handle),
+                "layer": str(e.dxf.layer),
+                "reason": "; ".join(dropped) or "no boundary",
+            }
+        )
+        return False
+    name = str(e.dxf.get("pattern_name") or "")
+    solid = bool(int(e.dxf.get("solid_fill", 0) or 0)) or not name
+    intent = {
+        "view": ctx.view.name,
+        "loops": loops,
+        "solid": solid,
+        "pattern": name or None,
+        "scale": float(e.dxf.get("pattern_scale", 1.0) or 1.0),
+        "angle": float(e.dxf.get("pattern_angle", 0.0) or 0.0),
+        "dxf": {"layer": str(e.dxf.layer), "handle": str(e.dxf.handle)},
+        "dropped_paths": dropped,
+    }
+    from .annotate import Hatch as HatchEl
+
+    name_id = ctx.d._auto_name("H", (), "hatch")
+    ctx.own(ctx.d._add(HatchEl(ctx.d, f"H.{name_id}", intent, refs=[ctx.view.id])))
+    return True
 
 
 # ---- dimensions -----------------------------------------------------------------------------------------
@@ -897,7 +1039,11 @@ def import_dxf(d, path, view="front"):
         else:
             skipped[f"{label}(degenerate)"] = skipped.get(f"{label}(degenerate)", 0) + 1
 
-    for stage in (("edges", "raw"), ("dims", "texts")):  # geometry first: dimensions look edges up
+    for stage in (
+        ("edges", "raw"),
+        ("dims", "texts"),
+        ("hatches",),
+    ):  # geometry first: dimensions look edges up
         for e in ents:
             bucket, label = classify(e)
             if bucket == "skipped":
@@ -907,7 +1053,24 @@ def import_dxf(d, path, view="front"):
                 if not _visible(doc, e):
                     skipped[f"{label}(layer off)"] = skipped.get(f"{label}(layer off)", 0) + 1
                     continue
-                fn = {"edges": _edges, "raw": _raw, "dims": _dimension, "texts": _text}[bucket]
+                fn = {
+                    "edges": _edges,
+                    "raw": _raw,
+                    "dims": _dimension,
+                    "texts": _text,
+                    "hatches": _hatch,
+                }[bucket]
+                if bucket == "hatches":
+                    if fn(ctx, e):
+                        made["hatches"] += 1
+                        from_["hatches"][label] = from_["hatches"].get(label, 0) + 1
+                    else:
+                        reason = (
+                            ctx.hatch_skipped[-1]["reason"] if ctx.hatch_skipped else "unsupported"
+                        )
+                        key = f"HATCH({reason})"
+                        skipped[key] = skipped.get(key, 0) + 1
+                    continue
                 done(bucket, label, fn(ctx, e))
     imp._intent.update(
         sha256=content_hash(src),
@@ -919,6 +1082,9 @@ def import_dxf(d, path, view="front"):
             "dims": made["dims"] - ctx.fallback,
             "notes": ctx.fallback,
             "texts": made["texts"],
+            "hatches": made["hatches"],
+            "hatch_skipped": list(ctx.hatch_skipped),
+            "hatch_warnings": list(ctx.hatch_warnings),
             "raw": made["raw"],
             "skipped": dict(sorted(skipped.items())),
             "dims_as_notes": ctx.fallback,

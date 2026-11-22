@@ -6,7 +6,6 @@ import sys
 from pathlib import Path
 
 import ezdxf
-import pytest
 from ezdxf import units
 
 REPO = Path(__file__).resolve().parents[1]
@@ -95,6 +94,23 @@ def _bbox(points):
 
 def _points(loop):
     return loop["points"] if isinstance(loop, dict) else loop
+
+
+def test_partial_boundaries_are_reported_but_keep_the_hatch(tmp_path):
+    doc = _doc()
+    msp = doc.modelspace()
+    h = msp.add_hatch(dxfattribs={"layer": "HATCH"})
+    h.set_pattern_fill("ANSI31", scale=1.0, angle=45.0)
+    h.paths.add_edge_path()  # empty boundary path: reported, not fatal
+    h.paths.add_polyline_path([(0, 0), (20, 0), (20, 10), (0, 0)])
+    path = tmp_path / "partial.dxf"
+    doc.saveas(path)
+    _d, imp, hatches = imported(path)
+    assert len(hatches) == 1 and imp.counts["hatches"] == 1
+    warnings = imp.counts["hatch_warnings"]
+    assert warnings and any("path 1" in w["reason"] for w in warnings)
+    assert hatches[0]._intent["dropped_paths"]
+    assert any("path 1" in d for d in hatches[0]._intent["dropped_paths"])
 
 
 def test_pattern_hatch_becomes_a_hatch_element(tmp_path):

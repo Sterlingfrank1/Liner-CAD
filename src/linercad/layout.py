@@ -72,6 +72,7 @@ class Hatch:
     layer: str
     angle: float | None = None  # per-part override (assemblies), else the profile's
     spacing: float | None = None
+    solid: bool = False  # imported SOLID fill (no pattern lines)
 
 
 @dataclass(frozen=True)
@@ -617,7 +618,13 @@ class _ViewLayout:
                     else:
                         loops.append(tuple(self.P(p) for p in lpts))
             it = e._intent
-            hp = Hatch(tuple(loops), "hatch", it.get("angle"), it.get("spacing"))
+            hp = Hatch(
+                tuple(loops),
+                "hatch",
+                it.get("angle"),
+                it.get("spacing"),
+                solid=bool(it.get("solid")),
+            )
             self.put(e, [hp], obstacle=False)
             if e._intent.get("outline"):
                 ol = []
