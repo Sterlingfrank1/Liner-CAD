@@ -196,6 +196,66 @@ def test_diff_in_a_subdirectory_of_a_bigger_repo(tmp_path):
     assert len(worktrees(tmp_path)) == 1
 
 
+# ---- B7: a whole-view translation is one view move, not one layout change per element -------------
+
+
+def _el(view, bbox, kind="edge"):
+    return {"kind": kind, "intent": {"view": view}, "bbox": bbox, "view": view}
+
+
+def test_compare_merges_a_whole_view_translation():
+    a = {
+        "E.left.1": _el("left", [0, 0, 10, 10]),
+        "E.left.2": _el("left", [20, 0, 30, 10]),
+        "E.front.1": _el("front", [100, 0, 110, 10]),
+    }
+    b = {
+        "E.left.1": _el("left", [10, 5, 20, 15]),
+        "E.left.2": _el("left", [30, 5, 40, 15]),
+        "E.front.1": _el("front", [100, 0, 110, 10]),
+    }
+    out = versions.compare(a, b)
+    assert out["view_moves"] == [{"view": "left", "dx": 10.0, "dy": 5.0, "elements": 2}]
+    assert out["layout_changed"] == [] and out["details"] == {}
+    # an element that moved differently from its view stays in layout_changed (the real extra move)
+    b["E.left.2"] = _el("left", [35, 10, 45, 20])
+    out = versions.compare(a, b)
+    assert out["view_moves"] == [{"view": "left", "dx": 10.0, "dy": 5.0, "elements": 1}]
+    assert out["layout_changed"] == ["E.left.2"]
+
+
+def test_compare_keeps_a_lone_moved_element_as_layout_change():
+    a = {"E.top.1": _el("top", [0, 0, 5, 5])}
+    b = {"E.top.1": _el("top", [3, 0, 8, 5])}
+    out = versions.compare(a, b)
+    assert out["view_moves"] == []  # one element does not prove the whole view moved
+    assert out["layout_changed"] == ["E.top.1"]
+
+
+@pytest.fixture
+def moved_view_repo(tmp_path):
+    from linercad import txn
+
+    p = tmp_path / "moved"
+    txn.init(p, from_="flange")
+    s = script(p, "mv.py", 'd.view("left").move(dx=2)')
+    assert lcad(p, "edit", s, "-m", "左视图右移 2mm")[0] == 0
+    return p
+
+
+def test_diff_reports_view_moves_for_the_real_drawing(moved_view_repo):
+    out = lcad(moved_view_repo, "diff", "e0", "e1")[1]
+    moves = {m["view"]: m for m in out["view_moves"]}
+    assert set(moves) == {"front", "left"}  # the layout re-centres the group around the sheet
+    assert moves["left"]["dx"] == 1.0 and moves["front"]["dx"] == -1.0
+    assert all(m["elements"] >= 2 for m in moves.values())
+    assert out["counts"]["view_moves"] == len(out["view_moves"])
+    assert "V.left" not in out["layout_changed"]  # the view itself is part of its translation
+    assert len(out["layout_changed"]) <= 2  # only elements moving differently from their view stay
+    svg = Path(out["svg"]).read_text(encoding="utf-8")
+    assert 'class="df-chg" data-id="V.left"' in svg  # the moved view stays visible in the overlay
+
+
 # ---- lcad export ---------------------------------------------------------------------------------
 
 

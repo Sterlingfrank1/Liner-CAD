@@ -599,6 +599,14 @@ def test_b6_versions_open_state_and_scroll_are_preserved():
         assert needle in js, needle
 
 
+def test_viewer_compare_panel_shows_merged_view_moves():
+    from importlib import resources
+
+    js = (resources.files("linercad.viewer") / "viewer.js").read_text(encoding="utf-8")
+    for needle in ("view_moves", "视图平移"):
+        assert needle in js, needle
+
+
 # ---- M3 S2: versions, compare, fit-to-content ---------------------------------------------------
 
 
