@@ -346,6 +346,7 @@ def layer_retention(doc, created) -> dict:
         for e in _msp(doc)
         if importdxf.classify(e)[0] == "edges"
         and importdxf.is_frame_layer(e.dxf.layer)
+        and importdxf.edge_has_geometry(e)
         and importdxf._visible(doc, e)
     ]
     absorbed_layers = list(dict.fromkeys(absorbed_layers))

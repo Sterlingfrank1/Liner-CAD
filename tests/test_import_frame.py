@@ -30,10 +30,10 @@ def make_frame_dxf(path):
     msp = doc.modelspace()
     # title block definition, inserted on the frame layer (as in the user samples)
     blk = doc.blocks.new("PC_TITLE_BLOCK")
-    blk.add_text("标题栏", height=3.5, dxfattribs={"layer": "FRAME"})
-    blk.add_attdef("PARTNAME", insert=(0, 0), height=3.5, dxfattribs={"layer": "FRAME"})
-    ref = msp.add_blockref("PC_TITLE_BLOCK", (20, 20), dxfattribs={"layer": "FRAME"})
-    ref.add_attrib("PARTNAME", "磨头", (22, 22), dxfattribs={"layer": "FRAME"})
+    blk.add_text("标题栏", height=3.5, dxfattribs={"layer": "TITLE_FRAME"})
+    blk.add_attdef("PARTNAME", insert=(0, 0), height=3.5, dxfattribs={"layer": "TITLE_FRAME"})
+    ref = msp.add_blockref("PC_TITLE_BLOCK", (20, 20), dxfattribs={"layer": "TITLE_FRAME"})
+    ref.add_attrib("PARTNAME", "磨头", (22, 22), dxfattribs={"layer": "TITLE_FRAME"})
     # frame border: ordinary geometry on the frame layer
     for a, b in (
         ((0, 0), (100, 0)),
@@ -41,7 +41,7 @@ def make_frame_dxf(path):
         ((100, 60), (0, 60)),
         ((0, 60), (0, 0)),
     ):
-        msp.add_line(a, b, dxfattribs={"layer": "FRAME"})
+        msp.add_line(a, b, dxfattribs={"layer": "TITLE_FRAME"})
     msp.add_text("技术要求", height=3.5, dxfattribs={"layer": "MODEL"}).set_placement((10, 10))
     msp.add_line((10, 20), (90, 20), dxfattribs={"layer": "OUTLINE"})
     doc.saveas(path)
@@ -63,7 +63,7 @@ def test_frame_geometry_is_absorbed_not_imported(tmp_path):
     assert any("FRAME" in layer.upper() for layer in frame["layers"])
     assert "PC_TITLE_BLOCK" in frame["blocks"]
     edges = [e for e in d._els.values() if e.kind == "edge"]
-    assert not any(e._intent.get("dxf", {}).get("layer") == "FRAME" for e in edges)
+    assert not any(e._intent.get("dxf", {}).get("layer") == "TITLE_FRAME" for e in edges)
     frames = [e for e in d._els.values() if e.kind == "frame"]
     assert len(frames) == 1  # the template frame is the only frame
 
@@ -134,9 +134,9 @@ def test_ordinary_frame_like_layer_names_are_not_absorbed(tmp_path):
 def test_hidden_frame_layer_is_not_absorbed(tmp_path):
     doc = _doc()
     msp = doc.modelspace()
-    frame_layer = doc.layers.add("FRAME")
+    frame_layer = doc.layers.add("TITLE_FRAME")
     frame_layer.off()
-    msp.add_line((0, 0), (10, 0), dxfattribs={"layer": "FRAME"})
+    msp.add_line((0, 0), (10, 0), dxfattribs={"layer": "TITLE_FRAME"})
     src = tmp_path / "hidden.dxf"
     doc.saveas(src)
     entry = metrics.evaluate_file(src)
@@ -148,7 +148,7 @@ def test_hidden_frame_layer_is_not_absorbed(tmp_path):
 def test_raw_frame_geometry_is_not_counted_as_absorbed(tmp_path):
     doc = _doc()
     msp = doc.modelspace()
-    msp.add_ellipse((0, 0), major_axis=(10, 0), ratio=0.5, dxfattribs={"layer": "FRAME"})
+    msp.add_ellipse((0, 0), major_axis=(10, 0), ratio=0.5, dxfattribs={"layer": "TITLE_FRAME"})
     src = tmp_path / "raw.dxf"
     doc.saveas(src)
     entry = metrics.evaluate_file(src)
@@ -207,7 +207,7 @@ def test_foreign_block_attrib_is_not_reported_as_title(tmp_path):
 def test_zero_length_frame_edge_is_not_counted_as_absorbed(tmp_path):
     doc = _doc()
     msp = doc.modelspace()
-    msp.add_line((0, 0), (0, 0), dxfattribs={"layer": "FRAME"})
+    msp.add_line((0, 0), (0, 0), dxfattribs={"layer": "TITLE_FRAME"})
     src = tmp_path / "zero.dxf"
     doc.saveas(src)
     entry = metrics.evaluate_file(src)
@@ -222,8 +222,8 @@ def test_detail_part_block_on_the_frame_layer_is_not_a_title_block(tmp_path):
     msp = doc.modelspace()
     blk = doc.blocks.new("DETAIL_PART")
     blk.add_attdef("SCALE", insert=(0, 0), height=2.5)
-    ref = msp.add_blockref("DETAIL_PART", (0, 0), dxfattribs={"layer": "FRAME"})
-    ref.add_attrib("SCALE", "1:2", (1, 1), dxfattribs={"layer": "FRAME"})
+    ref = msp.add_blockref("DETAIL_PART", (0, 0), dxfattribs={"layer": "TITLE_FRAME"})
+    ref.add_attrib("SCALE", "1:2", (1, 1), dxfattribs={"layer": "TITLE_FRAME"})
     src = tmp_path / "detail_on_frame.dxf"
     doc.saveas(src)
     out = importdxf.inspect(src)
@@ -241,6 +241,30 @@ def test_c1_title_block_detection_is_strict(tmp_path):
     doc.saveas(src)
     f = metrics.evaluate_file(src)["metrics"]["frame_title"]
     assert f["frame_inserts"] == 0 and f["title_attrib_fields"] == 0
+
+
+def test_part_geometry_on_a_sheet_layer_is_not_absorbed(tmp_path):
+    doc = _doc()
+    msp = doc.modelspace()
+    msp.add_line((0, 0), (10, 0), dxfattribs={"layer": "SHEET"})
+    msp.add_line((0, 0), (0, 10), dxfattribs={"layer": "FRAME"})
+    src = tmp_path / "sheet.dxf"
+    doc.saveas(src)
+    d, imp = imported(src)
+    assert imp.counts["frame"]["absorbed"] == {}
+    layers = {e._intent.get("dxf", {}).get("layer") for e in d._els.values() if e.kind == "edge"}
+    assert {"SHEET", "FRAME"} <= layers  # bare single-word layers stay ordinary geometry
+
+
+def test_zero_length_only_frame_layer_is_not_in_absorbed_layers(tmp_path):
+    doc = _doc()
+    msp = doc.modelspace()
+    msp.add_line((0, 0), (0, 0), dxfattribs={"layer": "TITLE_FRAME"})
+    src = tmp_path / "zero_layer.dxf"
+    doc.saveas(src)
+    lay = metrics.evaluate_file(src)["metrics"]["layer_retention"]
+    assert lay["absorbed_layers"] == []
+    assert "TITLE_FRAME" in lay["not_imported"]
 
 
 def test_build_has_one_frame_and_no_source_frame_copy(tmp_path):
@@ -269,6 +293,6 @@ def test_build_has_one_frame_and_no_source_frame_copy(tmp_path):
     frames = [el for el in model["elements"] if el["kind"] == "frame"]
     assert len(frames) == 1
     edges = [el for el in model["elements"] if el["kind"] == "edge"]
-    assert not any(el["intent"].get("dxf", {}).get("layer") == "FRAME" for el in edges)
+    assert not any(el["intent"].get("dxf", {}).get("layer") == "TITLE_FRAME" for el in edges)
     built = ezdxf.readfile(d / ".linercad/build/drawing.dxf")
-    assert "FRAME" not in {layer.dxf.name for layer in built.layers}
+    assert "TITLE_FRAME" not in {layer.dxf.name for layer in built.layers}

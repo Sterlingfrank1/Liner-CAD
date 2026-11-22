@@ -115,23 +115,13 @@ def dim_kind(e) -> str:
 
 FRAME_LAYER_CN = {"图框", "图框层", "标题", "标题层", "标题栏", "标题栏层"}
 FRAME_LAYER_NAMES = {
-    "FRAME",
     "FRAME_LAYER",
     "FRAME_BLOCK",
-    "TITLE",
     "TITLE_LAYER",
     "TITLE_BLOCK",
-    "BORDER",
     "BORDER_LAYER",
-    "SHEET",
     "SHEET_FRAME",
     "SHEET_BORDER",
-    "图框",
-    "图框层",
-    "标题",
-    "标题层",
-    "标题栏",
-    "标题栏层",
 }
 
 
@@ -185,7 +175,7 @@ def is_frame_layer(name) -> bool:
     head = ("FRAME", "TITLE", "BORDER")
     tail = ("FRAME", "TITLE", "BORDER", "LAYER", "BLOCK", "SHEET", "BORDER")
     if len(parts) == 1:
-        return parts[0] in head
+        return False  # bare FRAME / TITLE / BORDER / SHEET are ordinary layer names
     if len(parts) == 2:
         return parts[0] in head and parts[1] in tail
     return False
@@ -198,6 +188,8 @@ def is_frame_block(name) -> bool:
         return False
     if up in {"图框", "图框块", "标题", "标题块", "标题栏", "标题栏块"}:
         return True
+    if len(up.replace("-", "_").split("_")) == 1:
+        return False  # bare TITLE / FRAME / MXB blocks are not trusted either
     parts = [p for p in up.replace("-", "_").replace(" ", "_").split("_") if p]
     head = {"TITLE", "FRAME", "MXB", "TYDH"}
     tail = {"BLOCK", "BORDER", "FRAME", "TITLE", "RECORD", "MXB", "SHEET"}
@@ -1316,6 +1308,7 @@ def import_dxf(d, path, view="front"):
                         skipped[key] = skipped.get(key, 0) + 1
                     continue
                 done(bucket, label, fn(ctx, e))
+    frame_info = frame_semantics(doc)
     imp._intent.update(
         sha256=content_hash(src),
         units=unit,
@@ -1332,8 +1325,8 @@ def import_dxf(d, path, view="front"):
             "frame": {
                 "layers": [_decoded(n) for n in ctx.frame_layers],
                 "raw_layers": list(ctx.frame_layers),
-                "blocks": frame_semantics(doc)["blocks"],
-                "entities": frame_semantics(doc)["entities"],
+                "blocks": frame_info["blocks"],
+                "entities": frame_info["entities"],
                 "absorbed": dict(sorted(ctx.frame_absorbed.items())),
                 "absorbed_handles": list(ctx.frame_handles),
             },
@@ -1414,13 +1407,6 @@ def _title_attribs(doc, title_blocks) -> list:
             out.extend(getattr(e, "attribs", ()))
         elif e.dxftype() == "ATTRIB" and is_frame_layer(e.dxf.layer):
             out.append(e)
-    return out
-
-
-def _all_attribs(doc) -> list:
-    out = [e for e in doc.modelspace().query("ATTRIB")]
-    for br in doc.modelspace().query("INSERT"):
-        out.extend(getattr(br, "attribs", ()))
     return out
 
 
