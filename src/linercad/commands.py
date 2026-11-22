@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -135,7 +134,26 @@ def _fresh_selection(dir, seldoc):
     return ids, {"version": selver, "time": seldoc.get("time"), "ids": ids, "fresh": True}
 
 
-_REF = re.compile(r"@([^\s（]+)")
+def _refs_in(text):
+    """@IDs of a pasted reference line, ignoring @ inside the （...） description."""
+    out = []
+    depth = 0
+    i = 0
+    while i < len(text):
+        c = text[i]
+        if c == "（":
+            depth += 1
+        elif c == "）":
+            depth = max(0, depth - 1)
+        elif c == "@" and depth == 0:
+            j = i + 1
+            while j < len(text) and not text[j].isspace() and text[j] not in "（）":
+                j += 1
+            if j > i + 1:
+                out.append(text[i + 1 : j])
+            i = j - 1
+        i += 1
+    return out
 
 
 def _clean_ids(items):
@@ -147,7 +165,7 @@ def _clean_ids(items):
     out = []
     for item in items:
         s = str(item).strip()
-        refs = _REF.findall(s)
+        refs = _refs_in(s)
         if refs:
             out.extend(refs)
             continue
@@ -184,6 +202,14 @@ def context(dir, ids=()):
         m = json.loads(mp.read_text(encoding="utf-8"))
         els = {x["id"]: x for x in m["elements"]}
         items = [{"element": els[i]} for i in ids if i in els] if ids else []
+        if seldoc is not None and ids and not items:
+            gone = [i for i in ids if i not in els]
+            raise InvalidArgument(
+                "当前没有有效选中：选中的元素在当前图中都已不存在"
+                + (f"（{', '.join(gone)}）" if gone else ""),
+                code="selection_stale",
+                hint="请在 Viewer 里重新点选，或直接把 @ID 贴进对话；不要猜",
+            )
         out = {
             "ok": True,
             "stale": True,

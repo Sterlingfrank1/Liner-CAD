@@ -11,9 +11,10 @@ Viewer 的选择是唯一事实源：`.linercad/selection.json`（`ids` + 每个
    用户把它粘进对话后，把每个 `@ID` 当作该元素——可以直接 `lcad context "@D.d1（Φ25k6，主视图）" "@D.d2（Φ30k6，主视图）"`（PowerShell 里参数要用双引号包住整条引用），或按 ID 写临时脚本；不要要求用户再解释一遍。
 2. **自然语言指代（用户没复制）：** 用户说「选中的 / 这个 / 那个 / 当前对象 / 我选的」而消息里**没有 `@ID`** 时，先读当前选中再动手：
    ```powershell
-   lcad context "@sel"      # PowerShell 里 @sel 要加引号；或直接读 .linercad/selection.json
+   lcad context "@sel"      # PowerShell 里 @sel 要加引号
    ```
    确认 `items` 里的 ID 后再写脚本 / 改参数；不要凭聊天上下文猜用户指的是哪个元素。
+   优先用 `lcad context`（它校验版本与 TTL）。**若直读 `.linercad/selection.json`：** 必须自己用 `lcad log` 的当前 `eN` 比较文件里的 `version`，并检查 `time` 不超过 15 分钟（默认 TTL）；版本不一致或超时就按「当前没有有效选中」处理，不要用旧选择。
 
 **选择过期时如实报告，不要猜：** `lcad context "@sel"` 会校验选择的新鲜度——版本必须与当前 `eN` 一致，且默认不超过 15 分钟（`LCAD_SELECTION_TTL` 可调）。失败时返回的 `error.code` 是 `selection_stale`，消息形如「当前没有有效选中：选择来自 e0，当前是 e1」/「当前没有有效选中：选择已超过 900 秒（超时）」/「当前没有有效选中：还没有 selection.json」。这时**明确告诉用户当前没有有效选中**，请他在 Viewer 里重新点选或把 `@ID` 贴进对话；不要用旧选择硬改，也不要猜。
 

@@ -801,3 +801,24 @@ def test_context_refuses_a_selection_whose_elements_are_all_gone(shaft):
     with pytest.raises(LinerError) as err:
         commands.context(shaft, ["@sel"])
     assert err.value.code == "selection_stale" and "都已不存在" in err.value.message
+
+
+def test_context_ignores_at_inside_reference_labels(shaft):
+    Viewer(shaft).select(["D.L"])
+    ctx = commands.context(shaft, ["@D.L（联系 a@example.com，主视图）"])
+    assert [x["element"]["id"] for x in ctx["items"]] == ["D.L"]
+
+
+def test_context_refuses_a_gone_selection_on_the_build_failure_fallback(shaft):
+    Viewer(shaft).select(["D.L"])
+    path = shaft / ".linercad/selection.json"
+    sel = json.loads(path.read_text(encoding="utf-8"))
+    sel["ids"] = ["NOPE.1"]
+    path.write_text(json.dumps(sel), encoding="utf-8")
+    src = shaft / "drawing.py"
+    src.write_text(
+        src.read_text(encoding="utf-8") + "\nraise RuntimeError('half')\n", encoding="utf-8"
+    )
+    with pytest.raises(LinerError) as err:
+        commands.context(shaft, ["@sel"])
+    assert err.value.code == "selection_stale" and "都已不存在" in err.value.message
