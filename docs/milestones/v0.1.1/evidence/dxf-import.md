@@ -98,11 +98,27 @@ importdxf 现在把 HATCH 分类为 hatches 桶并导入为剖面线元素（kin
   有效边界（2 个四边形）仍导入为 loops，不因此整张丢失。
 - 渐变填充：整张 HATCH skipped（counts.hatch_skipped + skipped["HATCH(gradient)"]）；非预定义图案类型、ELLIPSE/SPLINE 边界同理（测试夹具覆盖 gradient 与 partial path）。
 
+
+## C4 后（源图框/标题栏并入模板语义）：只有一个图框
+
+策略：导入时识别源图框语义——图框/标题栏图层（完整层名白名单/中文精确集合：图框、图框层、标题、标题层、标题栏、标题栏层、FRAME、TITLE、BORDER、SHEET_FRAME 等）上的普通几何（classify=edges 且非退化的边）不再创建为 E 元素，而是**吸收进新图幅的模板图框语义**（模板 frame 仍只 1 个）；标题栏块 INSERT 与其 ATTRIB 仍按边界跳过（不导入模板文字/属性）。`lcad inspect` 新增 `frame` / `title` 报告（识别到的图框图层与实体统计、将吸收的数量、标题栏块名）。
+
+| 指标 | C3 后 | C4 后 | 说明 |
+|---|---|---|---|
+| single_frame_ok_rate | 0.0 | **1.0** | C3 时 4 个样例仍有源图框边叠加；C4 后 4/4 只剩 1 个模板图框 |
+| model_frames | 4 | 4 | 每图 1 个（模板） |
+| frame_edges retained / absorbed | 16 / — | **0 / 16** | 源图框边不再作为第二条图框叠入 |
+| entities | 256/325（0.7877） | **256/325（0.7877）** | 吸收的 16 条边按「转入模板语义」计 retained，不退化 |
+| layer content / names | 25/28、25 | **25/28、21** | content 不变；names 只数模型元素实际携带的源层名（21），吸收图框层单列 absorbed_layers |
+| text / hatch / dims / title / sheet / inspect / edit | 67/67、4/4、25/26+1、0/64、4/4、4/4、4/4 | **逐项不变** | — |
+
+说明：C1 尺子把「吸收进模板图框语义」的源图框边显式记为 `frame_edges_absorbed`，同时 entity retained 计数不变（源图框边转入模板语义）；`single_frame_ok` 要求 model_frames=1、frame_edges_retained=0 且每条被识别源图框边都有吸收归属。识别口径=完整图框/标题栏层名（避开 FRAME_MEMBER 之类误伤），隐藏层不吸收，raw（SPLINE/ELLIPSE 等）不吸收仍按 raw 导入。局限：裸单词层名（FRAME/TITLE/BORDER/SHEET）已从识别范围移除（避免静默吸收普通零件几何）；画在未命名/普通层/裸单词层上的源图框无法靠层名识别（不在 C4 自动识别范围，文档记录）；图框层上的 raw（SPLINE/ELLIPSE）仍按 raw 导入，C1 以 frame_raw_retained 计入并否决单帧。`names_preserved` 只统计模型元素实际携带的源层名（21），吸收图框层单列 `absorbed_layers`，不再伪装成 element 名。标题块模板文字/ATTRIB 仍是 0/64、0/60 的既知边界（C4 不改标题栏语义）。
+
 ## 口径用途（C2 / C3 / C4 的尺子）
 
 - C2（普通文字 / 标题栏 / 图层）：以 text_retention.as_text、frame_title.title_texts_as_text、title_attrib_retained、
   layer_retention.names_preserved 为提升目标；修正后的起点均在上表（当前 as_text=0、模板文字 0、ATTRIB retained 0）。
 - C3（HATCH / 图框）：以 hatch_retention、frame_title.frame_edges/single_frame_ok 为基线；hatch 已 4/4（C3）。
-- C4（编辑/往返、只剩一个图框）：edit_round_rate=1.0 不可退化；single_frame_ok_rate 现为 0.0（图框边 16 + 模板 frame 4）。
+- C4（编辑/往返、只剩一个图框）：edit_round_rate=1.0 不可退化；single_frame_ok_rate 现为 1.0（C4：吸收 16 条源图框边、每图 1 个模板 frame）。
 - entity_retention 的 ATTRIB/HATCH/INSERT 0% 是现状而非目标值；提升后更新本文件并说明。
 - 样例数字来自本机；脚本不按文件名特判，CI 用 ezdxf 自造夹具（tests/test_dxf_import_metrics.py）覆盖同一口径。
