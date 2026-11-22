@@ -231,7 +231,7 @@ def _near_any(pt, spots):
 
 
 def _point_in_poly(pt, poly):
-    """Even-odd point-in-polygon test (hatch lining occupies a section area)."""
+    """Even-odd point-in-polygon test (used to keep texts out of section lining)."""
     x, y = pt
     inside = False
     n = len(poly)
@@ -368,7 +368,6 @@ class _Obstacles:
         self.kinds = {}  # owner id -> element kind
         self.centres = {}  # circular dimension id -> centre of its circle
         self.radial = set()  # ids of circular diameter / radius dimensions
-        self.hatches = []  # (owner, loops): section lining a dimension text must stay out of
 
     def add(self, owner, segs=(), boxes=(), dimlines=()):
         self.segs += [(owner, p, q) for p, q in segs]
@@ -386,23 +385,21 @@ class _Obstacles:
     def conflicts(self, owner, cand, clearance):
         """[(other_id, amount)] for a candidate {boxes, segs, dimline}."""
         out = {}
-        allowed = set(cand.get("allow_conflict", ()))
-        allowed_seg = set(cand.get("allow_seg", ()))
         for b in cand.get("boxes", ()):
             bb = inflate(b, clearance)
             for o, p, q in self.segs:
-                if o != owner and o not in allowed and o not in allowed_seg:
+                if o != owner:
                     v = seg_in_box(p, q, bb)
                     if v > 1e-6:
                         out[o] = max(out.get(o, 0), v)
             for o, ob in self.boxes:
-                if o != owner and o not in allowed:
+                if o != owner:
                     v = box_overlap(bb, ob)
                     if v > 0:
                         out[o] = max(out.get(o, 0), v)
         for p, q in cand.get("segs", ()):
             for o, ob in self.boxes:
-                if o != owner and o not in allowed:
+                if o != owner:
                     v = seg_in_box(p, q, ob)
                     if v > 1e-6:
                         out[o] = max(out.get(o, 0), v)
@@ -410,7 +407,7 @@ class _Obstacles:
         dl = cand.get("dimline")
         if dl:
             for o, p, q in self.dimlines:
-                if o != owner and o not in allowed:
+                if o != owner:
                     v = collinear_overlap(dl, (p, q))
                     if v > 0:
                         out[o] = max(out.get(o, 0), v)
@@ -426,9 +423,9 @@ class _Obstacles:
         allow = set(cand.get("allow_cross", ()))
         ignore = cand.get("cross_ignore", ())
         hit = set()
-        # a frame / leader dimension only must not cut another *dimension line* (E5
-        # place_dim_cross); crossing an extension line is normal drafting, so those candidates
-        # look at the registered dimension lines instead of every annotation segment
+        # E5 place_dim_cross judges dimension lines only; a frame dimension or a PMI leader
+        # crossing an extension line is normal drafting, so those candidates look at the
+        # registered dimension lines instead of every annotation segment
         segs = self.dimlines if cand.get("cross_dimlines") else self.segs
         for p, q in cand.get("cross", ()):
             for o, a, b in segs:
@@ -561,10 +558,6 @@ class _ViewLayout:
 
     def put(self, el, prims, obstacle=True):
         self.parts.setdefault(el._id, []).extend(prims)
-        if el.kind == "hatch":
-            loops = [pr.loops for pr in prims if isinstance(pr, Hatch)]
-            if loops:
-                self.obst.hatches.append((el._id, [lp for group in loops for lp in group]))
         if obstacle:
             self.obst.kinds[el._id] = el.kind
             self.obst.add_prims(el._id, prims)
@@ -939,7 +932,7 @@ class _ViewLayout:
         )
         # a third row on the right side reaches the title-block / technical-notes zone on the
         # narrow formats; written row values still win, only automatic ones are capped
-        if side == "right" and lay.get("row") is None:
+        if side == "right" and lay.get("row") is None and self.d.template["size"][0] <= 420:
             rows = [r for r in rows if r <= 2]
 
         w, hh = label_size(i, std)
@@ -1330,10 +1323,9 @@ class _ViewLayout:
             nest, tight = self._row_conflicts(cand)
             # E5 counts every D.place violation alike, so minimise their sum first and use the
             # individual terms only as a tie-break; text overlapping anything is weighted double.
-            cut_w = 1
             depth = max(0, (cand["fields"].get("row") or 1) - 2)  # do not drift out of the frame
             total = (
-                cut_w * len(cut)
+                len(cut)
                 + 2 * (len(conf) + self_hit)
                 + len(overlap)
                 + len(outline)
@@ -1343,18 +1335,25 @@ class _ViewLayout:
                 + depth
             )
             row_pref = cand["fields"].get("row") or 0  # keep equal-cost dims as close as possible
-            key = (
-                total,
-                len(conf),
-                len(cut),
-                len(overlap),
-                len(outline),
-                row_pref,
-                len(centre),
-                self_hit,
-                len(nest),
-                len(tight),
-            )
+            if cand.get("pmi_cost"):
+                # a PMI leader must first avoid any rendered overlap (layout pack), then cut no
+                # dimension line (E5 scope), then cross as few annotation lines as possible
+                bare = {k: v for k, v in cand.items() if k != "cross_dimlines"}
+                all_cut = len(self.obst.crossings(el._id, bare))
+                key = (len(conf), len(cut), all_cut, total)
+            else:
+                key = (
+                    total,
+                    len(conf),
+                    len(cut),
+                    len(overlap),
+                    len(outline),
+                    row_pref,
+                    len(centre),
+                    self_hit,
+                    len(nest),
+                    len(tight),
+                )
             if total == 0:
                 best = (key, k, cand, conf, cut, overlap, outline, centre, nest, tight)
                 break
@@ -1399,7 +1398,9 @@ class _ViewLayout:
         elif k and "at" in el._auto and cand["fields"].get("at") != cands[0]["fields"].get("at"):
             reasons.append("换角度避开交叉")
         unavoidable = conf or cut or overlap or outline or self_hit or nest or tight
-        if (cand.get("overlap_cost") or cand.get("row_info")) and unavoidable:
+        if (
+            cand.get("overlap_cost") or cand.get("row_info") or cand.get("pmi_cost")
+        ) and unavoidable:
             # an avoidable conflict always wins above, so what is left is unavoidable — draw it
             # and report it for the agent (DESIGN §4.6.3)
             violations = [{"with": o, "kind": "overlap", "amount": round(v, 3)} for o, v in conf]
@@ -1418,14 +1419,16 @@ class _ViewLayout:
             if boxes:
                 el._resolved["corridors"] = self._corridors(boxes[0])
         if el.kind in ("datum", "gtol", "rough"):
+            leaders = list(cand.get("cross", ()))
+            if leaders:  # the structural leader, not the frame / tolerance lines of the label
+                el._resolved["leader"] = [[list(p), list(q)] for p, q in leaders]
             ref = self.parts.get(el._intent.get("ref") or "")
-            own = [p for p in cand["prims"] if isinstance(p, Line)]
             if ref:
                 best = 0.0
-                for a in own:
-                    for b in ref:
-                        if isinstance(b, Line):
-                            best = max(best, collinear_overlap((a.p, a.q), (b.p, b.q)))
+                for a, b in leaders:
+                    for r in ref:
+                        if isinstance(r, Line):
+                            best = max(best, collinear_overlap((a, b), (r.p, r.q)))
                 if best > 2.0:
                     el._resolved["coincident_with_ref"] = [
                         {"with": el._intent["ref"], "length": round(best, 2)}
@@ -1450,8 +1453,59 @@ class _ViewLayout:
             dimlines=[cand["dimline"]] if cand.get("dimline") else (),
         )
 
+    def _repair_dim_overlaps(self):
+        """Final pass: move an automatic linear dimension whose text/line still touches something."""
+        ann = ("dim", "note", "datum", "gtol", "rough")
+        for e in self.els("dim"):
+            if not e._prims or e._intent.get("circle") or e._intent["type"] == "aligned":
+                continue
+            boxes = self._text_boxes(e)
+            if not boxes:
+                continue
+            obst = _Obstacles()
+            for o in self.d._els.values():
+                if o._intent.get("view") != self.name or not o._prims or o.id == e.id:
+                    continue
+                obst.kinds[o.id] = o.kind
+                obst.add_prims(o.id, o._prims)
+                if o.kind in ann:
+                    obst.ann.add(o.id)
+            own_segs = [s for p in e._prims if not isinstance(p, Text) for s in prim_segments(p)]
+            cur = {"boxes": boxes, "segs": own_segs}
+            cur_conf = len(obst.conflicts(e.id, cur, 0.0))
+            if not cur_conf:
+                continue
+            fixed = {
+                f: e._layout.get(f)
+                for f in ("side", "row", "offset")
+                if e._layout.get(f) is not None
+            }
+            best, best_key = None, None
+            for cand in self.linear_cands(e):
+                if any(cand["fields"].get(f) != v for f, v in fixed.items()):
+                    continue
+                key = (len(obst.conflicts(e.id, cand, 0.0)), cand.get("self_hit") or 0)
+                if best_key is None or key < best_key:
+                    best, best_key = cand, key
+            if best is None or best_key[0] >= cur_conf:
+                continue
+            e._prims = list(best["prims"])
+            e._resolved.update(best["fields"])
+            e._reason = (e._reason + "；" if e._reason else "") + "文字避让重排"
+            self.parts[e._id] = list(best["prims"])
+            e._resolved["bbox"] = list(prims_bbox(e._prims))
+
+    def _text_boxes(self, e):
+        return [p.box for p in e._prims if isinstance(p, Text)]
+
     def _repair_pmi_leaders(self):
-        """Final pass: move a PMI leader that cuts a dimension line to a candidate that does not."""
+        """Final pass: re-place a PMI leader that overlaps / cuts a placed element.
+
+        Only the structural leader (candidate cross segments) is judged; the frame and
+        tolerance lines of the label are not leaders.  A candidate is adopted only when it is
+        lexicographically better on (rendered overlaps, dimension-line crossings); the
+        structured report of the element is recomputed, never left stale.
+        """
         ann_kinds = ("dim", "note", "datum", "gtol", "rough")
         gens = {"datum": datum_cands, "gtol": gtol_cands, "rough": rough_cands}
         clearance = self.std["dim"]["clearance"]
@@ -1459,8 +1513,8 @@ class _ViewLayout:
             for e in self.els(kind):
                 if not e._prims:
                     continue
-                leaders = [p for p in e._prims if isinstance(p, Line)]
-                if not leaders:
+                cur_leader = [tuple(map(tuple, seg)) for seg in e._resolved.get("leader") or ()]
+                if not cur_leader:
                     continue
                 obst = _Obstacles()
                 for o in self.d._els.values():
@@ -1470,116 +1524,43 @@ class _ViewLayout:
                     obst.add_prims(o.id, o._prims)
                     if o.kind in ann_kinds:
                         obst.ann.add(o.id)
-                cur = len(obst.crossings(e.id, {"cross": [(p.p, p.q) for p in leaders]}))
-                best, best_key = None, None
+                cur = {"cross": cur_leader, "boxes": self._text_boxes(e)}
+                cur_key = (
+                    len(obst.conflicts(e.id, cur, clearance)),
+                    len(obst.crossings(e.id, cur)),
+                )
+                best, best_key = None, cur_key
                 fixed = {
                     f: e._layout.get(f) for f in ("at", "length") if e._layout.get(f) is not None
                 }
                 for cand in fn(self, e):
                     if any(cand["fields"].get(f) != v for f, v in fixed.items()):
                         continue
-                    n = len(obst.crossings(e.id, cand))
-                    conf = obst.conflicts(e.id, cand, clearance)
-                    key = (n, len(conf))
-                    if best_key is None or key < best_key:
+                    key = (
+                        len(obst.conflicts(e.id, cand, clearance)),
+                        len(obst.crossings(e.id, cand)),
+                    )
+                    if key < best_key:
                         best, best_key = cand, key
-                if best is None or best_key[0] >= cur:
+                if best is None:
                     continue
                 e._prims = list(best["prims"])
                 e._resolved.update(best["fields"])
-                e._reason = (e._reason + "；" if e._reason else "") + "为避免交叉调整引线"
+                for stale in ("violations", "crossings", "corridors", "coincident_with_ref"):
+                    e._resolved.pop(stale, None)
+                leaders = list(best.get("cross", ()))
+                if leaders:
+                    e._resolved["leader"] = [[list(a), list(b)] for a, b in leaders]
+                conf = obst.conflicts(e.id, best, clearance)
+                cut = obst.crossings(e.id, best)
+                if conf or cut:
+                    e._resolved["violations"] = [
+                        {"with": o, "kind": "overlap", "amount": round(v, 3)} for o, v in conf
+                    ] + [{"with": o, "kind": "cross"} for o in cut]
+                    if cut:
+                        e._resolved["crossings"] = sorted(cut)
+                e._reason = (e._reason + "；" if e._reason else "") + "为避免压图元 / 交叉调整引线"
                 self.parts[e._id] = list(best["prims"])
-
-    def _obstacles_except(self, skip):
-        ann = ("dim", "note", "datum", "gtol", "rough")
-        obst = _Obstacles()
-        for o in self.d._els.values():
-            if o._intent.get("view") != self.name or not o._prims or o.id in skip:
-                continue
-            obst.kinds[o.id] = o.kind
-            obst.add_prims(o.id, o._prims)
-            if o.kind in ann:
-                obst.ann.add(o.id)
-        return obst
-
-    def _text_boxes(self, e):
-        return [p.box for p in e._prims if isinstance(p, Text)]
-
-    @staticmethod
-    def _boxes_hit(cand, other):
-        """Do two candidates' boxes / lines touch each other (text overlap)?"""
-        for a in cand.get("boxes", ()):
-            for b in other.get("boxes", ()):
-                if box_overlap(a, b) > 0.05:
-                    return True
-        for a in cand.get("boxes", ()):
-            for p, q in other.get("segs", ()):
-                if seg_in_box(p, q, a) > 0.05:
-                    return True
-        return False
-
-    def _repair_dim_texts(self):
-        """Final pass: re-place dimensions whose texts touch each other or another element.
-
-        Chain dimensions are placed one after another, so a greedy pass can leave two adjacent
-        texts on top of each other; a joint pair search fixes that deterministically.
-        """
-        dims = [e for e in sorted(self.els("dim"), key=lambda d: d._id) if e._prims]
-        for _round in range(2):
-            changed = False
-            for i, a in enumerate(dims):
-                if a._intent.get("circle"):
-                    continue
-                aboxes = self._text_boxes(a)
-                if not aboxes:
-                    continue
-                for b in dims[i + 1 :]:
-                    if b._intent.get("circle"):
-                        continue
-                    if not any(
-                        box_overlap(x, y) > 0.05 for x in aboxes for y in self._text_boxes(b)
-                    ):
-                        continue
-                    base = self._obstacles_except({a.id, b.id})
-                    fixed_a = {
-                        f: a._layout.get(f) for f in ("side", "row", "offset") if a._layout.get(f)
-                    }
-                    fixed_b = {
-                        f: b._layout.get(f) for f in ("side", "row", "offset") if b._layout.get(f)
-                    }
-                    ca = [
-                        c
-                        for c in self.linear_cands(a)
-                        if all(c["fields"].get(f) == v for f, v in fixed_a.items())
-                    ]
-                    cb = [
-                        c
-                        for c in self.linear_cands(b)
-                        if all(c["fields"].get(f) == v for f, v in fixed_b.items())
-                    ]
-                    best = None
-                    for x in ca:
-                        if self._boxes_hit(x, {"boxes": self._text_boxes(b)}):
-                            continue
-                        na = len(base.conflicts(a.id, x, 0.0))
-                        for y in cb:
-                            if self._boxes_hit(y, x) or self._boxes_hit(y, {"boxes": aboxes}):
-                                continue
-                            nb = len(base.conflicts(b.id, y, 0.0))
-                            if self._boxes_hit(x, y):
-                                continue
-                            key = (na + nb, na, nb)
-                            if best is None or key < best[0]:
-                                best = (key, x, y)
-                    if best is not None and best[0][0] == 0:
-                        for el, cand in ((a, best[1]), (b, best[2])):
-                            el._prims = list(cand["prims"])
-                            el._resolved.update(cand["fields"])
-                            el._reason = (el._reason + "；" if el._reason else "") + "文字避让重排"
-                            self.parts[el.id] = list(cand["prims"])
-                        changed = True
-            if not changed:
-                break
 
     def annotations(self):
         dims = self.els("dim")
@@ -1691,6 +1672,7 @@ class _ViewLayout:
         for item in late:  # leaders whose target dimension was placed above
             place_pmi(item)
         self._repair_pmi_leaders()
+        self._repair_dim_overlaps()
 
     def section_labels(self):
         sec = self.std["section"]
@@ -1882,11 +1864,12 @@ class _Layout:
                     e._resolved["bbox"] = list(b)
 
     def _nudge_texts(self):
-        """Last resort: nudge a single text label a few mm until it clears other elements.
+        """Last resort: nudge a single automatic text label a few mm until it clears everything.
 
-        Candidate-based placement can leave the last text of a crowded chain on top of a
-        neighbouring line; a tiny deterministic shift is what a drafter does too (DESIGN §4.6.3
-        local push-out, never a global solver).
+        Only elements whose position fields are automatic are touched: a written at / length /
+        dir / offset / row is never moved (DESIGN fixed elements).  Compound labels (several
+        text boxes) are left alone, so a label is never split.  This is the local push-out of
+        DESIGN §4.6.3, not a global solver.
         """
         d = self.d
         F = d.template["frame"]
@@ -1897,32 +1880,78 @@ class _Layout:
             for p in e._prims:
                 if isinstance(p, Text):
                     boxes.append(p.box)
-                elif not isinstance(p, Hatch):
-                    segs += [(a, b) for a, b in prim_segments(p)]
+                else:
+                    segs += [(a_, b_) for a_, b_ in prim_segments(p)]
             shapes[e._id] = (segs, boxes)
+        hatches = []
+        for e in els:
+            if e.kind != "hatch":
+                continue
+            loops = [lp for pr in e._prims if isinstance(pr, Hatch) for lp in pr.loops]
+            if loops:
+                hatches.append(loops)
+
+        def in_hatch(box):
+            cx, cy = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
+            for loops in hatches:
+                hits = 0
+                for lp in loops:
+                    if lp and lp[0] == "circle":
+                        hits += 1 if math.dist((cx, cy), lp[1]) <= lp[2] else 0
+                    else:
+                        hits += 1 if _point_in_poly((cx, cy), lp) else 0
+                if hits % 2 == 1:
+                    return True
+            return False
+
         offs = [
             (dx, dy)
-            for mag in (2.0, 3.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0, 18.0, 20.0)
+            for mag in (
+                2.0,
+                3.0,
+                4.0,
+                6.0,
+                8.0,
+                10.0,
+                12.0,
+                14.0,
+                16.0,
+                18.0,
+                20.0,
+                24.0,
+                28.0,
+                32.0,
+                36.0,
+                40.0,
+            )
             for dx, dy in ((mag, 0.0), (-mag, 0.0), (0.0, mag), (0.0, -mag))
         ]
+        if e.kind in ("datum", "gtol", "rough"):
+            fixed_fields = ("at", "length", "dir")  # the leader and its label position are written
+        elif e.kind == "note":
+            fixed_fields = ("dir", "offset")
+        else:
+            fixed_fields = ("at", "offset")  # a written angle stays; its text may shift a little
         for _round in range(2):
             changed = False
             for e in els:
                 if e.kind in ("view", "feature", "raw", "chain") or not e._prims:
                     continue
+                if any(e._layout.get(f) is not None for f in fixed_fields):
+                    continue  # written position: report instead of moving it here
+                texts = [(i, pr) for i, pr in enumerate(e._prims) if isinstance(pr, Text)]
+                if len(texts) != 1:
+                    continue
                 others_segs, others_boxes = [], []
                 for o in els:
-                    if o.id == e.id:
-                        continue
-                    s, b = shapes[o.id]
-                    others_segs += s
-                    others_boxes += b
-                for i, pr in enumerate(e._prims):
-                    if not isinstance(pr, Text):
-                        continue
+                    s_, b_ = shapes[o.id]
+                    others_segs += s_
+                    if o.id != e.id:
+                        others_boxes += b_
+                for i, pr in texts:
                     box = pr.box
                     if not (
-                        any(seg_in_box(a, b, box) > 0.05 for a, b in others_segs)
+                        any(seg_in_box(a_, b_, box) > 0.05 for a_, b_ in others_segs)
                         or any(box_overlap(box, ob) > 0.05 for ob in others_boxes)
                     ):
                         continue
@@ -1935,14 +1964,14 @@ class _Layout:
                             or nb[3] > F[3] - 1
                         ):
                             continue
-                        if any(seg_in_box(a, b, nb) > 0.05 for a, b in others_segs):
+                        if any(seg_in_box(a_, b_, nb) > 0.05 for a_, b_ in others_segs):
                             continue
                         if any(box_overlap(nb, ob) > 0.05 for ob in others_boxes):
                             continue
                         nt = move_prim(pr, dx, dy)
                         e._prims[i] = nt
                         segs, boxes = shapes[e.id]
-                        shapes[e.id] = (segs, [nt.box if x is box else x for x in boxes])
+                        shapes[e.id] = (segs, [nt.box])
                         e._resolved["bbox"] = list(prims_bbox(e._prims))
                         changed = True
                         break
@@ -2123,42 +2152,44 @@ class _Layout:
                     dy += max(0.0, F[3] - g[3])
                     dx -= max(0.0, g[0] - F[0])
         dx, dy = dx + bx, dy + by
-        F = sheet["F"]
-        zone = union([sheet["TB"], sheet["TN"]])
-        margin = 1.0  # keep the drawing inside the frame line, not on it
-        for _ in range(3):
-            gb = union(
-                [
-                    (
-                        vls[n].full[0] + origins[n][0] + dx,
-                        vls[n].full[1] + origins[n][1] + dy,
-                        vls[n].full[2] + origins[n][0] + dx,
-                        vls[n].full[3] + origins[n][1] + dy,
-                    )
-                    for n in names
-                ]
-            )
-            if gb is None:
-                break
-            moved = False
-            sx = max(0.0, F[0] + margin - gb[0]) - max(0.0, gb[2] - (F[2] - margin))
-            sy = max(0.0, F[1] + margin - gb[1]) - max(0.0, gb[3] - (F[3] - margin))
-            if abs(sx) > 1e-9 or abs(sy) > 1e-9:
-                dx, dy = dx + sx, dy + sy
-                moved = True
-            if not moved and zone and box_overlap(inflate(zone, gap / 2), gb) > 0:
-                up = zone[3] + gap - gb[1]
-                left = gb[2] - (zone[0] - gap)
-                if gb[3] + up <= F[3] - margin:
-                    dy += up
-                elif gb[0] - left >= F[0] + margin:
-                    dx -= left
-                else:
-                    dy += max(0.0, F[3] - margin - gb[3])
-                    dx -= max(0.0, gb[0] - F[0] - margin)
-                moved = True
-            if not moved:
-                break
+        if fv._layout.get("at") is None:
+            # automatic layout is clamped into the frame; a written at is absolute and stays
+            F = sheet["F"]
+            zone = union([sheet["TB"], sheet["TN"]])
+            margin = 1.0  # keep the drawing inside the frame line, not on it
+            for _ in range(3):
+                gb = union(
+                    [
+                        (
+                            vls[n].full[0] + origins[n][0] + dx,
+                            vls[n].full[1] + origins[n][1] + dy,
+                            vls[n].full[2] + origins[n][0] + dx,
+                            vls[n].full[3] + origins[n][1] + dy,
+                        )
+                        for n in names
+                    ]
+                )
+                if gb is None:
+                    break
+                moved = False
+                sx = max(0.0, F[0] + margin - gb[0]) - max(0.0, gb[2] - (F[2] - margin))
+                sy = max(0.0, F[1] + margin - gb[1]) - max(0.0, gb[3] - (F[3] - margin))
+                if abs(sx) > 1e-9 or abs(sy) > 1e-9:
+                    dx, dy = dx + sx, dy + sy
+                    moved = True
+                if not moved and zone and box_overlap(inflate(zone, gap / 2), gb) > 0:
+                    up = zone[3] + gap - gb[1]
+                    left = gb[2] - (zone[0] - gap)
+                    if gb[3] + up <= F[3] - margin:
+                        dy += up
+                    elif gb[0] - left >= F[0] + margin:
+                        dx -= left
+                    else:
+                        dy += max(0.0, F[3] - margin - gb[3])
+                        dx -= max(0.0, gb[0] - F[0] - margin)
+                    moved = True
+                if not moved:
+                    break
         out = {n: (o[0] + dx, o[1] + dy) for n, o in origins.items()}
         for n in auxs:  # place(at=...) on an auxiliary view is an absolute sheet position
             at = vls[n].view._layout.get("at")

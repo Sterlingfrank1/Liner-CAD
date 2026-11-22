@@ -266,7 +266,9 @@ def _cand(prims, fields, why="", body=None, cross=(), allow=()):
         "fields": fields,
         "cross": leaders,
         "allow_cross": list(allow),
-        "pmi_cost": True,  # crossing a dimension line is worse for a leader than a small gap
+        # E5-aligned crossing scope: a leader may cross extension lines, not dimension lines
+        "cross_dimlines": True,
+        "pmi_cost": True,
         "why": why,
     }
 
@@ -430,21 +432,37 @@ def gtol_cands(vl, el):
         if an is None:
             return []
         A, n = an
+        written = _shift(el)
+        shifts = (
+            [written]
+            if written != (0.0, 0.0)
+            else [
+                (0.0, 0.0),
+                (0.0, 3.0),
+                (0.0, -3.0),
+                (3.0, 0.0),
+                (-3.0, 0.0),
+                (0.0, 6.0),
+                (0.0, -6.0),
+            ]
+        )
         for L in _lens(el._layout, std):
-            sx, sy = _shift(el)
-            E = (A[0] + n[0] * L + sx, A[1] + n[1] * L + sy)
-            prims = [Line(E, A, "thin"), arrow(A, (-n[0], -n[1]), std, "thin")]
-            if abs(n[1]) >= abs(n[0]):  # leader meets the frame's bottom / top at the first cell
-                ox = E[0] - H / 2
-                oy = E[1] if n[1] > 0 else E[1] - H
-            else:
-                ox = E[0] if n[0] > 0 else E[0] - W
-                oy = E[1] - H / 2
-            prims += transform(frame, 0, ox, oy)
-            fields = {"length": L, "at": frac}
-            out.append(
-                _cand(prims, fields, body=prims[2:], cross=[prims[0]], allow=[el._intent["ref"]])
-            )
+            for sx, sy in shifts:
+                E = (A[0] + n[0] * L + sx, A[1] + n[1] * L + sy)
+                prims = [Line(E, A, "thin"), arrow(A, (-n[0], -n[1]), std, "thin")]
+                if abs(n[1]) >= abs(n[0]):
+                    ox = E[0] - H / 2
+                    oy = E[1] if n[1] > 0 else E[1] - H
+                else:
+                    ox = E[0] if n[0] > 0 else E[0] - W
+                    oy = E[1] - H / 2
+                prims += transform(frame, 0, ox, oy)
+                fields = {"length": L, "at": frac}
+                out.append(
+                    _cand(
+                        prims, fields, body=prims[2:], cross=[prims[0]], allow=[el._intent["ref"]]
+                    )
+                )
     return out
 
 
@@ -508,7 +526,7 @@ def rough_cands(vl, el):
         bx0, _, bx1, _ = prims_bbox(sym)
         for L in _lens(el._layout, std):
             L = L + lift if not el._layout.get("length") else L
-            for tilt in (0, 20, -20, 35, -35, 55, -55):
+            for tilt in (0, 35, -35):
                 u = _rot(n, tilt)
                 for side in (1, -1) if n[0] >= 0 else (-1, 1):
                     sx, sy = _shift(el)

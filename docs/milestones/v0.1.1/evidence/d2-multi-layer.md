@@ -11,9 +11,8 @@ PMI 引线候选在 `pmi_layout.py`。写明的字段（`side` / `row` / `offset
    允许的 `leader`（一端箭头 + 引线）风格。两组同心圆尺寸若在公共圆心处交叉，后放的一组改用
    `leader`，E5 `place_dim_cross` 的 20 对同心交叉因此归零；单放时仍首选习惯的 `dimline`。
 2. **代价函数对齐 E5 口径**：候选按「E5 违例总数」排序，term = 文字重叠、尺寸线交叉、共线重合、
-   轮廓交叉、自文字压线、嵌套、排距、行深。文字重叠加权 ×2；PMI 引线的「切尺寸线」作为硬偏好；
-   其中「交叉」对 frame 尺寸与引线只统计**尺寸线**（E5 `place_dim_cross` 口径），尺寸界线相交属正常
-   制图，不再被当成代价。
+   轮廓交叉、自文字压线、嵌套、排距、行深。文字重叠加权 ×2；PMI 引线按「先不压图元、再少切
+   尺寸线」两段排序，且只把**尺寸线**计为交叉（E5 `place_dim_cross` 口径，尺寸界线相交属正常制图）。
 3. **小内大外 + 排距**：同侧同方向的自动尺寸记录 `(span, level)`，做「内侧 span 不得大于外侧」和
    「相邻排距 ≥ row_pitch−0.5」的软代价；写死排的尺寸作为已知项参与比较。
 4. **文字内外与箭头外翻**：线性尺寸增加文字在尺寸线上下侧、加大文字间隙的候选；放不下时文字移到
@@ -21,16 +20,21 @@ PMI 引线候选在 `pmi_layout.py`。写明的字段（`side` / `row` / `offset
 5. **文字自重叠**：`dim_label` 的上/下偏差文字按实际字高分开（D.kd 等 8 处 0.16 mm² 自重叠归零）；
    候选同时检查全部文字块（值 + 上下偏差）与自身线段、彼此的重叠。
 6. **PMI 引线**：写死 `at`/`length` 的 PMI 仍先于自动尺寸就位（DESIGN §4.6.2）；其余引线放到
-   被引尺寸之后，并增加引线长度档（12/18/24/34/40）与倾角档（±20°/±55°），按「先不切尺寸线、
-   再少压图元」选择；最后做一次按最终障碍复核的引线修复（只在不切尺寸线且不增加冲突时改位）。
-   引线允许贴到自己引用的图元上（共线附着），但不得压它的文字。
-7. **收尾微调**：视图组整体框在 A3 图框内并避开标题栏 / 技术要求区（`arrange`）；最后对极拥挤处
-   的单个文字做 ≤20 mm 的确定性微移（局部外推，不移动尺寸线 / 箭头 / 写死字段）。
+   被引尺寸之后，增加引线长度档（12/18/24/34/40）、倾角档与形位公差框的平移档，按「先不压图元、
+   再少切尺寸线」选择（交叉只统计尺寸线，E5 `place_dim_cross` 口径）；最后按最终障碍复核修复。
+   引线允许贴到自己引用的图元上（共线附着），但不得压它的文字。结构性引线段写入
+   `resolved["leader"]`，避免「最长线」把框线/肩线当引线；不可避免的压图元 / 切尺寸线写
+   `resolved["violations"]` / `crossings`（DESIGN §4.6.3），不再只写在 reason 里。
+7. **收尾微调**：自动布局的视图组整体框在 A3 图框内并避开标题栏 / 技术要求区（`arrange`，
+   写死 `place(at=…)` 的视图保持绝对位置）；极拥挤处只对**自动放置的单个文字**做 ≤40 mm 的
+   确定性微移（局部外推；写死 `at`/`length`/`dir`/`offset` 的元素一律不动，不移动尺寸线 / 箭头），
+   并把剖面线区域视为不可落字。
 8. **D1 review 两处 minor**：
    - ① `_concentric_with` 收窄为**整圆**才豁免公共圆心交叉；圆弧不再豁免（`test_concentric_arc_is_not_an_inherent_crossing`）。
    - ② PMI 引线与自身引用尺寸端部共线贴合不再沉默：超过 2 mm 时写进
      `placement.resolved["coincident_with_ref"] = [{"with": ref, "length": L}]`，reason 追加说明。
-     D1 状态复核到的 5 处中，D2 重排后仍贴合 2 处，均已上报（见下表）。
+     D1 状态复核到的 5 处中，D2 重排后 3 处不再贴合；当前 40 例另有 6 处真实端部贴合全部上报
+     （见下表），不再把公差框线 / 肩线当引线。
 
 ## E5 数字（D1 合并后 main `ee5b1f6` → 本分支）
 
@@ -38,10 +42,10 @@ PMI 引线候选在 `pmi_layout.py`。写明的字段（`side` / `row` / `offset
 
 | 项 | D1（before） | D2（after） |
 |---|---|---|
-| 40 例 D 族分数 | 0.972252（77/2775） | **0.984505（43/2775）** |
+| 40 例 D 族分数 | 0.972252（77/2775） | **0.985225（41/2775）** |
 | place_dim_cross | 20 | **3** |
 | place_nesting | 16 | **8** |
-| place_text_overlap | 11 | **3** |
+| place_text_overlap | 11 | **1** |
 | place_row_spacing | 1 | **0** |
 | place_dim_outline | 24 | 24 |
 | place_ext_line | 5 | 5 |
@@ -68,6 +72,10 @@ PMI 引线候选在 `pmi_layout.py`。写明的字段（`side` / `row` / `offset
 - gear_pump_body 后：![after](d2-after-gear_pump_body-DRc2.png) —— 半径引线文字不再压 D.H / D.pz 的尺寸线。
 
 ## 残余（都是写死或标准固有，逐条有据）
+
+`place_text_overlap` 本分支为 **1**（bearing_cap `D.dg` 的尺寸文字落在剖面线内：尺寸线在写死 inside 的
+位置、文字跟着尺寸线走；剖面文字由 DXF 导出侧做文字岛/留白，刻意保留 hatch 岛机制，因此这一处按残余
+记录）。其余四类残余如下。
 
 - `place_dim_outline` 24 处：全部是范例里写死 `side="inside"` 的尺寸（DESIGN §4.6.2 写死元素不动），
   本卡不挪；自动尺寸的轮廓交叉在本分支为 0。
@@ -98,16 +106,22 @@ PMI 引线候选在 `pmi_layout.py`。写明的字段（`side` / `row` / `offset
 acceptance 的 8 轮最终表：`nesting D.L` 与 `text_overlap D.kd` 消除，出现 `row_spacing D.L`（轮次把写死的
 `D.L` 移到第 2 排后与外侧自动排的间距 2.0 < 7，属于轮次移动的已知代价，总项数 9 → 8，无新增 E5 规则）。
 
-## D1 review minor ② 的实测（D2 后仍在贴合的 2 处，均已上报）
+## D1 review minor ② 的实测（D2 后仍贴合 6 处，均已上报）
 
-| 用例 | PMI | 引用 | 共线长度 | 上报位置 |
-|---|---|---|---|---|
-| L2/fork/bearing_support | G.par | D.d | 21.0 | `G.par.placement.resolved["coincident_with_ref"]` |
-| L2/fork/link | G.par | D.d2 | 16.0 | `G.par.placement.resolved["coincident_with_ref"]` |
+只比较**结构性引线**（`resolved["leader"]`）与引用图元，不再把公差框线 / 肩线当引线；共线长度 >2 mm
+才上报，写进 `placement.resolved["coincident_with_ref"]`：
 
-其余 3 处（bearing_seat G.par↔D.d、gearbox_base R.b1↔D.d1、clevis R.pin↔D.dp）在 D2 重排后不再贴到
-引用尺寸端部，因此无需上报。
+| 用例 | PMI | 引用 | 共线长度 |
+|---|---|---|---|
+| L2/fork/bearing_support | G.par | D.d | 21.0 |
+| L2/fork/link | G.par | D.d2 | 16.0 |
+| L2/shaft/pump_shaft | DT.B | D.d4 | 12.73 |
+| L2/shaft/shaft | DT.B | D.d5 | 12.73 |
+| L2/shaft/spline_shaft | DT.A | D.d2 | 12.73 |
+| L2/shaft/spline_shaft | DT.B | D.d5 | 12.73 |
 
+D1 状态复核到的 bearing_seat G.par↔D.d、gearbox_base R.b1↔D.d1、clevis R.pin↔D.dp 在 D2 重排后不再贴合，
+无需上报；shaft 三例是 D2 后新增的真实端部贴合（轴类基准落在端部尺寸线延长线上），照实上报。
 ## 回归用例（`tests/test_layout_d2.py`，G2 为首个 commit）
 
 - 同心直径对（合成圆视图 + bearing_seat / bearing_support / link 三例）不交叉。
@@ -117,7 +131,7 @@ acceptance 的 8 轮最终表：`nesting D.L` 与 `text_overlap D.kd` 消除，�
 - pulley 右侧 PMI 引线不切其它尺寸的尺寸线。
 - PMI 共线附着上报（bearing_support `G.par`）。
 - 同心圆弧不是固有交叉（minor ①）。
-- 布局确定性（同输入两次布局，图元与 resolved 一致）。
+- 布局确定性（同输入两次布局，图元与 resolved（含 bbox）一致）。
 
 ## 交接
 

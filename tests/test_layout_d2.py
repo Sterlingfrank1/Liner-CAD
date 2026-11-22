@@ -8,12 +8,10 @@ lines), and the two D1 review minors (concentric arcs are not inherent; collinea
 attachment is reported instead of silent).
 """
 
-import math
-
 import pytest
 
 from linercad import Drawing, place, txn
-from linercad.layout import Line, _crosses, layout
+from linercad.layout import _crosses, layout
 from linercad.runtime import build
 
 
@@ -97,7 +95,11 @@ def test_keyway_tolerance_text_does_not_overlap_its_own_line(tmp_path):
 
 
 def _pmi_leader_crossings(d):
-    """PMI leaders cutting another dimension's *dimension line* (not its extension lines)."""
+    """PMI structural leaders cutting another dimension's *dimension line*.
+
+    The leader segments are read from ``placement.resolved["leader"]``; taking the longest
+    Line primitive would pick a shoulder or frame edge and hide a real crossing.
+    """
     dims = {}
     for e in d._els.values():
         info = place._dim_info(e)
@@ -108,15 +110,13 @@ def _pmi_leader_crossings(d):
     for e in d._els.values():
         if e.kind not in ("datum", "gtol", "rough"):
             continue
-        lines = [p for p in e._prims if isinstance(p, Line)]
-        if not lines:
-            continue
-        leader = max(lines, key=lambda p: math.dist(p.p, p.q))
-        for oid, osegs in dims.items():
-            if oid == e._intent.get("ref"):
-                continue
-            if any(_crosses(leader.p, leader.q, a, b) for a, b in osegs):
-                out.add((e.id, oid))
+        for seg in e._resolved.get("leader") or ():
+            a, b = tuple(seg[0]), tuple(seg[1])
+            for oid, osegs in dims.items():
+                if oid == e._intent.get("ref"):
+                    continue
+                if any(_crosses(a, b, p, q) for p, q in osegs):
+                    out.add((e.id, oid))
     return out
 
 
@@ -146,11 +146,21 @@ def test_multi_layer_layout_is_deterministic(tmp_path):
         d = build(p, dxf=False).d
         snaps.append(
             {
-                e.id: (repr(e._prims), {k: v for k, v in e._resolved.items() if k != "bbox"})
+                e.id: (repr(e._prims), {k: repr(v) for k, v in sorted(e._resolved.items())})
                 for e in d._els.values()
             }
         )
     assert snaps[0] == snaps[1]
+
+
+def test_written_view_at_is_not_moved_by_the_frame_clamp():
+    d = Drawing()
+    v = d.view("front")
+    v.circle((0, 0), 20, name="c")
+    v.dim.dia("D", circle="E.front.c.1", at=45)
+    v.place(at=(360, 25))
+    layout(d)
+    assert v._resolved["origin"] == [360.0, 25.0]
 
 
 def test_concentric_arc_is_not_an_inherent_crossing():
