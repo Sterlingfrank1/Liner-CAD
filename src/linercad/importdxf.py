@@ -689,6 +689,8 @@ def hatch_representable(e):
         return False, "gradient"
     if int(e.dxf.get("solid_fill", 0) or 0):
         return True, None
+    if int(e.dxf.get("pattern_double", 0) or 0):
+        return False, "pattern_double (no equivalent)"
     name = str(e.dxf.get("pattern_name") or "")
     if not name:
         return False, "empty pattern (no SOLID flag)"
@@ -760,7 +762,7 @@ def _close_loop(points, implicit_close=True, tol=0.01):
 def _loop_from_path(path, tol=0.01):
     """(points, flags, error). Points are in the source OCS; flags keep the island bits."""
     btype = getattr(path.type, "name", str(path.type))
-    flags = int(getattr(path, "path_type_flags", 0) or 0) & 0x0F
+    flags = int(getattr(path, "path_type_flags", 0) or 0) & ~0x06  # keep external/textbox/outermost
     if btype == "POLYLINE":
         if not getattr(path, "is_closed", True):
             return None, flags, "open polyline boundary path"
@@ -775,16 +777,12 @@ def _loop_from_path(path, tol=0.01):
                 pts.append((x, y))
                 continue
             center, sa, ea, r = bulge_to_arc((x, y), (nx, ny), float(b))
-            pts.extend(
-                _arc_points(
-                    (center.x, center.y),
-                    r,
-                    math.degrees(sa),
-                    math.degrees(ea),
-                    ccw=float(b) > 0,
-                    tol=tol,
-                )
+            arc = _arc_points(
+                (center.x, center.y), r, math.degrees(sa), math.degrees(ea), ccw=True, tol=tol
             )
+            if _dist(arc[0], (x, y)) > _dist(arc[-1], (x, y)):
+                arc = list(reversed(arc))  # walk the arc in the segment's own direction
+            pts.extend(arc)
         pts2, bad = _close_loop(pts, implicit_close=True, tol=tol)
         return pts2, flags, bad
     if btype == "EDGE":
@@ -821,13 +819,14 @@ def _loop_from_path(path, tol=0.01):
     return None, flags, f"boundary path {btype}"
 
 
-def hatch_would_import(e) -> bool:
+def hatch_would_import(e, k=1.0) -> bool:
     """Would the importer actually keep this HATCH (same checks as _hatch, without creating)?"""
     ok, _reason = hatch_representable(e)
     if not ok:
         return False
+    tol = 0.01 / (k or 1.0)
     for path in e.paths:
-        pts, _flags, bad = _loop_from_path(path)
+        pts, _flags, bad = _loop_from_path(path, tol=tol)
         if not bad:
             return True
     return False
@@ -849,10 +848,28 @@ def _hatch(ctx, e) -> bool:
         w = ocs.to_wcs((pt[0], pt[1], elev))
         return (w.x, w.y)
 
+    extrusion = e.dxf.get("extrusion", (0, 0, 1))
+    flipped = float(extrusion[2]) < 0
+    pattern_angle = float(e.dxf.get("pattern_angle", 0.0) or 0.0)
+    if flipped:
+        pattern_angle = (180.0 - pattern_angle) % 180.0
     loops = []
     dropped = []
     for k, path in enumerate(e.paths, 1):
         pts, flags, bad = _loop_from_path(path, tol=tol)
+        if not bad:
+            wpts = [to_wcs(p) for p in pts]
+            if _loop_area(wpts) * ctx.k * ctx.k <= 1e-6:
+                dropped.append(f"path {k}: degenerate after OCS projection")
+                ctx.hatch_warnings.append(
+                    {
+                        "handle": str(e.dxf.handle),
+                        "layer": str(e.dxf.layer),
+                        "reason": f"path {k}: degenerate after OCS projection",
+                    }
+                )
+                continue
+            pts = wpts
         if bad:
             dropped.append(f"path {k}: {bad}")
             ctx.hatch_warnings.append(
@@ -865,7 +882,7 @@ def _hatch(ctx, e) -> bool:
             continue
         loops.append(
             {
-                "points": [[_r6(x * ctx.k), _r6(y * ctx.k)] for x, y in (to_wcs(p) for p in pts)],
+                "points": [[_r6(x * ctx.k), _r6(y * ctx.k)] for x, y in pts],
                 "flags": flags,
             }
         )
@@ -893,8 +910,10 @@ def _hatch(ctx, e) -> bool:
         "loops": loops,
         "solid": solid,
         "pattern": name or None,
+        "pattern_angle": pattern_angle,
+        "flipped": flipped,
         "scale": float(e.dxf.get("pattern_scale", 1.0) or 1.0),
-        "angle": float(e.dxf.get("pattern_angle", 0.0) or 0.0),
+        "angle": pattern_angle,  # OCS-mirrored source pattern angle
         "hatch_style": style,
         "dxf": {"layer": str(e.dxf.layer), "handle": str(e.dxf.handle)},
         "dropped_paths": dropped,

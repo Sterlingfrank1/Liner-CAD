@@ -367,6 +367,79 @@ def test_empty_pattern_without_solid_is_reported(tmp_path):
     assert "empty pattern" in reasons or "SOLID (no equivalent" in reasons
 
 
+def test_negative_bulge_follows_the_segment_direction(tmp_path):
+    doc = _doc()
+    msp = doc.modelspace()
+    h = msp.add_hatch(dxfattribs={"layer": "HATCH"})
+    h.set_pattern_fill("ANSI31", scale=1.0, angle=45.0)
+    h.paths.add_polyline_path([(0, 0, -0.41421356), (10, 0, 0), (10, 10, 0), (0, 0, 0)])
+    src = tmp_path / "bulge.dxf"
+    doc.saveas(src)
+    _d, imp, hatches = imported(src)
+    assert len(hatches) == 1 and imp.counts["hatches"] == 1
+    pts = _points(hatches[0]._intent["loops"][0])
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    # a short arc on one side of the chord, NOT the 270-degree complement (which blew the bbox up)
+    assert len(pts) > 4
+    assert -0.1 <= min(xs) and max(xs) <= 10.1
+    assert -0.1 <= min(ys) and max(ys) <= 10.1
+    # the short arc sits on one side of the chord; the 270-degree complement pushed y to -12
+    assert any(0.3 < y < 2.0 for y in ys)
+
+
+def test_pattern_double_is_reported(tmp_path):
+    doc = _doc()
+    msp = doc.modelspace()
+    h = msp.add_hatch(dxfattribs={"layer": "HATCH"})
+    h.set_pattern_fill("ANSI31", scale=1.0, angle=45.0)
+    h.dxf.pattern_double = 1
+    h.paths.add_polyline_path([(0, 0), (10, 0), (10, 10), (0, 0)])
+    src = tmp_path / "double.dxf"
+    doc.saveas(src)
+    _d, imp, hatches = imported(src)
+    assert hatches == []
+    assert any("pattern_double" in r["reason"] for r in imp.counts["hatch_skipped"])
+
+
+def test_outermost_flag_is_preserved(tmp_path):
+    doc = _doc()
+    msp = doc.modelspace()
+    h = msp.add_hatch(dxfattribs={"layer": "HATCH"})
+    h.set_pattern_fill("ANSI31", scale=1.0, angle=45.0)
+    h.paths.add_polyline_path([(0, 0), (40, 0), (40, 30), (0, 30), (0, 0)], flags=17)
+    h.paths.add_polyline_path([(10, 10), (30, 10), (30, 20), (10, 20), (10, 10)], flags=0)
+    src = tmp_path / "outermost.dxf"
+    doc.saveas(src)
+    d = tmp_path / "part"
+    code, out = _lcad(tmp_path, "init", str(d), "--from-dxf", str(src))
+    assert code == 0, out
+    built = ezdxf.readfile(d / ".linercad/build/drawing.dxf")
+    hatch = next(e for e in built.modelspace().query("HATCH"))
+    flags = [int(p.path_type_flags) for p in hatch.paths]
+    assert flags[0] & 16 and flags[1] & 16 == 0
+
+
+def test_hatch_would_import_uses_the_unit_factor(tmp_path):
+    doc = ezdxf.new("R2018", setup=True)
+    doc.units = units.IN
+    msp = doc.modelspace()
+    h = msp.add_hatch(dxfattribs={"layer": "HATCH"})
+    h.set_pattern_fill("ANSI31", scale=1.0, angle=45.0)
+    path = h.paths.add_edge_path()
+    path.add_line((0, 0), (10, 0))
+    path.add_line((10, 0), (10, 10))
+    path.add_line((10, 10), (0.005, 10))  # 0.005 in = 0.127 mm gap
+    path.add_line((0, 10), (0, 0))  # 0.005 in gap from the previous edge end
+    src = tmp_path / "inch.dxf"
+    doc.saveas(src)
+    e = importdxf.read_dxf(src).modelspace().query("HATCH")[0]
+    k = importdxf.unit_factor(importdxf.read_dxf(src))[0]
+    assert abs(k - 25.4) <= 1e-9
+    assert importdxf.hatch_would_import(e, k) is False
+    assert importdxf.hatch_would_import(e, 1.0) is True
+
+
 def test_c1_metric_records_the_hatch(tmp_path):
     entry = metrics.evaluate_file(make_pattern_dxf(tmp_path / "p.dxf"))
     h = entry["metrics"]["hatch_retention"]

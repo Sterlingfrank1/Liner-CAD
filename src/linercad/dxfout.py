@@ -170,10 +170,13 @@ def _write(msp, pr, std, text_boxes):
             h.dxf.hatch_style = int(getattr(pr, "hatch_style", 0) or 0)
             return h
         if getattr(pr, "pattern", None):
+            source_angle = getattr(pr, "pattern_angle", None)
+            if source_angle is None:
+                source_angle = pr.angle
             h.set_pattern_fill(
                 pr.pattern,
                 scale=float(getattr(pr, "scale", None) or 1.0),
-                angle=float(pr.angle or 0.0),
+                angle=float(source_angle or 0.0),
             )
         else:
             sp = pr.spacing or hs["spacing"]
@@ -187,8 +190,9 @@ def _write(msp, pr, std, text_boxes):
                     list(lp), is_closed=True, flags=flags[idx] if idx < len(flags) else 1
                 )
         h.dxf.hatch_style = int(getattr(pr, "hatch_style", 0) or 0)
-        for isl in _islands(pr, text_boxes):
-            h.paths.add_polyline_path(isl, is_closed=True)
+        if not getattr(pr, "loop_flags", ()):  # imported hatches already carry their boundaries
+            for isl in _islands(pr, text_boxes):
+                h.paths.add_polyline_path(isl, is_closed=True)
         return h
     raise TypeError(pr)
 

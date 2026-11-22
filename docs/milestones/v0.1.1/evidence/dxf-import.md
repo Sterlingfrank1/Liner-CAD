@@ -11,8 +11,8 @@
 | entity_retention | 按 DXF 实体类型统计：源实体中有多少变成模型元素 | HATCH / INSERT / POINT / ATTRIB 等导入器跳过的类型恒为 0；退化实体（零长线等）不计 |
 | layer_retention | 有内容的源图层、其内容能否真的进入模型（按导入器逐实体行为判定，含尺寸缺 defpoint/零长、raw 写回验证、退化 edge）；一次分组，不重扫 | dimensions / notes 不携带图层 meta，names_preserved 只反映 edges（C2 可提升） |
 | dimension_retention | DIMENSION 作为尺寸保留、降级 note、无法导入（skipped）三种去向 | 与被测几何对不上时降级为 note，属现状 |
-| text_retention | TEXT / MTEXT 作为**普通文字元素**保留（as_text，按内容多重集匹配）与作为 leader note（as_note）；两者不相交消费；尺寸降级 note 单列 dims_fallback_notes，不计入文字 | 导入器当前没有普通文字元素：as_text=0，as_note 为现状读数；C2 引入普通文字后 as_text 才有提升 |
-| hatch_retention | HATCH 作为 hatch 保留的比例（按源 dxf handle 归属，retained ≤ source） | 导入器当前没有 hatch 桶：0 |
+| text_retention | TEXT / MTEXT 作为**普通文字元素**保留（as_text，按内容多重集匹配）与作为 leader note（as_note）；两者不相交消费；尺寸降级 note 单列 dims_fallback_notes，不计入文字 | C2 起 as_text 67/67，as_note 为现状读数；C2 引入普通文字后 as_text 才有提升 |
+| hatch_retention | HATCH 作为 hatch 保留的比例（按源 dxf handle 归属，retained ≤ source） | C3 起 hatch 4/4 |
 | frame_title | sheet available/fits；标题/图框 INSERT（handle 匹配 retained）；图框层几何 frame_edges（handle 匹配）；标题属性字段（全部顶层 ATTRIB + INSERT 属性，handle 匹配 retained）；标题文字（modelspace 标题层文字 + **标题块模板 TEXT**，分母含 4×16 模板文字）；最终图纸的 frame 元素数 model_frames 与 single_frame_ok | INSERT / ATTRIB 当前 skipped（retained 0）；图框层几何作为普通 edges 导入（保留 16/16，single_frame_ok=false），C4 要在读数上做"只剩一个图框" |
 | inspect | 同一文件跑 lcad inspect CLI，并比对 maps_to 与 scan 分类、sheet 与 guess_sheet；PNG 渲染失败（png_error）判为失败 | — |
 | edit_round | 端到端：init --from-dxf → 按尺寸侧向移一个尺寸 → 改一段文字 → edit/build；从 edit 输出 ops 验证 move + set 都发生 | 失败时 JSON 带 error / edit_code / build_ok |
@@ -102,7 +102,7 @@ importdxf 现在把 HATCH 分类为 hatches 桶并导入为剖面线元素（kin
 
 - C2（普通文字 / 标题栏 / 图层）：以 text_retention.as_text、frame_title.title_texts_as_text、title_attrib_retained、
   layer_retention.names_preserved 为提升目标；修正后的起点均在上表（当前 as_text=0、模板文字 0、ATTRIB retained 0）。
-- C3（HATCH / 图框）：以 hatch_retention、frame_title.frame_edges/single_frame_ok 为基线；hatch 现为 0/4。
+- C3（HATCH / 图框）：以 hatch_retention、frame_title.frame_edges/single_frame_ok 为基线；hatch 已 4/4（C3）。
 - C4（编辑/往返、只剩一个图框）：edit_round_rate=1.0 不可退化；single_frame_ok_rate 现为 0.0（图框边 16 + 模板 frame 4）。
 - entity_retention 的 ATTRIB/HATCH/INSERT 0% 是现状而非目标值；提升后更新本文件并说明。
 - 样例数字来自本机；脚本不按文件名特判，CI 用 ezdxf 自造夹具（tests/test_dxf_import_metrics.py）覆盖同一口径。
