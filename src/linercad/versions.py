@@ -19,6 +19,7 @@ from pathlib import Path
 
 from . import runtime, svgout, txn
 from .errors import DirtySource, GitError, InvalidArgument, LinerError, NotFound
+from .layout import Hatch, Text, prim_segments
 from .runtime import TMP_DIR
 from .txn import EDIT_RE, git
 
@@ -137,6 +138,25 @@ def _norm(x):
     return json.loads(json.dumps(x, sort_keys=True, default=str))
 
 
+def _prim_boxes(e):
+    """Bounding box of every primitive: a composite element (e.g. a section label spanning two
+    views) can then be explained by the view translations of its parts."""
+    out = []
+    for pr in e._prims:
+        if isinstance(pr, Hatch):
+            continue  # fill only: the outline primitives carry the geometry
+        if isinstance(pr, Text):
+            box = pr.box
+        else:
+            pts = [p for seg in prim_segments(pr) for p in seg]
+            if not pts:
+                continue
+            xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+            box = (min(xs), min(ys), max(xs), max(ys))
+        out.append([round(float(v), 6) for v in box])
+    return out
+
+
 def snapshot(d) -> dict:
     """``{id: {kind, intent, bbox}}`` of a built drawing (intent and bbox are what ``diff`` compares)."""
     out = {}
@@ -150,6 +170,7 @@ def snapshot(d) -> dict:
             "view": e._intent.get("view"),
             # a view element's bbox is its content union; the origin is the translation anchor
             "origin": [float(v) for v in origin] if origin else None,
+            "prims": _prim_boxes(e),
         }
     return out
 
@@ -225,9 +246,11 @@ def compare(sa: dict, sb: dict) -> dict:
             if abs(dx) <= BBOX_EPS and abs(dy) <= BBOX_EPS:
                 continue  # the view itself did not move: children moved on their own
             anchor_delta = (dx, dy, dx, dy)
+            matching = {i for i, d in rows if d == anchor_delta}
             absorbed.add(vid)  # the view element itself is part of its translation
-            absorbed |= {i for i, d in rows if d == anchor_delta}
-            n = sum(1 for _i, d in rows if d == anchor_delta)
+            absorbed |= matching
+            # the view element counts even when its content-union bbox moved differently
+            n = 1 + len(matching - {vid})
             view_moves.append({"view": view, "dx": dx, "dy": dy, "elements": n})
             continue
         counts = {}
@@ -250,6 +273,29 @@ def compare(sa: dict, sb: dict) -> dict:
         if n >= 2 and 2 * n > total:
             absorbed |= {i for i, d in rows if d == delta}
             view_moves.append({"view": view, "dx": delta[0], "dy": delta[1], "elements": n})
+    # a composite element (e.g. a section label whose primitives live in two views) is fully
+    # explained when every primitive follows one of the reported view translations: it is not an
+    # extra layout change even though its union bbox moved differently
+    translations = {(m["dx"], m["dy"]) for m in view_moves}
+    if translations:
+        for i in layout_changed:
+            pa = (sa.get(i) or {}).get("prims") or []
+            pb = (sb.get(i) or {}).get("prims") or []
+            if not pa or len(pa) != len(pb):
+                continue
+            explained = True
+            for box_a, box_b in zip(pa, pb, strict=True):
+                dx = round(box_b[0] - box_a[0], 6)
+                dy = round(box_b[1] - box_a[1], 6)
+                if (
+                    abs(box_b[2] - box_a[2] - dx) > BBOX_EPS
+                    or abs(box_b[3] - box_a[3] - dy) > BBOX_EPS
+                    or (dx, dy) not in translations
+                ):
+                    explained = False
+                    break
+            if explained:
+                absorbed.add(i)
     layout_changed = [i for i in layout_changed if i not in absorbed]
     for i in absorbed:
         d = details.get(i)

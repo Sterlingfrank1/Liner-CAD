@@ -629,7 +629,7 @@ def test_b7_viewer_diff_api_returns_view_moves(tmp_path):
         moves = {m["view"]: m for m in summary["view_moves"]}
         assert set(moves) == {"front", "left"} and moves["left"]["dx"] == 1.0
         assert summary["counts"]["view_moves"] == len(summary["view_moves"]) == 2
-        assert summary["layout_changed"] == ["S.A"]
+        assert summary["layout_changed"] == []
     finally:
         httpd.shutdown()
 
