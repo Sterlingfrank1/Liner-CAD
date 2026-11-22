@@ -10,7 +10,7 @@ angular)                                        defpoints, the value is ``get_me
                                                 is kept; the anonymous ``*D`` block is NOT exploded
 TEXT / MTEXT                                    leader notes ``N.txt_<n>``
 SPLINE / ELLIPSE                                raw ``X.<n>`` (view-local coordinates, drawn through)
-anything else (HATCH, INSERT, POINT, ...)       skipped, counted by type
+INSERT / POINT / unknown types                      skipped, counted by type (HATCH has its own bucket)
 =============================================  ==============================================================
 
 Coordinates are kept as in the DXF (no origin shift), converted to millimetres from ``$INSUNITS``.
@@ -257,6 +257,17 @@ def _extents(doc, k) -> list | None:
             elif bucket in ("notes", "texts"):
                 v = e.dxf.insert
                 add(v[0], v[1])
+            elif bucket == "hatches":
+                if hatch_representable(e)[0]:
+                    ocs = e.ocs()
+                    elev = float(e.dxf.get("elevation", 0.0) or 0.0)
+                    for path in e.paths:
+                        pts, _flags, bad = _loop_from_path(path, tol=0.01 / k)
+                        if bad:
+                            continue
+                        for x, y in pts:
+                            w = ocs.to_wcs((x, y, elev))
+                            add(w.x, w.y)
             elif t == "SPLINE":
                 for v in list(e.control_points) + list(e.fit_points):
                     add(v[0], v[1])
@@ -680,7 +691,7 @@ def hatch_representable(e):
         return True, None
     name = str(e.dxf.get("pattern_name") or "")
     if not name:
-        return True, None  # no pattern lines at all: treat it as a solid fill
+        return False, "empty pattern (no SOLID flag)"
     if name.upper() != "ANSI31":
         return False, f"pattern {name} (no equivalent in the repository vocabulary)"
     ptype = int(e.dxf.get("pattern_type", 1) or 1)
@@ -693,26 +704,30 @@ def _dist(a, b):
     return math.hypot(a[0] - b[0], a[1] - b[1])
 
 
-def _arc_step(r, tol=0.01):
-    """Angle step whose chord sagitta stays below tol, capped at 5 degrees."""
+def _arc_step(r, tol):
+    """Angle step whose chord sagitta stays below tol (no lower cap: the tolerance rules)."""
     if r <= tol:
         return 5.0
     step = math.degrees(2.0 * math.acos(max(-1.0, 1.0 - tol / r)))
-    return max(0.5, min(5.0, step))
+    return max(1e-4, min(5.0, step))
 
 
-def _arc_points(c, r, a0, a1, tol=0.01):
-    span = (a1 - a0) % 360.0
-    if span < 1e-9:
-        span = 360.0
-    step = _arc_step(r, tol)
-    n = max(2, int(math.ceil(span / step)))
+def _arc_points(c, r, a0, a1, ccw=True, tol=0.01):
+    if ccw:
+        span = (a1 - a0) % 360.0
+        if span < 1e-9:
+            span = 360.0
+        angles = [a0 + span * i / n for i, n in [(0, 1)]]
+        n = max(2, int(math.ceil(span / _arc_step(r, tol))))
+        angles = [a0 + span * k / n for k in range(n + 1)]
+    else:
+        span = (a0 - a1) % 360.0
+        if span < 1e-9:
+            span = 360.0
+        n = max(2, int(math.ceil(span / _arc_step(r, tol))))
+        angles = [a0 - span * k / n for k in range(n + 1)]
     return [
-        (
-            c[0] + r * math.cos(math.radians(a0 + span * i / n)),
-            c[1] + r * math.sin(math.radians(a0 + span * i / n)),
-        )
-        for i in range(n + 1)
+        (c[0] + r * math.cos(math.radians(a)), c[1] + r * math.sin(math.radians(a))) for a in angles
     ]
 
 
@@ -726,8 +741,13 @@ def _loop_area(pts):
     )
 
 
-def _close_loop(points):
+def _close_loop(points, implicit_close=True, tol=0.01):
     pts = [(float(x), float(y)) for x, y in points]
+    last = pts[-1] if pts else None
+    if len(pts) < 3:
+        return None, "degenerate boundary"
+    if not implicit_close and last is not None and _dist(pts[0], last) > tol:
+        return None, f"open boundary (gap {_dist(pts[0], last):.3f} mm)"
     if len(pts) > 1 and _dist(pts[0], pts[-1]) <= 1e-6:
         pts.pop()
     if len(pts) < 3:
@@ -737,12 +757,16 @@ def _close_loop(points):
     return pts, None
 
 
-def _loop_from_path(path):
+def _loop_from_path(path, tol=0.01):
+    """(points, flags, error). Points are in the source OCS; flags keep the island bits."""
     btype = getattr(path.type, "name", str(path.type))
+    flags = int(getattr(path, "path_type_flags", 0) or 0) & 0x0F
     if btype == "POLYLINE":
+        if not getattr(path, "is_closed", True):
+            return None, flags, "open polyline boundary path"
         verts = list(path.vertices)
         if len(verts) < 3:
-            return None, "degenerate boundary"
+            return None, flags, "degenerate boundary"
         pts = []
         n = len(verts)
         for k, (x, y, b) in enumerate(verts):
@@ -752,9 +776,17 @@ def _loop_from_path(path):
                 continue
             center, sa, ea, r = bulge_to_arc((x, y), (nx, ny), float(b))
             pts.extend(
-                _arc_points((center.x, center.y), r, math.degrees(sa), math.degrees(ea))[:-1]
+                _arc_points(
+                    (center.x, center.y),
+                    r,
+                    math.degrees(sa),
+                    math.degrees(ea),
+                    ccw=float(b) > 0,
+                    tol=tol,
+                )
             )
-        return _close_loop(pts)
+        pts2, bad = _close_loop(pts, implicit_close=True, tol=tol)
+        return pts2, flags, bad
     if btype == "EDGE":
         pts = []
         for k, edge in enumerate(path.edges, 1):
@@ -770,20 +802,23 @@ def _loop_from_path(path):
                     float(edge.radius),
                     float(edge.start_angle),
                     float(edge.end_angle),
+                    ccw=bool(getattr(edge, "ccw", True)),
+                    tol=tol,
                 )
             elif name == "ELLIPSE":
-                return None, "ELLIPSE edge (no equivalent)"
+                return None, flags, "ELLIPSE edge (no equivalent)"
             elif name == "SPLINE":
-                return None, "SPLINE edge (no equivalent)"
+                return None, flags, "SPLINE edge (no equivalent)"
             else:
-                return None, f"{name} edge (no equivalent)"
-            if pts and _dist(pts[-1], seg[0]) > 0.01:
-                return None, f"open boundary at edge {k}"
+                return None, flags, f"{name} edge (no equivalent)"
+            if pts and _dist(pts[-1], seg[0]) > tol:
+                return None, flags, f"open boundary at edge {k}"
             if pts and _dist(pts[-1], seg[0]) <= 1e-6:
                 seg = seg[1:]
             pts.extend(seg)
-        return _close_loop(pts)
-    return None, f"boundary path {btype}"
+        pts2, bad = _close_loop(pts, implicit_close=False, tol=tol)
+        return pts2, flags, bad
+    return None, flags, f"boundary path {btype}"
 
 
 def hatch_would_import(e) -> bool:
@@ -792,7 +827,7 @@ def hatch_would_import(e) -> bool:
     if not ok:
         return False
     for path in e.paths:
-        pts, bad = _loop_from_path(path)
+        pts, _flags, bad = _loop_from_path(path)
         if not bad:
             return True
     return False
@@ -806,10 +841,18 @@ def _hatch(ctx, e) -> bool:
         )
         return False
     style = int(e.dxf.get("hatch_style", 0) or 0)
+    ocs = e.ocs()
+    elev = float(e.dxf.get("elevation", 0.0) or 0.0)
+    tol = 0.01 / ctx.k
+
+    def to_wcs(pt):
+        w = ocs.to_wcs((pt[0], pt[1], elev))
+        return (w.x, w.y)
+
     loops = []
     dropped = []
     for k, path in enumerate(e.paths, 1):
-        pts, bad = _loop_from_path(path)
+        pts, flags, bad = _loop_from_path(path, tol=tol)
         if bad:
             dropped.append(f"path {k}: {bad}")
             ctx.hatch_warnings.append(
@@ -820,7 +863,12 @@ def _hatch(ctx, e) -> bool:
                 }
             )
             continue
-        loops.append({"points": [[_r6(x * ctx.k), _r6(y * ctx.k)] for x, y in pts]})
+        loops.append(
+            {
+                "points": [[_r6(x * ctx.k), _r6(y * ctx.k)] for x, y in (to_wcs(p) for p in pts)],
+                "flags": flags,
+            }
+        )
     if not loops:
         ctx.hatch_skipped.append(
             {
@@ -830,7 +878,7 @@ def _hatch(ctx, e) -> bool:
             }
         )
         return False
-    if style not in (0, 1):
+    if style != 0:
         ctx.hatch_warnings.append(
             {
                 "handle": str(e.dxf.handle),
@@ -839,7 +887,7 @@ def _hatch(ctx, e) -> bool:
             }
         )
     name = str(e.dxf.get("pattern_name") or "")
-    solid = bool(int(e.dxf.get("solid_fill", 0) or 0)) or not name
+    solid = bool(int(e.dxf.get("solid_fill", 0) or 0))
     intent = {
         "view": ctx.view.name,
         "loops": loops,

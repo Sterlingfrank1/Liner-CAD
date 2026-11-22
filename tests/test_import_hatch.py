@@ -253,6 +253,120 @@ def test_open_and_zero_area_boundaries_are_reported(tmp_path):
     assert "open boundary" in reasons and "zero-area" in reasons
 
 
+def test_clockwise_arc_edge_is_imported(tmp_path):
+    doc = _doc()
+    msp = doc.modelspace()
+    h = msp.add_hatch(dxfattribs={"layer": "HATCH"})
+    h.set_pattern_fill("ANSI31", scale=1.0, angle=45.0)
+    path = h.paths.add_edge_path()
+    path.add_arc((0, 0), 20, 0, 90, ccw=False)  # clockwise quarter
+    path.add_line((0, 20), (40, 20))
+    path.add_line((40, 20), (40, 0))
+    path.add_line((40, 0), (20, 0))
+    src = tmp_path / "cw.dxf"
+    doc.saveas(src)
+    _d, imp, hatches = imported(src)
+    assert len(hatches) == 1 and imp.counts["hatches"] == 1
+
+
+def test_open_polyline_and_gap_are_reported(tmp_path):
+    doc = _doc()
+    msp = doc.modelspace()
+    h = msp.add_hatch(dxfattribs={"layer": "HATCH"})
+    h.set_pattern_fill("ANSI31", scale=1.0, angle=45.0)
+    h.paths.add_polyline_path([(0, 0), (10, 0), (10, 10), (0, 0)], is_closed=False)
+    path = h.paths.add_edge_path()
+    path.add_line((0, 0), (10, 0))
+    path.add_line((10, 0), (10, 10))
+    path.add_line((10, 10), (0, 10))
+    path.add_line((0, 10), (0.1, 0.1))  # 1 mm gap to the first start
+    src = tmp_path / "open.dxf"
+    doc.saveas(src)
+    _d, imp, hatches = imported(src)
+    assert hatches == []
+    reasons = " ".join(r["reason"] for r in imp.counts["hatch_skipped"])
+    assert "open polyline" in reasons and "open boundary" in reasons
+
+
+def test_arc_sampling_large_radius_and_inch_units():
+    for r, tol in ((10000.0, 0.01), (1.0, 0.01 / 25.4)):  # 1 in at 25.4 units/mm
+        pts = importdxf._arc_points((0.0, 0.0), r, 0.0, 90.0, tol=tol)
+        for a, b in zip(pts, pts[1:]):
+            mx, my = (a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0
+            sagitta = r - (mx * mx + my * my) ** 0.5
+            assert sagitta <= tol + 1e-12, (r, tol, sagitta)
+
+
+def test_hatch_style_and_island_flags_survive_the_build(tmp_path):
+    doc = _doc()
+    msp = doc.modelspace()
+    h = msp.add_hatch(dxfattribs={"layer": "HATCH"})
+    h.set_pattern_fill("ANSI31", scale=1.0, angle=45.0)
+    h.dxf.hatch_style = 2
+    h.paths.add_polyline_path([(0, 0), (40, 0), (40, 30), (0, 30), (0, 0)], flags=1)
+    h.paths.add_polyline_path([(10, 10), (30, 10), (30, 20), (10, 20), (10, 10)], flags=0)
+    src = tmp_path / "islands.dxf"
+    doc.saveas(src)
+    d = tmp_path / "part"
+    code, out = _lcad(tmp_path, "init", str(d), "--from-dxf", str(src))
+    assert code == 0, out
+    built = ezdxf.readfile(d / ".linercad/build/drawing.dxf")
+    hatch = next(e for e in built.modelspace().query("HATCH"))
+    assert hatch.dxf.hatch_style == 2
+    flags = [int(p.path_type_flags) & 1 for p in hatch.paths]
+    assert flags == [1, 0]  # island keeps the non-external flag
+    _d, imp, _hatches = imported(src)
+    assert any("hatch_style 2" in w["reason"] for w in imp.counts["hatch_warnings"])
+
+
+def test_mirrored_hatch_uses_wcs(tmp_path):
+    doc = _doc()
+    msp = doc.modelspace()
+    h = msp.add_hatch(dxfattribs={"layer": "HATCH"})
+    h.set_pattern_fill("ANSI31", scale=1.0, angle=45.0)
+    h.dxf.extrusion = (0, 0, -1)
+    h.paths.add_polyline_path([(0, 0), (10, 0), (10, 10), (0, 0)])
+    src = tmp_path / "mirror.dxf"
+    doc.saveas(src)
+    _d, imp, hatches = imported(src)
+    assert len(hatches) == 1 and imp.counts["hatches"] == 1
+    pts = _points(hatches[0]._intent["loops"][0])
+    xs = [p[0] for p in pts]
+    assert min(xs) <= -9.99 and max(xs) <= 0.01
+
+
+def test_hatch_only_drawing_has_extents():
+    import ezdxf as _ezdxf
+
+    doc = _ezdxf.new("R2018", setup=True)
+    msp = doc.modelspace()
+    h = msp.add_hatch()
+    h.set_pattern_fill("ANSI31", scale=1.0, angle=45.0)
+    h.paths.add_polyline_path([(0, 0), (1000, 0), (1000, 500), (0, 0)])
+    import tempfile
+
+    folder = Path(tempfile.mkdtemp())
+    src = folder / "board.dxf"
+    doc.saveas(src)
+    ext = importdxf._extents(importdxf.read_dxf(src), 1.0)
+    assert ext is not None
+    assert abs(ext[2] - 1000.0) <= 0.01 and abs(ext[3] - 500.0) <= 0.01
+
+
+def test_empty_pattern_without_solid_is_reported(tmp_path):
+    doc = _doc()
+    msp = doc.modelspace()
+    h = msp.add_hatch(dxfattribs={"layer": "HATCH"})
+    h.dxf.solid_fill = 0
+    h.paths.add_polyline_path([(0, 0), (10, 0), (10, 10), (0, 0)])
+    src = tmp_path / "empty.dxf"
+    doc.saveas(src)
+    _d, imp, hatches = imported(src)
+    assert hatches == []
+    reasons = " ".join(r["reason"] for r in imp.counts["hatch_skipped"])
+    assert "empty pattern" in reasons or "SOLID (no equivalent" in reasons
+
+
 def test_c1_metric_records_the_hatch(tmp_path):
     entry = metrics.evaluate_file(make_pattern_dxf(tmp_path / "p.dxf"))
     h = entry["metrics"]["hatch_retention"]

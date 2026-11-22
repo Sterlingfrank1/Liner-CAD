@@ -76,6 +76,7 @@ class Hatch:
     pattern: str | None = None  # imported predefined pattern (exact round-trip)
     scale: float | None = None  # imported pattern_scale
     hatch_style: int = 0  # imported DXF hatch_style
+    loop_flags: tuple = ()  # imported boundary path flags per loop
 
 
 @dataclass(frozen=True)
@@ -605,8 +606,10 @@ class _ViewLayout:
             self.put(e, [p for p in prims if p is not None])
         for e in self.els("hatch"):
             loops = []
+            loop_flags = []
             for lp in e._intent["loops"]:
-                if "points" in lp:
+                if isinstance(lp, dict) and "points" in lp:
+                    loop_flags.append(int(lp.get("flags", 1) or 0) or 1)
                     loops.append(tuple(self.P(p) for p in lp["points"]))
                     continue
                 ref = self.d._els.get(lp["ref"])
@@ -620,6 +623,7 @@ class _ViewLayout:
                         loops.append(("circle", self.P(lpts[1]), lpts[2] * self.s))
                     else:
                         loops.append(tuple(self.P(p) for p in lpts))
+                loop_flags.append(1)
             it = e._intent
             hs = self.std["hatch"]
             imported = it.get("pattern") is not None
@@ -635,6 +639,7 @@ class _ViewLayout:
                 pattern=it.get("pattern"),
                 scale=it.get("scale"),
                 hatch_style=int(it.get("hatch_style", 0) or 0),
+                loop_flags=tuple(loop_flags),
             )
             self.put(e, [hp], obstacle=False)
             if e._intent.get("outline"):
