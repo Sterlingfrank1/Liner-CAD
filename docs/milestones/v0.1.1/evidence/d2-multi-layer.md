@@ -36,33 +36,45 @@ PMI 引线候选在 `pmi_layout.py`。写明的字段（`side` / `row` / `offset
      D1 状态复核到的 5 处中，D2 重排后 3 处不再贴合；当前 40 例另有 6 处真实端部贴合全部上报
      （见下表），不再把公差框线 / 肩线当引线。
 
-## E5 数字（D1 合并后 main `ee5b1f6` → 本分支）
+## E5 数字
+
+分支已 merge `origin/main`（`61670c7`：E2 规则目录 / 变异框架 + B 流 Viewer 小改）；下面的 after 是合并后
+在同一 `evals/baseline.json` / 规则集下的结果（E2 新增 `place_leader_cross`，族机会数 2775 → 2830）。
 
 命令：`uv run python evals/place_scores.py --eval40`、`uv run python evals/run.py --baseline evals/baseline.json`。
 
-| 项 | D1（before） | D2（after） |
+| 项 | main（E2 后，61670c7） | D2（本分支） |
 |---|---|---|
-| 40 例 D 族分数 | 0.972252（77/2775） | **0.985225（41/2775）** |
-| place_dim_cross | 20 | **3** |
-| place_nesting | 16 | **8** |
-| place_text_overlap | 11 | **1** |
-| place_row_spacing | 1 | **0** |
-| place_dim_outline | 24 | 24 |
-| place_ext_line | 5 | 5 |
-| 40 例 G / T / A | 1.0 / 1.0 / null | **1.0 / 1.0 / null** |
-| geometry / completeness | 1.0（35 例）/ 1.0（5 例） | **1.0 / 1.0** |
-| `run.py --baseline` 回归项 | — | **`regressions: []`**（exit 0） |
+| 40 例 D 族分数 | 0.965724（97/2830） | **0.985159（42/2830）** |
+| place_dim_cross | — | **3** |
+| place_nesting | — | **8** |
+| place_text_overlap | — | **1** |
+| place_row_spacing | — | **0** |
+| place_leader_cross（E2 新规则） | — | **1** |
+| place_dim_outline | — | 24（全部写死 inside，见残余） |
+| place_ext_line | — | 5（测量点无轮廓/中心线，见残余） |
+| G / T / A | 1.0 / 1.0 / null | **1.0 / 1.0 / null** |
+| geometry / completeness | 1.0 / 1.0 | **1.0 / 1.0** |
+| `run.py --baseline` | — | **`regressions: []`**（exit 0） |
 
-五范例：
+卡片合同里的「不得低于 0.972252」口径（D1 合并时 `ee5b1f6` 的 40 例 D 族，77/2775）也满足：本分支在
+同一规则集下为 **0.972252 → 0.985159**（E2 合并后机会数/规则变化，分数与违规数不可直接跨规则集比较）。
 
-| 范例 | D1 D.place | D2 D.place |
+五范例（合并后）：
+
+| 范例 | D1（before） | D2（after） |
 |---|---|---|
-| flange | 1.0（0/43） | **1.0（0/43）** |
+| flange | 1.0（0/43） | **1.0（0/45）** |
 | pulley | 0.9512（4/82） | **0.9756（2/82）** |
-| gear_cover | 0.9753（2/81） | **0.9877（1/81）** |
+| gear_cover | 0.9753（2/81） | **0.9878（1/82）** |
 | jack | 1.0（0/30） | **1.0（0/30）** |
 | vise | 0.9167（2/24） | **0.9583（1/24）** |
 
+## 冻结的已知债务（`evals/known-debt.json`，E2 变异框架）
+
+D2 重排后参考图的 E5 债务签名变化，按 E2 机制在同一 PR 重新冻结：**97 → 42 条**（13 个参考图），
+全部是 E5 placement 债务与 1 条 `place_leader_cross`（gear_pump_body `D.Rc2`×`D.H`，写死 at=20°）；
+没有新增规则项。变异报告：检出率 1.0、参考图误报 0、`known_debt.exact` true。
 ## 前后渲染图
 
 - pulley 右侧（`D.Dh` 局部）前：![before](d2-before-pulley-DDh.png) —— Φ60 尺寸线穿过基准 A 的引线、
