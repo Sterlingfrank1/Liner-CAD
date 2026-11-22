@@ -27,6 +27,8 @@ def _eval_case(case_id):
 
 def _build_eval(tmp_path, case_id):
     case = _eval_case(case_id)
+    if case.get("source") == "3d":  # 3D 来源需要可选依赖：CI 上没装 build123d 就跳过该参数
+        pytest.importorskip("build123d")
     (tmp_path / "drawing.py").write_text(case["drawing_src"], encoding="utf-8")
     if case.get("source") == "3d" and case.get("dir"):
         for f in case["dir"].iterdir():
