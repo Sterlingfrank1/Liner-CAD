@@ -822,3 +822,52 @@ def test_context_refuses_a_gone_selection_on_the_build_failure_fallback(shaft):
     with pytest.raises(LinerError) as err:
         commands.context(shaft, ["@sel"])
     assert err.value.code == "selection_stale" and "都已不存在" in err.value.message
+
+
+def test_selection_version_survives_unrelated_repo_commits(tmp_path):
+    import subprocess
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    p = root / "parts" / "p1"
+    txn.init(p)
+    Viewer(p).select(["D.L"])
+    sel = json.loads((p / ".linercad/selection.json").read_text(encoding="utf-8"))
+    assert sel["version"] == "e0"  # the drawing's own edit, not the repository HEAD
+    (root / "README.md").write_text("unrelated", encoding="utf-8")
+    subprocess.run(["git", "-C", str(root), "add", "README.md"], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(root),
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "-q",
+            "-m",
+            "docs: unrelated",
+        ],
+        check=True,
+    )
+    ctx = commands.context(p, ["@sel"])  # the selection is still fresh for this drawing
+    assert ctx["selection"]["fresh"] is True
+    assert [x["element"]["id"] for x in ctx["items"]] == ["D.L"]
+
+
+def test_selection_ref_is_one_line_for_multiline_text(shaft):
+    s = shaft / ".linercad" / "tmp" / "multi.py"
+    s.parent.mkdir(parents=True, exist_ok=True)
+    s.write_text('def apply(d):\n    d.notes.tech("第一行\\n第二行")\n', encoding="utf-8")
+    assert txn.edit(shaft, s, "多行技术要求")["ok"]
+    v = Viewer(shaft)
+    note = next(
+        e.id
+        for e in v.res.d._els.values()
+        if e.kind == "note" and "第一行" in str(e._intent.get("text"))
+    )
+    ref = v.select([note])["items"][0]["ref"]
+    assert "\n" not in ref and "第一行 第二行" in ref

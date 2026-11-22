@@ -335,7 +335,8 @@ function previewPanel() {
 
 // H4: one line of @ID references, e.g. "@D.d1（Φ25k6，主视图） @D.d2（Φ30k6，主视图）"
 function selectionRefs() {
-  return S.sel.map((id) => S.byId[id]).filter(Boolean).map((e) => e.ref).join(" ");
+  return S.sel.map((id) => S.byId[id]).filter(Boolean)
+    .map((e) => (e.ref || "").replace(/\s+/g, " ").trim()).join(" ");
 }
 
 function bindRefs(box) {
