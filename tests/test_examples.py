@@ -1,9 +1,62 @@
-"""The three examples build with zero warnings from `lcad init --from` (SPEC §11, §12 item 1)."""
+"""The examples build with zero warnings from `lcad init --from` (SPEC §11, §12 item 1).
+
+E5 (D.place) reports the current placement debt of the reference drawings as a warn-level metric; it
+is recorded in evals/baseline.json and docs/milestones/v0.1.1/evidence/placement-scores.md and is
+driven down by D1/D2. Everything outside the placement pack must stay clean here.
+"""
 
 import pytest
 
 from linercad import txn
 from linercad.runtime import build
+
+#: E5 placement debt of each example (frozen here on purpose: D1/D2 shrink this list, and any
+#: new placement warning must show up as a deliberate update of this table in the same PR).
+PLACEMENT_DEBT = {
+    "bearing_support": {
+        ("place_dim_cross", "D.D"),
+        ("place_dim_cross", "D.d"),
+        ("place_nesting", "D.px"),
+    },
+    "bracket": set(),
+    "end_cover": set(),
+    "flange": set(),
+    "gear_cover": {("place_nesting", "D.D"), ("place_nesting", "D.W")},
+    "pulley": {
+        ("place_dim_outline", "D.tw"),
+        ("place_nesting", "D.B"),
+        ("place_nesting", "D.da"),
+        ("place_text_overlap", "D.kd"),
+    },
+    "pump_body": {
+        ("place_dim_cross", "D.Db"),
+        ("place_dim_cross", "D.dp"),
+        ("place_ext_line", "D.Hc"),
+        ("place_nesting", "D.Df"),
+        ("place_nesting", "D.Hc"),
+        ("place_nesting", "D.W"),
+        ("place_nesting", "D.tw"),
+        ("place_row_spacing", "D.t"),
+    },
+    "shaft": {
+        ("place_dim_outline", "D.d1"),
+        ("place_dim_outline", "D.d2"),
+        ("place_dim_outline", "D.d3"),
+        ("place_dim_outline", "D.d5"),
+        ("place_ext_line", "D.gh"),
+        ("place_ext_line", "D.gw"),
+        ("place_nesting", "D.L"),
+        ("place_text_overlap", "D.kd"),
+    },
+    "shift_fork": {("place_dim_cross", "D.D"), ("place_dim_cross", "D.d")},
+    "sleeve": set(),
+    "spline_shaft": {
+        ("place_dim_outline", "D.d2"),
+        ("place_dim_outline", "D.d3"),
+        ("place_dim_outline", "D.d5"),
+        ("place_nesting", "D.L"),
+    },
+}
 
 
 @pytest.mark.parametrize("name", txn.EXAMPLES)
@@ -11,7 +64,11 @@ def test_example_builds_clean(tmp_path, name):
     if txn.needs_3d(name):
         pytest.importorskip("build123d")
     out = txn.init(tmp_path / name, from_=name)
-    assert out["ok"] and out["warnings"] == []
+    assert out["ok"]
+    other = [f for f in out["warnings"] if f.get("pack") != "placement"]
+    assert other == [], other
+    debt = {(f["rule"], f["id"]) for f in out["warnings"] if f.get("pack") == "placement"}
+    assert debt == PLACEMENT_DEBT[name], debt
     assert (tmp_path / name / ".linercad/build/drawing.dxf").exists()
 
 
