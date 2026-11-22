@@ -7,10 +7,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 
 from . import __version__
-from .errors import LinerError
+from .errors import InvalidArgument, LinerError
 
 
 def emit(obj: dict) -> None:
@@ -33,7 +34,7 @@ class _Parser(argparse.ArgumentParser):
 
 
 COMMANDS = {
-    "init": "新建图纸目录：lcad init <dir> [--from <范例> | --from-dxf x.dxf] [--sheet A3]（范例见 lcad skill 的零件族卡片）",
+    "init": "新建图纸目录：lcad init <dir> [--from <范例|用户模板> | --from-dxf x.dxf] [--sheet A3] [--set 参数=值 …]（范例见 lcad skill 的零件族卡片；用户模板见 lcad template save/list）",
     "build": '重建产物；-m "<原话>" 时提交源文件改动',
     "edit": '事务执行临时脚本：lcad edit <script.py> -m "<用户原话>"',
     "undo": "撤销某一轮：lcad undo eK [-m ...]",
@@ -46,7 +47,7 @@ COMMANDS = {
     "diff": "两个版本的差异：lcad diff e1 e3（编号 / 提交 / HEAD / 标签；缺省 B = 工作区）→ 增删改的 ID + 叠加 SVG",
     "export": "定稿：lcad export --to <目录> [--formats dxf,pdf]，标题栏加修订、提交并打标签 rev-A、rev-B …",
     "inspect": "看一份 DXF：lcad inspect x.dxf → 图层、实体统计、范围、导入映射和一张临时 PNG",
-    "template": '企业档：lcad template import <file.dxf> --name <名> → templates/<名>.toml，Drawing(overlay="<名>") 叠加',
+    "template": "模板：lcad template import <file.dxf> --name <名> 生成企业档 templates/<名>.toml；lcad template save <名> [--description …] [--force] 把当前图纸存为用户模板；lcad template list 列出用户模板",
 }
 
 
@@ -61,6 +62,14 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--from", dest="from_", default=None)
     s.add_argument("--from-dxf", dest="from_dxf", default=None)
     s.add_argument("--sheet", default=None)
+    s.add_argument(
+        "--set",
+        dest="set",
+        nargs="+",
+        default=None,
+        metavar="参数=值",
+        help="一步改模板参数，如 --set D=6 R=0.5",
+    )
     s = sub.add_parser("build")
     s.add_argument("-m", dest="msg", default=None)
     s.add_argument("--no-view", dest="no_view", action="store_true")
@@ -94,11 +103,38 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--dir", default=".")
     s = sub.add_parser("inspect")
     s.add_argument("file")
-    s = sub.add_parser("template").add_subparsers(dest="action", parser_class=_Parser)
-    s = s.add_parser("import")
+    ts = sub.add_parser("template").add_subparsers(dest="action", parser_class=_Parser)
+    s = ts.add_parser("import")
     s.add_argument("file")
     s.add_argument("--name", required=True)
+    s = ts.add_parser("save")
+    s.add_argument("name")
+    s.add_argument("--description", default="")
+    s.add_argument("--force", action="store_true")
+    ts.add_parser("list")
     return p
+
+
+def _parse_sets(pairs):
+    """K=V pairs of lcad init --set → {name: number}; bad pairs fail before any directory is made."""
+    if not pairs:
+        return None
+    out = {}
+    for pair in pairs:
+        k, sep, v = str(pair).partition("=")
+        k = k.strip()
+        if not sep or not k:
+            raise InvalidArgument(f"--set {pair!r} 不是 参数=值", hint="例如 --set D=6 R=0.5")
+        if k in out:
+            raise InvalidArgument(f"--set 参数 {k!r} 重复")
+        try:
+            value = float(v)
+        except ValueError as e:
+            raise InvalidArgument(f"--set {k}={v} 的值不是数字") from e
+        if not math.isfinite(value):
+            raise InvalidArgument(f"--set {k}={v} 不是有限数字")
+        out[k] = value
+    return out
 
 
 def _usage(message: str) -> int:
@@ -129,7 +165,8 @@ def _run(args, parser) -> int:
         return _usage("缺少子命令")
     d = args.dir
     if args.cmd == "init":
-        out = txn.init(args.path, args.from_, args.sheet, args.from_dxf)
+        sets = _parse_sets(getattr(args, "set", None))
+        out = txn.init(args.path, args.from_, args.sheet, args.from_dxf, sets=sets)
     elif args.cmd == "build":
         out = txn.build_commit(d, args.msg)
     elif args.cmd == "edit":
@@ -159,9 +196,14 @@ def _run(args, parser) -> int:
     elif args.cmd == "inspect":
         out = commands.inspect_dxf(d, args.file)
     elif args.cmd == "template":
-        if args.action != "import":
-            return _usage("lcad template 只有子命令 import")
-        out = commands.template_import(d, args.file, args.name)
+        if args.action == "import":
+            out = commands.template_import(d, args.file, args.name)
+        elif args.action == "save":
+            out = commands.save_template(d, args.name, args.description, args.force)
+        elif args.action == "list":
+            out = commands.template_list()
+        else:
+            return _usage("lcad template 有子命令 import / save / list")
     else:
         out = commands.render(d, args.focus, args.out, args.dpi)
     # H3: the first successful build / edit starts the background Viewer and opens it once; an
