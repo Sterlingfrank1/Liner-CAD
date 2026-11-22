@@ -224,7 +224,8 @@ window.addEventListener("mouseup", (ev) => {
 });
 window.addEventListener("keydown", (ev) => {
   // H4: copy the selected elements' references (one line) without leaving the canvas
-  if ((ev.ctrlKey || ev.metaKey) && ev.shiftKey && ev.key.toLowerCase() === "c" && S.sel.length) {
+  // Ctrl+Alt+C: Ctrl+Shift+C is the DevTools shortcut in Chrome/Edge/Firefox and never reaches us
+  if ((ev.ctrlKey || ev.metaKey) && ev.altKey && ev.key.toLowerCase() === "c" && S.sel.length) {
     ev.preventDefault();
     copy(selectionRefs(), "引用");
     return;
@@ -353,7 +354,7 @@ function inspect() {
     const sum = (S.model && S.model.summary) || { elements: 0, errors: 0, warnings: 0 };
     let h = '<div id="insp-empty"><h3>用法</h3><div class="kv">' +
       '<div class="k">点选</div><div class="v">单击画布元素（Ctrl 多选）</div>' +
-      '<div class="k">@ID</div><div class="v">选中后点「复制引用」（Ctrl+Shift+C），把一行 @ID 粘给 Agent</div></div>';
+      '<div class="k">@ID</div><div class="v">选中后点「复制引用」（Ctrl+Alt+C），把一行 @ID 粘给 Agent</div></div>';
     h += '<h3>图纸摘要</h3><div id="insp-summary" class="kv">' +
       '<div class="k">元素</div><div class="v">' + sum.elements + '</div>' +
       '<div class="k">错误</div><div class="v ' + (sum.errors ? "st-error" : "muted") + '">' + sum.errors + '</div>' +
@@ -363,8 +364,8 @@ function inspect() {
   }
   const els = S.sel.map((id) => S.byId[id]).filter(Boolean);
   const refs = selectionRefs();
-  let h = previewPanel() + `<div class="row"><button class="primary" id="btn-copy" title="Ctrl+Shift+C">复制引用</button>
-    <span class="muted">${els.length} 个已写入 selection.json · Ctrl+Shift+C 也可复制</span></div>`;
+  let h = previewPanel() + `<div class="row"><button class="primary" id="btn-copy" title="Ctrl+Alt+C">复制引用</button>
+    <span class="muted">${els.length} 个已写入 selection.json · Ctrl+Alt+C 也可复制</span></div>`;
   for (const e of els) {
     h += `<h3>${esc(e.kind)}</h3><div class="idline">${esc(e.id)}</div><div class="kv">`;
     h += `<div class="k">显示</div><div class="v">${esc(e.label)}</div>`;

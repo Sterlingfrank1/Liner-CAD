@@ -303,7 +303,7 @@ class Viewer:
             self.selection = items
             edit, _, _ = self.edit_no()
             doc = {
-                "version": self._drawing_edit() or edit,
+                "version": self._drawing_edit(),
                 "ids": [x["id"] for x in items],
                 "items": items,
                 "time": datetime.now(UTC).isoformat(timespec="seconds"),

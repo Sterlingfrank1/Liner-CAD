@@ -293,7 +293,7 @@ def test_viewer_copy_reference_ui():
     from importlib import resources
 
     js = (resources.files("linercad.viewer") / "viewer.js").read_text(encoding="utf-8")
-    for needle in ("复制引用", "Ctrl+Shift+C", "selectionRefs", 'join(" ")'):
+    for needle in ("复制引用", "Ctrl+Alt+C", "selectionRefs", 'join(" ")'):
         assert needle in js, needle
 
 
@@ -871,3 +871,76 @@ def test_selection_ref_is_one_line_for_multiline_text(shaft):
     )
     ref = v.select([note])["items"][0]["ref"]
     assert "\n" not in ref and "第一行 第二行" in ref
+
+
+def test_context_splits_common_reference_separators(shaft):
+    ctx = commands.context(shaft, ["@D.d1，@D.d2"])
+    assert [x["element"]["id"] for x in ctx["items"]] == ["D.d1", "D.d2"]
+    ctx = commands.context(shaft, ["@D.L,", "@D.d2;"])
+    assert [x["element"]["id"] for x in ctx["items"]] == ["D.L", "D.d2"]
+
+
+def test_context_surfaces_refs_after_an_unmatched_bracket(shaft):
+    ctx = commands.context(shaft, ["@D.L（主视图 @D.d2"])
+    assert [x["element"]["id"] for x in ctx["items"]] == ["D.L", "D.d2"]
+    assert "未配对" in ctx["warning"] and "D.d2" in ctx["warning"]
+
+
+def test_context_reports_partial_selection_in_the_build_failure_fallback(shaft):
+    Viewer(shaft).select(["D.L", "D.d1"])
+    path = shaft / ".linercad/selection.json"
+    sel = json.loads(path.read_text(encoding="utf-8"))
+    sel["ids"] = ["D.L", "NOPE.1"]
+    path.write_text(json.dumps(sel), encoding="utf-8")
+    src = shaft / "drawing.py"
+    src.write_text(
+        src.read_text(encoding="utf-8") + "\nraise RuntimeError('half')\n", encoding="utf-8"
+    )
+    ctx = commands.context(shaft, ["@sel"])
+    assert ctx["stale"] and [x["element"]["id"] for x in ctx["items"]] == ["D.L"]
+    assert "已不存在" in ctx["warning"] and "NOPE.1" in ctx["warning"]
+
+
+def test_selection_ttl_zero_means_never_expires(shaft, monkeypatch):
+    from datetime import UTC, datetime
+
+    Viewer(shaft).select(["D.L"])
+    path = shaft / ".linercad/selection.json"
+    sel = json.loads(path.read_text(encoding="utf-8"))
+    sel["time"] = datetime(2000, 1, 1, tzinfo=UTC).isoformat(timespec="seconds")
+    path.write_text(json.dumps(sel), encoding="utf-8")
+    for value in ("0", "-1"):
+        monkeypatch.setenv("LCAD_SELECTION_TTL", value)
+        ctx = commands.context(shaft, ["@sel"])
+        assert ctx["selection"]["fresh"] is True and ctx["items"][0]["element"]["id"] == "D.L"
+
+
+def test_selection_without_a_drawing_edit_is_stale(tmp_path):
+    import subprocess
+
+    p = tmp_path / "drawing"
+    txn.init(p, from_="shaft")
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(p),
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "--amend",
+            "-q",
+            "-m",
+            "init without an edit number",
+        ],
+        check=True,
+    )
+    v = Viewer(p)
+    v.select(["D.L"])
+    sel = json.loads((p / ".linercad/selection.json").read_text(encoding="utf-8"))
+    assert sel["version"] is None  # no drawing edit: honest "unknown version", not repository HEAD
+    with pytest.raises(LinerError) as err:
+        commands.context(p, ["@sel"])
+    assert err.value.code == "selection_stale" and "未知版本" in err.value.message

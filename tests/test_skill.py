@@ -71,7 +71,7 @@ def test_skill_explains_selection_sync_and_deixis():
     page = commands.skill("viewer")["text"]
     for needle in (
         "复制引用",
-        "Ctrl+Shift+C",
+        "Ctrl+Alt+C",
         "@D.d1（",
         'lcad context "@sel"',
         "选中的",

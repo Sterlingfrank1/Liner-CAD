@@ -4,11 +4,11 @@
 
 ## 两条路径的实现
 
-1. **复制引用（所有 Agent）**：Viewer 点选 / Ctrl 多选后，检查器出现「复制引用」按钮（快捷键 **Ctrl+Shift+C**），把当前选择生成**一行**引用，例如
+1. **复制引用（所有 Agent）**：Viewer 点选 / Ctrl 多选后，检查器出现「复制引用」按钮（快捷键 **Ctrl+Alt+C**），把当前选择生成**一行**引用，例如
    `@D.d2（Φ30k6，主视图） @D.d1（M24×1.5-6g，主视图） @D.L（200，主视图）`
-   （每个引用含 `@ID`、显示值/公差、所在视图；`ref_text` 生成语义）。复制成功在状态栏显示「已复制引用：…」。
+   （每个引用含 `@ID`、显示值/公差、所在视图；`ref_text` 生成语义）。复制成功在状态栏显示「已复制引用：…」。快捷键用 **Ctrl+Alt+C**（Ctrl+Shift+C 是 Chrome/Edge/Firefox 的 DevTools 键，页面 keydown 拦不住，已弃用）。真实验证（ego-browser）：Ctrl+Alt+C 触发复制得到上述一行，按下前后浏览器 target 列表不变、无 devtools 目标（未弹 DevTools）。
 2. **自然语言指代（所有 Agent）**：skill 明确规则——用户说「选中的 / 这个 / 那个 / 当前对象」而消息里**没有 @ID** 时，先 `lcad context "@sel"` 再动手；选择是唯一事实源，不猜。直读 `.linercad/selection.json` 时 Agent 必须自行比较 `version` 与当前 eN、并检查 `time` 在 TTL 内，否则同样按「当前没有有效选中」处理（skill 页已写明）。
-   - `lcad context @sel` 现在校验新鲜度：选择版本必须与当前 `eN` 一致，且默认不超过 **15 分钟**（`LCAD_SELECTION_TTL` 可调）。
+   - `lcad context "@sel"` 现在校验新鲜度：选择版本必须与当前图纸自己的 `eN` 一致，且默认不超过 **15 分钟**（`LCAD_SELECTION_TTL` 秒数可调；**0 或负值 = 永不过期**，版本校验仍生效）。
    - 无选择 / 版本落后 / 超时 → 返回 `error.code = "selection_stale"`，消息以「当前没有有效选中：…」开头，hint 明确「请在 Viewer 里重新点选，或直接把 @ID 贴进对话；不要猜用户选的是什么」。
    - 复制来的 `@D.d2（Φ30k6，主视图）` 也可以直接作为 `lcad context` 参数（自动去掉 @ 与括号里的说明；整行也可以作为一个带引号的参数传入）；PowerShell 里必须加引号，例如 `lcad context "@sel"`、`lcad context "@D.d2（Φ30k6，主视图）"`。
 
@@ -16,7 +16,7 @@
 
 ### 路径①：多选 3 元素 → 复制引用 → 一轮改对
 
-截图 `h4-selection-copy.jpg`：Viewer 里 3 个元素高亮选中（D.d2 / D.d1 / D.L），检查器「3 个已写入 selection.json」+「复制引用」按钮（Ctrl+Shift+C）。
+截图 `h4-selection-copy.jpg`：Viewer 里 3 个元素高亮选中（D.d2 / D.d1 / D.L），检查器「3 个已写入 selection.json」+「复制引用」按钮（Ctrl+Alt+C）。
 
 复制到的一行（实际 clipboard 内容，ego-browser 截获）：
 
@@ -72,7 +72,7 @@
 - 过期选择拒绝（版本落后、超时、无 selection.json）与 fresh metadata；
 - 多选引用语义（`@D.d2（Φ30k6，主视图） …` 一行，值/公差/视图齐全，selection.json items 同步）；
 - 粘贴的 `@ID（…）` 可直接用于 `lcad context`；
-- Viewer「复制引用」UI / Ctrl+Shift+C / selectionRefs；
+- Viewer「复制引用」UI / Ctrl+Alt+C / selectionRefs；
 - skill 首页与 viewer 页包含指代规则和过期处理。
 
 ## 验证
