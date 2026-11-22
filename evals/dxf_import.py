@@ -134,6 +134,24 @@ def _edge_ok(seg) -> bool:
     return seg[2] > 1e-6
 
 
+def _dim_would_import(e) -> bool:
+    """Mirror the importer's dimension requirements: missing defpoints make it fail."""
+    kind = importdxf.dim_kind(e)
+
+    def has(name):
+        return e.dxf.hasattr(name)
+
+    if kind in ("linear", "aligned"):
+        return has("defpoint2") and has("defpoint3")
+    if kind in ("diameter", "radius"):
+        return has("defpoint") and has("defpoint4")
+    if kind in ("angular", "angular3p"):
+        return all(has(n) for n in ("defpoint2", "defpoint3", "defpoint4")) and (
+            has("defpoint") or kind == "angular3p"
+        )
+    return False
+
+
 def _would_import(doc, e) -> bool:
     """Would the importer actually turn this entity into model content?"""
     bucket, _label = importdxf.classify(e)
@@ -145,7 +163,7 @@ def _would_import(doc, e) -> bool:
         return bool(_source_text(e))
     if bucket == "raw":
         return importdxf._raw_pack(e, 1.0) is not None
-    return True  # dims: either a dimension or the fallback leader note keeps the information
+    return _dim_would_import(e)
 
 
 # ---- the metrics ----------------------------------------------------------------------------
@@ -221,7 +239,8 @@ def text_retention(doc, d, created) -> dict:
     source = [_source_text(e) for e in _msp(doc) if e.dxftype() in NOTE_TYPES]
     source = [t for t in source if t]
     notes = Counter(el._intent.get("text", "") for el in created if el.kind == "note")
-    as_text = sum(1 for el in created if el.kind in ("text", "label"))
+    texts = Counter(el._intent.get("text", "") for el in created if el.kind in ("text", "label"))
+    as_text = _kept_texts(source, texts)
     as_note = _kept_texts(source, notes)
     return {
         "source": len(source),
@@ -254,17 +273,46 @@ def _sheet_fits(width, height, sheet, scale, std="GB") -> bool:
         return False
 
 
+def _imported_handles(created) -> set:
+    return {
+        str(el._intent.get("dxf", {}).get("handle"))
+        for el in created
+        if el._intent.get("dxf", {}).get("handle") is not None
+    }
+
+
 def frame_title(doc, d, created) -> dict:
     ents = _msp(doc)
+    handlers = _imported_handles(created)
     inserts = [e for e in ents if e.dxftype() == "INSERT" and _title_name(e.dxf.name)]
     attribs = sum(len(getattr(br, "attribs", ())) for br in inserts)
-    # PCCAD-style files keep the title-block attributes as top-level ATTRIB entities
-    attribs += sum(1 for e in ents if e.dxftype() == "ATTRIB" and _title_field(e.dxf.tag))
+    # PCCAD-style files keep the title-block attributes as top-level ATTRIB entities; count them
+    # all (the tag vocabulary differs per CAD system, a whitelist would under-count real fields)
+    attribs += sum(1 for e in ents if e.dxftype() == "ATTRIB")
     attribs += sum(1 for e in ents if e.dxftype() == "ATTDEF" and _title_field(e.dxf.tag))
     title_texts = [e for e in ents if e.dxftype() in NOTE_TYPES and _title_layer(e.dxf.layer)]
     notes = Counter(el._intent.get("text", "") for el in created if el.kind == "note")
     kept = _kept_texts([_source_text(e) for e in title_texts], notes)
     kinds = Counter(el.kind for el in created)
+    # the drawing frame itself is ordinary geometry on a title / frame layer: count the edges
+    frame_edges = [
+        e for e in ents if importdxf.classify(e)[0] == "edges" and _title_layer(e.dxf.layer)
+    ]
+    frame_edges_retained = sum(1 for e in frame_edges if str(e.dxf.handle) in handlers)
+    inserts_retained = min(
+        len(inserts),
+        sum(1 for e in inserts if str(e.dxf.handle) in handlers)
+        + kinds.get("insert", 0)
+        + kinds.get("block", 0),
+    )
+    attrib_retained = min(
+        attribs,
+        sum(
+            1 for e in ents if e.dxftype() in ("ATTRIB", "ATTDEF") and str(e.dxf.handle) in handlers
+        )
+        + kinds.get("attrib", 0)
+        + kinds.get("attribute", 0),
+    )
     k, _unit = importdxf.unit_factor(doc)
     ext = importdxf._extents(doc, k)
     if ext:
@@ -282,12 +330,17 @@ def frame_title(doc, d, created) -> dict:
             "scale": scale,
         },
         "frame_inserts": len(inserts),
-        "frame_inserts_retained": kinds.get("insert", 0) + kinds.get("block", 0),
+        "frame_inserts_retained": inserts_retained,
+        "frame_edges": len(frame_edges),
+        "frame_edges_retained": frame_edges_retained,
         "title_attrib_fields": attribs,
-        "title_attrib_retained": kinds.get("attrib", 0) + kinds.get("attribute", 0),
+        "title_attrib_retained": attrib_retained,
         "title_layer_texts": len(title_texts),
         "title_layer_texts_retained": kept,
-        "note": "INSERT / ATTRIB are skipped by the importer; only plain text on title layers survives",
+        "note": (
+            "frame geometry on title / frame layers is ordinary edges (handle-matched); INSERT / "
+            "ATTRIB are skipped by the importer, only plain text on title layers survives"
+        ),
     }
 
 
@@ -305,7 +358,7 @@ def _cli(cwd: Path, *args):
     return r.returncode, out
 
 
-def inspect_cli(path: Path) -> dict:
+def inspect_cli(path: Path, doc=None) -> dict:
     folder = Path(tempfile.mkdtemp(prefix="lcad-dxf-inspect-"))
     try:
         code, out = _cli(folder, "inspect", str(path))
@@ -313,8 +366,23 @@ def inspect_cli(path: Path) -> dict:
         shutil.rmtree(folder, ignore_errors=True)
     if code != 0 or not out.get("ok"):
         return {"ok": False, "exit": code, "error": out.get("error")}
+    maps_match = sheet_match = None
+    if doc is not None:
+        expected = importdxf.scan(doc)
+        got = out.get("maps_to") or {}
+        expected = {b: dict(sorted(v.items())) for b, v in expected.items()}
+        maps_match = got == expected
+        k, _unit = importdxf.unit_factor(doc)
+        ext = importdxf._extents(doc, k)
+        if ext:
+            sheet, scale = importdxf.guess_sheet(ext[2] - ext[0], ext[3] - ext[1])
+            sheet_match = out.get("sheet") == {"sheet": sheet, "scale": scale}
+        else:
+            sheet_match = out.get("sheet") is None
     return {
         "ok": True,
+        "maps_match": maps_match,
+        "sheet_match": sheet_match,
         "maps_to": out.get("maps_to"),
         "sheet": out.get("sheet"),
         "entities": out.get("entities"),
@@ -415,7 +483,7 @@ def evaluate_file(path: Path) -> dict:
             "extents": [round(v, 3) for v in ext] if ext else None,
         },
         "import": {"counts": counts},
-        "inspect": inspect_cli(path),
+        "inspect": inspect_cli(path, doc),
         "metrics": {
             "entity_retention": entity_retention(doc, counts),
             "layer_retention": layer_retention(doc, created),
@@ -438,7 +506,8 @@ def _merge(files: list) -> dict:
     layer_src = layer_ok = names_src = 0
     title_src = title_keep = 0
     sheet_available = sheet_fits = 0
-    edit_ok = inspect_ok = 0
+    frame_edges = frame_edges_kept = 0
+    edit_ok = inspect_ok = inspect_match = 0
     for f in ok:
         m = f["metrics"]
         totals = m["entity_retention"]["totals"]
@@ -461,10 +530,16 @@ def _merge(files: list) -> dict:
         names_src += m["layer_retention"]["names_preserved"]
         title_src += m["frame_title"]["title_layer_texts"]
         title_keep += m["frame_title"]["title_layer_texts_retained"]
+        frame_edges += m["frame_title"]["frame_edges"]
+        frame_edges_kept += m["frame_title"]["frame_edges_retained"]
         sheet_available += 1 if m["frame_title"]["sheet_guess"]["available"] else 0
         sheet_fits += 1 if m["frame_title"]["sheet_guess"]["fits"] else 0
         edit_ok += 1 if m["edit_round"]["ok"] else 0
-        inspect_ok += 1 if f.get("inspect", {}).get("ok") else 0
+        insp = f.get("inspect", {})
+        inspect_ok += 1 if insp.get("ok") else 0
+        inspect_match += (
+            1 if insp.get("ok") and insp.get("maps_match") and insp.get("sheet_match") else 0
+        )
     for row in by_type.values():
         row["rate"] = _rate(row["retained"], row["source"])
     n = len(ok) or 1
@@ -494,6 +569,12 @@ def _merge(files: list) -> dict:
         "sheet_guess_fits_rate": round(sheet_fits / n, 4),
         "edit_round_rate": round(edit_ok / n, 4),
         "inspect_ok_rate": round(inspect_ok / n, 4),
+        "inspect_match_rate": round(inspect_match / n, 4),
+        "frame_edges": {
+            "source": frame_edges,
+            "retained": frame_edges_kept,
+            "rate": _rate(frame_edges_kept, frame_edges),
+        },
     }
 
 
@@ -501,7 +582,7 @@ def evaluate_dir(folder) -> dict:
     folder = Path(folder)
     if not folder.is_dir():
         return {"ok": False, "error": f"not a directory: {folder}"}
-    dxfs = sorted(folder.glob("*.dxf"))
+    dxfs = sorted(p for p in folder.glob("*") if p.is_file() and p.suffix.lower() == ".dxf")
     if not dxfs:
         return {"ok": False, "error": f"no .dxf files in {folder}"}
     files = []
