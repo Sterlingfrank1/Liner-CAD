@@ -115,6 +115,18 @@ def _msp(doc):
     return list(doc.modelspace())
 
 
+def _matched(source: list, available: Counter):
+    """Match source texts against an available multiset; returns (matched, remaining)."""
+    kept, remaining = [], []
+    for text in source:
+        if text and available.get(text, 0) > 0:
+            available[text] -= 1
+            kept.append(text)
+        else:
+            remaining.append(text)
+    return kept, remaining
+
+
 def _kept_texts(source: list, imported: Counter) -> int:
     kept = 0
     for text in source:
@@ -122,6 +134,92 @@ def _kept_texts(source: list, imported: Counter) -> int:
             imported[text] -= 1
             kept += 1
     return kept
+
+
+def _handle(e) -> str:
+    return str(e.dxf.handle)
+
+
+def _imported_handles(created) -> set:
+    return {
+        str(el._intent.get("dxf", {}).get("handle"))
+        for el in created
+        if el._intent.get("dxf", {}).get("handle") is not None
+    }
+
+
+def _created_of_kind(created, kinds) -> list:
+    return [el for el in created if el.kind in kinds]
+
+
+def _all_attribs(doc, inserts) -> list:
+    out = [e for e in _msp(doc) if e.dxftype() == "ATTRIB"]
+    for br in inserts:
+        out.extend(getattr(br, "attribs", ()))
+    return out
+
+
+def _title_block_texts(doc, inserts) -> list:
+    """TEXT / MTEXT inside the title / frame block definitions (currently skipped by the import)."""
+    out = []
+    for br in inserts:
+        try:
+            block = doc.blocks.get(br.dxf.name)
+        except KeyError:
+            continue
+        for e in block:
+            if e.dxftype() in NOTE_TYPES:
+                out.append(e)
+    return out
+
+
+def _round_lookup(doc) -> list:
+    """(cx, cy, r) of the source circles / arcs in mm, as the importer indexes them."""
+    k, _unit = importdxf.unit_factor(doc)
+    out = []
+    for e in _msp(doc):
+        if importdxf.classify(e)[0] != "edges":
+            continue
+        for seg in importdxf._segments(e):
+            if seg[0] in ("circle", "arc"):
+                out.append((round(seg[1][0] * k, 6), round(seg[1][1] * k, 6), round(seg[2] * k, 6)))
+    return out
+
+
+def _find_round(rounds, c, r):
+    tol = 1e-3 * max(1.0, r)
+    return any(
+        abs(cx - c[0]) <= tol and abs(cy - c[1]) <= tol and abs(rr - r) <= tol
+        for cx, cy, rr in rounds
+    )
+
+
+def _expected_fallback_texts(doc) -> list:
+    """Texts the importer creates when a dimension cannot be tied to imported geometry."""
+    from linercad.annotate import fmt_num
+
+    k, _unit = importdxf.unit_factor(doc)
+    rounds = _round_lookup(doc)
+    out = []
+    for e in _msp(doc):
+        if importdxf.classify(e)[0] != "dims":
+            continue
+        kind = importdxf.dim_kind(e)
+        if kind not in ("diameter", "radius"):
+            continue
+        if not (e.dxf.hasattr("defpoint") and e.dxf.hasattr("defpoint4")):
+            continue
+        dp, q = e.dxf.defpoint, e.dxf.defpoint4
+        c = (dp[0] * k, dp[1] * k)
+        r = ((q[0] - dp[0]) ** 2 + (q[1] - dp[1]) ** 2) ** 0.5 * k
+        if kind == "diameter":
+            c = ((dp[0] + q[0]) / 2 * k, (dp[1] + q[1]) / 2 * k)
+            r = r / 2
+        if not _find_round(rounds, c, r):
+            meas = 2 * r if kind == "diameter" else r
+            sym = "Φ" if kind == "diameter" else "R"
+            out.append(importdxf.clean_text(sym + fmt_num(meas)))
+    return out
 
 
 def _created(d, imp):
@@ -134,6 +232,23 @@ def _edge_ok(seg) -> bool:
     return seg[2] > 1e-6
 
 
+def _raw_would_import(e) -> bool:
+    try:
+        packed = importdxf._raw_pack(e, 1.0)
+    except Exception:  # noqa: BLE001
+        return False
+    if packed is None:
+        return False
+    attribs, data = packed
+    intent = {"dxftype": e.dxftype(), "attribs": attribs, "data": data}
+    msp = importdxf._scratch_msp()
+    try:  # must survive the DXF writer, exactly like the importer requires
+        msp.delete_entity(importdxf.make_raw(msp, intent))
+    except Exception:  # noqa: BLE001
+        return False
+    return True
+
+
 def _dim_would_import(e) -> bool:
     """Mirror the importer's dimension requirements: missing defpoints make it fail."""
     kind = importdxf.dim_kind(e)
@@ -142,7 +257,17 @@ def _dim_would_import(e) -> bool:
         return e.dxf.hasattr(name)
 
     if kind in ("linear", "aligned"):
-        return has("defpoint2") and has("defpoint3")
+        if not (has("defpoint2") and has("defpoint3")):
+            return False
+        p1, p2 = e.dxf.get("defpoint2"), e.dxf.get("defpoint3")
+        if kind == "aligned":
+            return ((p2[0] - p1[0]) ** 2 + (p2[1] - p1[1]) ** 2) ** 0.5 > 1e-9
+        ang = e.dxf.get("angle", 0.0) % 180.0
+        if ang < 0.05 or ang > 179.95:
+            return abs(p2[0] - p1[0]) > 1e-9
+        if abs(ang - 90.0) < 0.05:
+            return abs(p2[1] - p1[1]) > 1e-9
+        return True
     if kind in ("diameter", "radius"):
         return has("defpoint") and has("defpoint4")
     if kind in ("angular", "angular3p"):
@@ -162,7 +287,7 @@ def _would_import(doc, e) -> bool:
     if bucket == "notes":
         return bool(_source_text(e))
     if bucket == "raw":
-        return importdxf._raw_pack(e, 1.0) is not None
+        return _raw_would_import(e)
     return _dim_would_import(e)
 
 
@@ -194,10 +319,13 @@ def entity_retention(doc, counts: dict) -> dict:
 def layer_retention(doc, created) -> dict:
     layers = importdxf.layers_of(doc)
     with_content = [lay for lay in layers if lay["count"]]
-    not_imported = []
-    for lay in with_content:
-        if not any(_would_import(doc, e) for e in _msp(doc) if e.dxf.layer == lay["name"]):
-            not_imported.append(_decode(lay["name"]))
+    # one pass over the modelspace: each entity is classified / validated exactly once
+    grouped = {}
+    for e in _msp(doc):
+        grouped.setdefault(e.dxf.layer, []).append(_would_import(doc, e))
+    not_imported = [
+        _decode(lay["name"]) for lay in with_content if not any(grouped.get(lay["name"], ()))
+    ]
     imported = len(with_content) - len(not_imported)
     source_names = {str(lay["name"]) for lay in layers}
     element_layers = {
@@ -238,24 +366,35 @@ def dimension_retention(doc, counts: dict) -> dict:
 def text_retention(doc, d, created) -> dict:
     source = [_source_text(e) for e in _msp(doc) if e.dxftype() in NOTE_TYPES]
     source = [t for t in source if t]
-    notes = Counter(el._intent.get("text", "") for el in created if el.kind == "note")
     texts = Counter(el._intent.get("text", "") for el in created if el.kind in ("text", "label"))
-    as_text = _kept_texts(source, texts)
-    as_note = _kept_texts(source, notes)
+    # dimension fallback notes are counted in dimension_retention.as_note, not as text:
+    # remove their expected texts from the note multiset before matching
+    fallback = _expected_fallback_texts(doc)
+    notes = Counter(el._intent.get("text", "") for el in created if el.kind == "note")
+    for text in fallback:
+        if notes.get(text, 0) > 0:
+            notes[text] -= 1
+    as_text_list, remaining = _matched(source, texts)  # disjoint partition: text first
+    as_note_list, _unmatched = _matched(remaining, notes)
     return {
         "source": len(source),
-        "as_text": as_text,
-        "as_note": as_note,
-        "rate": _rate(as_text, len(source)),
-        "note_rate": _rate(as_note, len(source)),
-        "note": "the importer currently creates leader notes only; C2 introduces the regular text element",
+        "as_text": len(as_text_list),
+        "as_note": len(as_note_list),
+        "rate": _rate(len(as_text_list), len(source)),
+        "note_rate": _rate(len(as_note_list), len(source)),
+        "dims_fallback_notes": len(fallback),
+        "note": (
+            "as_text / as_note are disjoint; dimension fallback notes are excluded from the text "
+            "reading; C2 introduces the regular text element so as_text can grow"
+        ),
     }
 
 
 def hatch_retention(doc, created) -> dict:
-    source = sum(1 for e in _msp(doc) if e.dxftype() == "HATCH")
-    retained = sum(1 for el in created if el.kind == "hatch")
-    return {"source": source, "retained": retained, "rate": _rate(retained, source)}
+    sources = [e for e in _msp(doc) if e.dxftype() == "HATCH"]
+    handlers = _imported_handles(created)
+    retained = sum(1 for e in sources if _handle(e) in handlers)  # by source handle, <= source
+    return {"source": len(sources), "retained": retained, "rate": _rate(retained, len(sources))}
 
 
 def _sheet_fits(width, height, sheet, scale, std="GB") -> bool:
@@ -273,46 +412,32 @@ def _sheet_fits(width, height, sheet, scale, std="GB") -> bool:
         return False
 
 
-def _imported_handles(created) -> set:
-    return {
-        str(el._intent.get("dxf", {}).get("handle"))
-        for el in created
-        if el._intent.get("dxf", {}).get("handle") is not None
-    }
-
-
 def frame_title(doc, d, created) -> dict:
     ents = _msp(doc)
     handlers = _imported_handles(created)
     inserts = [e for e in ents if e.dxftype() == "INSERT" and _title_name(e.dxf.name)]
-    attribs = sum(len(getattr(br, "attribs", ())) for br in inserts)
-    # PCCAD-style files keep the title-block attributes as top-level ATTRIB entities; count them
-    # all (the tag vocabulary differs per CAD system, a whitelist would under-count real fields)
-    attribs += sum(1 for e in ents if e.dxftype() == "ATTRIB")
-    attribs += sum(1 for e in ents if e.dxftype() == "ATTDEF" and _title_field(e.dxf.tag))
-    title_texts = [e for e in ents if e.dxftype() in NOTE_TYPES and _title_layer(e.dxf.layer)]
+    attribs = _all_attribs(doc, inserts)
+    # title texts: modelspace texts on title / frame layers PLUS the template texts inside the
+    # title block definitions (4 samples x 16 template texts were previously not in the denominator)
+    msp_texts = [e for e in ents if e.dxftype() in NOTE_TYPES and _title_layer(e.dxf.layer)]
+    block_texts = _title_block_texts(doc, inserts)
+    title_sources = msp_texts + block_texts
+    source_strings = [_source_text(e) for e in title_sources]
+    texts = Counter(el._intent.get("text", "") for el in created if el.kind in ("text", "label"))
+    fallback = _expected_fallback_texts(doc)
     notes = Counter(el._intent.get("text", "") for el in created if el.kind == "note")
-    kept = _kept_texts([_source_text(e) for e in title_texts], notes)
-    kinds = Counter(el.kind for el in created)
+    for text in fallback:
+        if notes.get(text, 0) > 0:
+            notes[text] -= 1
+    as_text_list, remaining = _matched(source_strings, texts)
+    as_note_list, _unmatched = _matched(remaining, notes)
     # the drawing frame itself is ordinary geometry on a title / frame layer: count the edges
     frame_edges = [
         e for e in ents if importdxf.classify(e)[0] == "edges" and _title_layer(e.dxf.layer)
     ]
-    frame_edges_retained = sum(1 for e in frame_edges if str(e.dxf.handle) in handlers)
-    inserts_retained = min(
-        len(inserts),
-        sum(1 for e in inserts if str(e.dxf.handle) in handlers)
-        + kinds.get("insert", 0)
-        + kinds.get("block", 0),
-    )
-    attrib_retained = min(
-        attribs,
-        sum(
-            1 for e in ents if e.dxftype() in ("ATTRIB", "ATTDEF") and str(e.dxf.handle) in handlers
-        )
-        + kinds.get("attrib", 0)
-        + kinds.get("attribute", 0),
-    )
+    frame_edges_retained = sum(1 for e in frame_edges if _handle(e) in handlers)
+    inserts_retained = sum(1 for e in inserts if _handle(e) in handlers)
+    attrib_retained = sum(1 for e in attribs if _handle(e) in handlers)  # handle-matched only
     k, _unit = importdxf.unit_factor(doc)
     ext = importdxf._extents(doc, k)
     if ext:
@@ -320,8 +445,13 @@ def frame_title(doc, d, created) -> dict:
         sheet, scale = importdxf.guess_sheet(width, height)
         fits = _sheet_fits(width, height, sheet, scale)
     else:
+        width = height = 0.0
         sheet = scale = None
         fits = False
+    # the final drawing always carries its own template frame (T.frame); the imported frame
+    # geometry is duplicated edges, which C4 has to reconcile into "exactly one frame"
+    model_frames = sum(1 for el in getattr(d, "_els", {}).values() if el.kind == "frame")
+    single_frame_ok = model_frames == 1 and frame_edges_retained == 0
     return {
         "sheet_guess": {
             "available": sheet is not None,
@@ -333,13 +463,19 @@ def frame_title(doc, d, created) -> dict:
         "frame_inserts_retained": inserts_retained,
         "frame_edges": len(frame_edges),
         "frame_edges_retained": frame_edges_retained,
-        "title_attrib_fields": attribs,
+        "model_frames": model_frames,
+        "single_frame_ok": single_frame_ok,
+        "title_attrib_fields": len(attribs),
         "title_attrib_retained": attrib_retained,
-        "title_layer_texts": len(title_texts),
-        "title_layer_texts_retained": kept,
+        "title_texts": len(title_sources),
+        "title_texts_as_text": len(as_text_list),
+        "title_texts_as_note": len(as_note_list),
+        "title_text_rate": _rate(len(as_text_list), len(title_sources)),
+        "title_note_rate": _rate(len(as_note_list), len(title_sources)),
         "note": (
-            "frame geometry on title / frame layers is ordinary edges (handle-matched); INSERT / "
-            "ATTRIB are skipped by the importer, only plain text on title layers survives"
+            "title texts include the title block template texts; as_text is the C2 target reading "
+            "(currently 0), as_note the current leader-note fallback; retained INSERT / ATTRIB "
+            "counts are dxf-handle matches; frame edges are imported plain geometry"
         ),
     }
 
@@ -366,6 +502,8 @@ def inspect_cli(path: Path, doc=None) -> dict:
         shutil.rmtree(folder, ignore_errors=True)
     if code != 0 or not out.get("ok"):
         return {"ok": False, "exit": code, "error": out.get("error")}
+    if out.get("png_error"):
+        return {"ok": False, "png_ok": False, "error": out.get("png_error")}
     maps_match = sheet_match = None
     if doc is not None:
         expected = importdxf.scan(doc)
@@ -381,6 +519,7 @@ def inspect_cli(path: Path, doc=None) -> dict:
             sheet_match = out.get("sheet") is None
     return {
         "ok": True,
+        "png_ok": True,
         "maps_match": maps_match,
         "sheet_match": sheet_match,
         "maps_to": out.get("maps_to"),
@@ -504,7 +643,8 @@ def _merge(files: list) -> dict:
     text_src = text_text = text_note = 0
     hatch_src = hatch_keep = 0
     layer_src = layer_ok = names_src = 0
-    title_src = title_keep = 0
+    title_src = title_text = title_note = 0
+    model_frames = single_frame_ok = 0
     sheet_available = sheet_fits = 0
     frame_edges = frame_edges_kept = 0
     edit_ok = inspect_ok = inspect_match = 0
@@ -528,8 +668,11 @@ def _merge(files: list) -> dict:
         layer_src += m["layer_retention"]["layers_with_content"]
         layer_ok += m["layer_retention"]["layers_with_content_imported"]
         names_src += m["layer_retention"]["names_preserved"]
-        title_src += m["frame_title"]["title_layer_texts"]
-        title_keep += m["frame_title"]["title_layer_texts_retained"]
+        title_src += m["frame_title"]["title_texts"]
+        title_text += m["frame_title"]["title_texts_as_text"]
+        title_note += m["frame_title"]["title_texts_as_note"]
+        model_frames += m["frame_title"]["model_frames"]
+        single_frame_ok += 1 if m["frame_title"]["single_frame_ok"] else 0
         frame_edges += m["frame_title"]["frame_edges"]
         frame_edges_kept += m["frame_title"]["frame_edges_retained"]
         sheet_available += 1 if m["frame_title"]["sheet_guess"]["available"] else 0
@@ -564,7 +707,10 @@ def _merge(files: list) -> dict:
         "hatch_retention": _rate(hatch_keep, hatch_src),
         "layer_content_retention": _rate(layer_ok, layer_src),
         "layer_names_preserved": names_src,
-        "title_text_retention": _rate(title_keep, title_src),
+        "title_text_retention": _rate(title_text, title_src),
+        "title_note_retention": _rate(title_note, title_src),
+        "model_frames": model_frames,
+        "single_frame_ok_rate": round(single_frame_ok / n, 4),
         "sheet_guess_available_rate": round(sheet_available / n, 4),
         "sheet_guess_fits_rate": round(sheet_fits / n, 4),
         "edit_round_rate": round(edit_ok / n, 4),
