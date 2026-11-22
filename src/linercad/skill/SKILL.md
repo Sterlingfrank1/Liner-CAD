@@ -49,6 +49,7 @@ def apply(d):
 | 什么时候 | 读 |
 |---|---|
 | 写 / 改 drawing.py：几何、规定画法（螺纹、键槽、中心孔、花键）、视图（剖视、断面、局部放大）、尺寸与公差、形位公差、粗糙度、查询与元素操作、资源库 | `lcad skill api` |
+| 想沉淀一张图成可复用模板，或按已有用户模板 / 内置范例出图（匹配即从模板起步） | `lcad skill api` 的「用户模板」 |
 | 用户开着 Viewer、说“这个 / 我选中的 / @sel”、在拖参数滑块 | `lcad skill viewer` |
 | 有 3D 模型（`model.py` / STEP），或要由模型投影出视图、剖视 | `lcad skill 3d` |
 | 画装配图（组件、标准件、序号、明细栏） | `lcad skill assembly` |

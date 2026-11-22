@@ -248,14 +248,25 @@ def needs_3d(name) -> bool:
     return (resources.files("linercad") / "examples" / name / "model.py").is_file()
 
 
-def init(dir, from_=None, sheet=None, from_dxf=None):
+def init(dir, from_=None, sheet=None, from_dxf=None, sets=None):
     """New drawing directory: the starter, a package example (``from_``) or an imported DXF
     (``from_dxf`` is copied to ``ref.dxf``; the sheet is guessed from its extents unless given)."""
     dir = Path(dir)
     if (dir / SRC).exists() or (dir / LOG).exists():
         raise InvalidArgument(f"{dir} 里已经有图纸（{SRC} 或 {LOG}）", hint="换一个空目录")
+    from . import usertemplates
+
+    user_template = None
     if from_ is not None and from_ not in EXAMPLES:
-        raise InvalidArgument(f"没有范例 {from_!r}", candidates=list(EXAMPLES))
+        if usertemplates.exists(from_):
+            user_template = str(
+                from_
+            )  # a saved user template shadows nothing: examples win on ties
+        else:
+            raise InvalidArgument(
+                f"没有范例或用户模板 {from_!r}",
+                candidates=list(EXAMPLES) + usertemplates.names(),
+            )
     if from_ is not None and from_dxf is not None:
         raise InvalidArgument("--from 和 --from-dxf 只能用一个")
     dxf_src, guess = None, None
@@ -278,22 +289,35 @@ def init(dir, from_=None, sheet=None, from_dxf=None):
             if not (dir / REF_DXF).exists():
                 shutil.copyfile(dxf_src, dir / REF_DXF)
                 created.append(dir / REF_DXF)
+        elif user_template:
+            files = usertemplates.init_files(user_template)
+            text0 = dict(files)[SRC].decode("utf-8")
+            extras = [(n, b) for n, b in files if n != SRC]
         elif from_:
             text0 = (resources.files("linercad") / "examples" / from_ / SRC).read_text(
                 encoding="utf-8"
             )
+            extras = _example_extras(from_)
         else:
             text0 = STARTER.format(sheet=sheet)
+            extras = []
+        if sets:
+            text0 = usertemplates.apply_sets(text0, sets, template_name=user_template)
         for name, text in (
             (SRC, text0),
-            *_example_extras(from_),
+            *extras,
             (LOG, ""),
             (".gitignore", GITIGNORE),
             (".gitattributes", GITATTRIBUTES),
         ):
             if not (dir / name).exists():
-                _write(dir / name, text)
-                created.append(dir / name)
+                p = dir / name
+                p.parent.mkdir(parents=True, exist_ok=True)
+                if isinstance(text, bytes):
+                    p.write_bytes(text)
+                else:
+                    _write(p, text)
+                created.append(p)
         if not had_repo:
             git(dir, "init", "-q")
         res = build(dir)
@@ -318,6 +342,10 @@ def init(dir, from_=None, sheet=None, from_dxf=None):
         "errors": _errors(res.findings),
         "warnings": _warnings(res.findings),
     }
+    if user_template:
+        out["template"] = user_template
+    if sets:
+        out["sets"] = dict(sets)
     if dxf_src is not None:
         out["import"] = {
             "sheet": sheet,

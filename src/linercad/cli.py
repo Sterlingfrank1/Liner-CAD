@@ -10,7 +10,7 @@ import json
 import sys
 
 from . import __version__
-from .errors import LinerError
+from .errors import InvalidArgument, LinerError
 
 
 def emit(obj: dict) -> None:
@@ -61,6 +61,14 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--from", dest="from_", default=None)
     s.add_argument("--from-dxf", dest="from_dxf", default=None)
     s.add_argument("--sheet", default=None)
+    s.add_argument(
+        "--set",
+        dest="set",
+        nargs="+",
+        default=None,
+        metavar="参数=值",
+        help="一步改模板参数，如 --set D=6 R=0.5",
+    )
     s = sub.add_parser("build")
     s.add_argument("-m", dest="msg", default=None)
     s.add_argument("--no-view", dest="no_view", action="store_true")
@@ -94,11 +102,35 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--dir", default=".")
     s = sub.add_parser("inspect")
     s.add_argument("file")
-    s = sub.add_parser("template").add_subparsers(dest="action", parser_class=_Parser)
-    s = s.add_parser("import")
+    ts = sub.add_parser("template").add_subparsers(dest="action", parser_class=_Parser)
+    s = ts.add_parser("import")
     s.add_argument("file")
     s.add_argument("--name", required=True)
+    s = ts.add_parser("save")
+    s.add_argument("name")
+    s.add_argument("--description", default="")
+    s.add_argument("--force", action="store_true")
+    ts.add_parser("list")
     return p
+
+
+def _parse_sets(pairs):
+    """K=V pairs of lcad init --set → {name: number}; bad pairs fail before any directory is made."""
+    if not pairs:
+        return None
+    out = {}
+    for pair in pairs:
+        k, sep, v = str(pair).partition("=")
+        k = k.strip()
+        if not sep or not k:
+            raise InvalidArgument(f"--set {pair!r} 不是 参数=值", hint="例如 --set D=6 R=0.5")
+        if k in out:
+            raise InvalidArgument(f"--set 参数 {k!r} 重复")
+        try:
+            out[k] = float(v)
+        except ValueError as e:
+            raise InvalidArgument(f"--set {k}={v} 的值不是数字") from e
+    return out
 
 
 def _usage(message: str) -> int:
@@ -129,7 +161,8 @@ def _run(args, parser) -> int:
         return _usage("缺少子命令")
     d = args.dir
     if args.cmd == "init":
-        out = txn.init(args.path, args.from_, args.sheet, args.from_dxf)
+        sets = _parse_sets(getattr(args, "set", None))
+        out = txn.init(args.path, args.from_, args.sheet, args.from_dxf, sets=sets)
     elif args.cmd == "build":
         out = txn.build_commit(d, args.msg)
     elif args.cmd == "edit":
@@ -159,9 +192,14 @@ def _run(args, parser) -> int:
     elif args.cmd == "inspect":
         out = commands.inspect_dxf(d, args.file)
     elif args.cmd == "template":
-        if args.action != "import":
-            return _usage("lcad template 只有子命令 import")
-        out = commands.template_import(d, args.file, args.name)
+        if args.action == "import":
+            out = commands.template_import(d, args.file, args.name)
+        elif args.action == "save":
+            out = commands.save_template(d, args.name, args.description, args.force)
+        elif args.action == "list":
+            out = commands.template_list()
+        else:
+            return _usage("lcad template 有子命令 import / save / list")
     else:
         out = commands.render(d, args.focus, args.out, args.dpi)
     # H3: the first successful build / edit starts the background Viewer and opens it once; an

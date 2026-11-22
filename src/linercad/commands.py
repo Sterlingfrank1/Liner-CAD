@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .errors import InvalidArgument, LinerError, NotFound
 from .model import check_name
-from .runtime import SRC, TMP_DIR, build
+from .runtime import LOG, SRC, TMP_DIR, build
 
 SELECTION_TTL = 900.0  # seconds a Viewer selection stays actionable (H4); env override for tests
 
@@ -488,3 +488,50 @@ def template_import(dir, file, name):
         "notes": notes,
         "hint": f'Drawing(..., overlay="{name}")；下一次 lcad build -m 会连同图纸源一起提交',
     }
+
+
+# ---- user parameterised templates (H2) -------------------------------------------------------------
+
+
+def save_template(dir, name, description="", force=False):
+    """Save the current drawing as a reusable user template (requires check 0 error)."""
+    from . import txn, usertemplates
+
+    dir = Path(dir)
+    res = build(dir)
+    errors = [f for f in res.findings if f.get("severity") == "error"]
+    if errors:
+        raise InvalidArgument(
+            f"check 有 {len(errors)} 个 error，不能保存模板",
+            candidates=[f.get("id") for f in errors if f.get("id")][:10],
+            hint="先把 error 修好（lcad check 看详情），只允许带 warning 保存",
+        )
+    warnings = []
+    log = dir / LOG
+    if log.is_file():
+        ops = [ln for ln in log.read_text(encoding="utf-8").splitlines() if ln.strip()]
+        if ops:
+            warnings.append(
+                f"修订层有 {len(ops)} 条操作：模板只保存构建层 drawing.py，修订层不保存；"
+                "需要保留请先把这些修改并入 drawing.py 再 save"
+            )
+    dirty = txn.dirty_sources(dir)
+    if dirty:
+        warnings.append("有未提交的源文件改动：按当前文件保存")
+    manifest = usertemplates.save(dir, name, description, force, build_result=res)
+    out = {
+        "ok": True,
+        "template": manifest,
+        "path": str(usertemplates.path(str(name))),
+        "hint": f"lcad init <新目录> --from {manifest['name']} --set 参数=值 一步出图",
+    }
+    if warnings:
+        out["warning"] = "；".join(warnings)
+    return out
+
+
+def template_list():
+    """List the user's saved parametrised templates."""
+    from . import usertemplates
+
+    return {"ok": True, "home": str(usertemplates.home()), "templates": usertemplates.list_all()}
