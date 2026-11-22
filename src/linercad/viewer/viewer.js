@@ -60,6 +60,9 @@ function setStatus(st) {
 }
 
 async function reload(st) {
+  // B6: a polling refresh re-renders the panel; keep the version list open and its scroll position
+  const verOpen = $("versions").open;
+  const scrollTop = $("params").scrollTop;
   const m = await api("/api/model");  // first: its content box sets the initial view
   if (m.ok) {
     S.model = m; S.byId = {};
@@ -89,6 +92,9 @@ async function reload(st) {
   if (!S.dragging && (!st.preview || !S.params.length)) await loadParams();
   S.sel = S.sel.filter((id) => S.byId[id]);
   markSel(); inspect(); loadVersions();
+  $("versions").open = verOpen;
+  $("params").scrollTop = scrollTop;
+  preserveScroll();
 }
 
 // the drawing's content (views, dimensions, notes) and the title block plus a margin, as an SVG
@@ -574,6 +580,28 @@ function zoomTo(id) {
   const m = Math.max(0.6 * Math.max(b.width, b.height), 12);
   setVB([b.x - m, b.y - m, b.width + 2 * m, b.height + 2 * m]); viewChanged();
 }
+
+// B6: persist the version list's open state and the parameters panel scroll across refreshes
+const VER_OPEN_KEY = "lcad-viewer:versions-open";
+const PARAMS_SCROLL_KEY = "lcad-viewer:params-scroll";
+function preserveScroll() {
+  try { sessionStorage.setItem(PARAMS_SCROLL_KEY, String($("params").scrollTop)); } catch (e) {}
+}
+(function restorePanelState() {
+  try {
+    const open = sessionStorage.getItem(VER_OPEN_KEY);
+    if (open !== null) $("versions").open = open === "1";
+    const scroll = +(sessionStorage.getItem(PARAMS_SCROLL_KEY) || 0);
+    if (scroll > 0) $("params").scrollTop = scroll;
+  } catch (e) {}
+  $("versions").addEventListener("toggle", () => {
+    try { sessionStorage.setItem(VER_OPEN_KEY, $("versions").open ? "1" : "0"); } catch (e) {}
+  });
+  $("params").addEventListener("scroll", () => {
+    clearTimeout(S.scrollTimer);
+    S.scrollTimer = setTimeout(preserveScroll, 200);
+  });
+})();
 
 // B5: click the one-line message to expand the full commit message above the status bar
 $("st-msg").onclick = () => {

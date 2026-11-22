@@ -507,9 +507,7 @@ def test_b2_model_summary_counts(flange_dir):
     v.do_preview(PREVIEW_VIOLATION)  # a preview with warnings: the inspector summary follows it
     m = v.model()
     assert m["summary"]["warnings"] >= 1
-    assert m["summary"]["errors"] == sum(
-        1 for f in m["issues"] if f["severity"] == "error"
-    )
+    assert m["summary"]["errors"] == sum(1 for f in m["issues"] if f["severity"] == "error")
 
 
 def test_b2_inspector_empty_state_shows_usage_and_summary():
