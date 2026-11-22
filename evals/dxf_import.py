@@ -312,6 +312,11 @@ def entity_retention(doc, counts: dict) -> dict:
                 retained[label] += n
     # every DIMENSION that became a dimension or a fallback note is retained as an entity
     retained["DIMENSION"] += sum(counts.get("from", {}).get("dims", {}).values())
+    # C4: source frame / title geometry is absorbed into the template frame semantics; count it
+    absorbed = counts.get("frame", {}).get("absorbed", {})
+    for label, n in absorbed.items():
+        if label in source:
+            retained[label] += n
     by_type = {}
     for kind in sorted(set(source) | set(retained)):
         src = source.get(kind, 0)
@@ -332,8 +337,11 @@ def layer_retention(doc, created) -> dict:
     grouped = {}
     for e in _msp(doc):
         grouped.setdefault(e.dxf.layer, []).append(_would_import(doc, e))
+    absorbed_layers = importdxf.frame_semantics(doc).get("raw_layers", [])
     not_imported = [
-        _decode(lay["name"]) for lay in with_content if not any(grouped.get(lay["name"], ()))
+        _decode(lay["name"])
+        for lay in with_content
+        if not any(grouped.get(lay["name"], ())) and lay["name"] not in absorbed_layers
     ]
     imported = len(with_content) - len(not_imported)
     source_names = {str(lay["name"]) for lay in layers}
@@ -342,6 +350,9 @@ def layer_retention(doc, created) -> dict:
         for el in created
         if el._intent.get("dxf", {}).get("layer") is not None
     }
+    element_layers |= set(
+        absorbed_layers
+    )  # absorbed frame layers keep their source names in the report
     names_preserved = sorted(element_layers & source_names)
     return {
         "source_layers": len(layers),
@@ -445,6 +456,9 @@ def frame_title(doc, d, created) -> dict:
         e for e in ents if importdxf.classify(e)[0] == "edges" and _title_layer(e.dxf.layer)
     ]
     frame_edges_retained = sum(1 for e in frame_edges if _handle(e) in handlers)
+    absorbed = importdxf._frame_absorbed(doc)
+    edge_types = ("LINE", "ARC", "CIRCLE", "LWPOLYLINE", "POLYLINE")
+    frame_edges_absorbed = sum(n for label, n in absorbed.items() if label in edge_types)
     inserts_retained = sum(1 for e in inserts if _handle(e) in handlers)
     attrib_retained = sum(1 for e in attribs if _handle(e) in handlers)  # handle-matched only
     k, _unit = importdxf.unit_factor(doc)
@@ -472,6 +486,7 @@ def frame_title(doc, d, created) -> dict:
         "frame_inserts_retained": inserts_retained,
         "frame_edges": len(frame_edges),
         "frame_edges_retained": frame_edges_retained,
+        "frame_edges_absorbed": frame_edges_absorbed,
         "model_frames": model_frames,
         "single_frame_ok": single_frame_ok,
         "title_attrib_fields": len(attribs),
@@ -482,9 +497,10 @@ def frame_title(doc, d, created) -> dict:
         "title_text_rate": _rate(len(as_text_list), len(title_sources)),
         "title_note_rate": _rate(len(as_note_list), len(title_sources)),
         "note": (
-            "title texts include the title block template texts; as_text is the C2 target reading "
-            "(currently 0), as_note the current leader-note fallback; retained INSERT / ATTRIB "
-            "counts are dxf-handle matches; frame edges are imported plain geometry"
+            "title texts include the title block template texts; as_text is the C2 target reading, "
+            "as_note the leader-note fallback; retained INSERT / ATTRIB counts are dxf-handle matches; "
+            "C4: source frame geometry is absorbed into the template frame semantics (frame_edges_absorbed), "
+            "so the rebuilt drawing has exactly one frame (model_frames=1, frame_edges_retained=0)"
         ),
     }
 
@@ -679,6 +695,7 @@ def _merge(files: list) -> dict:
     model_frames = single_frame_ok = 0
     sheet_available = sheet_fits = 0
     frame_edges = frame_edges_kept = 0
+    frame_edges_absorbed = 0
     edit_ok = inspect_ok = inspect_match = 0
     for f in ok:
         m = f["metrics"]
@@ -707,6 +724,7 @@ def _merge(files: list) -> dict:
         single_frame_ok += 1 if m["frame_title"]["single_frame_ok"] else 0
         frame_edges += m["frame_title"]["frame_edges"]
         frame_edges_kept += m["frame_title"]["frame_edges_retained"]
+        frame_edges_absorbed += m["frame_title"]["frame_edges_absorbed"]
         sheet_available += 1 if m["frame_title"]["sheet_guess"]["available"] else 0
         sheet_fits += 1 if m["frame_title"]["sheet_guess"]["fits"] else 0
         edit_ok += 1 if m["edit_round"]["ok"] else 0
@@ -751,6 +769,7 @@ def _merge(files: list) -> dict:
         "frame_edges": {
             "source": frame_edges,
             "retained": frame_edges_kept,
+            "absorbed": frame_edges_absorbed,
             "rate": _rate(frame_edges_kept, frame_edges),
         },
     }

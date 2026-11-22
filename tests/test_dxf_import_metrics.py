@@ -181,9 +181,10 @@ def test_frame_title_handling(report):
     m = report["files"][0]["metrics"]["frame_title"]
     assert m["sheet_guess"]["available"] is True and m["sheet_guess"]["fits"] is True
     assert m["frame_inserts"] == 1 and m["frame_inserts_retained"] == 0
-    assert m["frame_edges"] == 1 and m["frame_edges_retained"] == 1
-    assert m["model_frames"] == 1  # the drawing template frame
-    assert m["single_frame_ok"] is False  # imported frame edges duplicate it (C4 target)
+    assert m["frame_edges"] == 1 and m["frame_edges_retained"] == 0
+    assert m["frame_edges_absorbed"] == 1  # C4: folded into the template frame semantics
+    assert m["model_frames"] == 1  # one frame: the template frame
+    assert m["single_frame_ok"] is True
     # title texts: 2 modelspace + 1 template text inside the title block definition
     assert m["title_texts"] == 3
     assert m["title_texts_as_text"] == 2  # modelspace title texts are plain text elements now
@@ -368,8 +369,9 @@ def test_summary_aggregates(report):
     assert s["sheet_guess_available_rate"] == 1.0 and s["sheet_guess_fits_rate"] == 1.0
     assert s["edit_round_rate"] == 1.0 and s["inspect_ok_rate"] == 1.0
     assert s["inspect_match_rate"] == 1.0
-    assert s["frame_edges"]["source"] == 1 and s["frame_edges"]["rate"] == 1.0
-    assert s["model_frames"] == 1 and s["single_frame_ok_rate"] == 0.0
+    assert s["frame_edges"]["source"] == 1 and s["frame_edges"]["rate"] == 0.0
+    assert s["frame_edges"]["absorbed"] == 1
+    assert s["model_frames"] == 1 and s["single_frame_ok_rate"] == 1.0
     assert s["title_text_retention"] == round(2 / 3, 4)
     assert s["title_note_retention"] == 0.0
 

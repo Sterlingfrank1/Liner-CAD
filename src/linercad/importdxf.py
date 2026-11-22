@@ -113,6 +113,52 @@ def dim_kind(e) -> str:
     return DIM_KINDS.get(t) or DIM_UNSUPPORTED.get(t) or f"type{t}"
 
 
+FRAME_LAYER_WORDS = ("图框", "标题栏", "标题", "TITLE", "FRAME", "BORDER")
+FRAME_BLOCK_WORDS = ("TITLE", "FRAME", "MXB", "图框", "标题")
+
+
+def _decoded(name) -> str:
+    try:
+        return decode_dxf_unicode(str(name))
+    except Exception:  # noqa: BLE001 - a raw name is still usable
+        return str(name)
+
+
+def is_frame_layer(name) -> bool:
+    """Does this layer belong to the source sheet frame / title block?"""
+    up = _decoded(name).upper()
+    return any(w.upper() in up for w in FRAME_LAYER_WORDS)
+
+
+def is_frame_block(name) -> bool:
+    up = _decoded(name).upper()
+    return any(w.upper() in up for w in FRAME_BLOCK_WORDS)
+
+
+def frame_semantics(doc) -> dict:
+    """Source frame / title-block recognition: layers with frame content, title block INSERTs."""
+    layers = []
+    blocks = []
+    counts = {}
+    for e in doc.modelspace():
+        if is_frame_layer(e.dxf.layer):
+            if e.dxf.layer not in layers:
+                layers.append(e.dxf.layer)
+            if e.dxftype() == "INSERT" and is_frame_block(e.dxf.name):
+                if e.dxf.name not in blocks:
+                    blocks.append(e.dxf.name)
+            counts[e.dxftype()] = counts.get(e.dxftype(), 0) + 1
+    for e in doc.modelspace().query("INSERT"):
+        if is_frame_block(e.dxf.name) and e.dxf.name not in blocks:
+            blocks.append(e.dxf.name)
+    return {
+        "layers": [_decoded(n) for n in layers],
+        "raw_layers": layers,
+        "blocks": blocks,
+        "entities": counts,
+    }
+
+
 def classify(e) -> tuple[str, str]:
     """(bucket, label) of a modelspace entity: where it goes and what to count it as."""
     t = e.dxftype()
@@ -473,6 +519,8 @@ class _Ctx:
         self.texts = 0
         self.hatch_skipped = []
         self.hatch_warnings = []
+        self.frame_absorbed = {}
+        self.frame_handles = []
 
     def own(self, el):
         el._refs.append(self.imp.id)
@@ -1172,6 +1220,12 @@ def import_dxf(d, path, view="front"):
                 if not _visible(doc, e):
                     skipped[f"{label}(layer off)"] = skipped.get(f"{label}(layer off)", 0) + 1
                     continue
+                if bucket in ("edges", "raw") and is_frame_layer(e.dxf.layer):
+                    # C4: the source frame is absorbed into the template frame semantics; it must
+                    # not be imported as a second, overlapping frame.
+                    ctx.frame_absorbed[label] = ctx.frame_absorbed.get(label, 0) + 1
+                    ctx.frame_handles.append(str(e.dxf.handle))
+                    continue
                 fn = {
                     "edges": _edges,
                     "raw": _raw,
@@ -1204,6 +1258,11 @@ def import_dxf(d, path, view="front"):
             "hatches": made["hatches"],
             "hatch_skipped": list(ctx.hatch_skipped),
             "hatch_warnings": list(ctx.hatch_warnings),
+            "frame": {
+                **frame_semantics(doc),
+                "absorbed": dict(sorted(ctx.frame_absorbed.items())),
+                "absorbed_handles": list(ctx.frame_handles),
+            },
             "raw": made["raw"],
             "skipped": dict(sorted(skipped.items())),
             "dims_as_notes": ctx.fallback,
@@ -1272,6 +1331,16 @@ def render_png(doc, out) -> Path:
     return out
 
 
+def _frame_absorbed(doc) -> dict:
+    """Entitity counts that the import will fold into the template frame semantics."""
+    out = {}
+    for e in doc.modelspace():
+        bucket, label = classify(e)
+        if bucket in ("edges", "raw") and is_frame_layer(e.dxf.layer):
+            out[label] = out.get(label, 0) + 1
+    return out
+
+
 def inspect(path, tmp_dir=None) -> dict:
     """Survey of a DXF for ``lcad inspect``: layers, entity statistics, extents, where each entity
     type goes on import, and a temporary PNG (``tmp_dir``, else the system temp directory)."""
@@ -1294,7 +1363,19 @@ def inspect(path, tmp_dir=None) -> dict:
         "size": [round(ext[2] - ext[0], 6), round(ext[3] - ext[1], 6)] if ext else None,
         "maps_to": {b: dict(sorted(maps[b].items())) for b in BUCKETS},
         "sheet": None,
+        "frame": None,
+        "title": None,
         "png": None,
+    }
+    frame = frame_semantics(doc)
+    out["frame"] = {
+        "layers": frame["layers"],
+        "entities": dict(sorted(frame["entities"].items())),
+        "absorbed": _frame_absorbed(doc),
+    }
+    out["title"] = {
+        "blocks": frame["blocks"],
+        "attribs": sum(1 for e in doc.modelspace().query("ATTRIB")),
     }
     if ext:
         sheet, scale = guess_sheet(ext[2] - ext[0], ext[3] - ext[1])

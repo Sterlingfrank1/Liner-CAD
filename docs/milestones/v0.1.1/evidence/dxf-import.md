@@ -98,6 +98,22 @@ importdxf 现在把 HATCH 分类为 hatches 桶并导入为剖面线元素（kin
   有效边界（2 个四边形）仍导入为 loops，不因此整张丢失。
 - 渐变填充：整张 HATCH skipped（counts.hatch_skipped + skipped["HATCH(gradient)"]）；非预定义图案类型、ELLIPSE/SPLINE 边界同理（测试夹具覆盖 gradient 与 partial path）。
 
+
+## C4 后（源图框/标题栏并入模板语义）：只有一个图框
+
+策略：导入时识别源图框语义——图框/标题栏图层（解码后含「图框」「标题栏」「TITLE」「FRAME」等）上的普通几何（边/raw）不再创建为 E 元素，而是**吸收进新图幅的模板图框语义**（模板 frame 仍只 1 个）；标题栏块 INSERT 与其 ATTRIB 仍按边界跳过（不导入模板文字/属性）。`lcad inspect` 新增 `frame` / `title` 报告（识别到的图框图层与实体统计、将吸收的数量、标题栏块名）。
+
+| 指标 | C3 后 | C4 后 | 说明 |
+|---|---|---|---|
+| single_frame_ok_rate | 0.0 | **1.0** | 4/4 文件只剩 1 个模板图框 |
+| model_frames | 4 | 4 | 每图 1 个（模板） |
+| frame_edges retained / absorbed | 16 / — | **0 / 16** | 源图框边不再作为第二条图框叠入 |
+| entities | 256/325（0.7877） | **256/325（0.7877）** | 吸收的 16 条边按「转入模板语义」计 retained，不退化 |
+| layer content / names | 25/28、25 | **25/28、25** | 图框层名称按吸收层保留在报告 |
+| text / hatch / dims / title / sheet / inspect / edit | 67/67、4/4、25/26+1、0/64、4/4、4/4、4/4 | **逐项不变** | — |
+
+说明：C1 尺子把「吸收进模板图框语义」的源图框实体显式记为 `frame_edges_absorbed`（entity/layer 读数同时保留 retained），因此「C1 指标不退化」不是靠丢弃分母，而是把 C4 的语义转换单独记账；标题块模板文字/ATTRIB 仍是 0/64、0/60 的既知边界（C4 不改标题栏语义）。
+
 ## 口径用途（C2 / C3 / C4 的尺子）
 
 - C2（普通文字 / 标题栏 / 图层）：以 text_retention.as_text、frame_title.title_texts_as_text、title_attrib_retained、

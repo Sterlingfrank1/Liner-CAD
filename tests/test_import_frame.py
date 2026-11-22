@@ -101,6 +101,22 @@ def test_frame_absorption_keeps_edit_round(tmp_path):
     assert round_["ok"] is True, round_
 
 
+def test_cli_inspect_reports_frame_and_title(tmp_path):
+    src = make_frame_dxf(tmp_path / "frame.dxf")
+    r = subprocess.run(
+        [sys.executable, "-m", "linercad", "inspect", str(src)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    out = json.loads(r.stdout)
+    assert out["ok"] is True
+    assert out["frame"]["entities"].get("LINE") == 4
+    assert out["frame"]["absorbed"].get("LINE") == 4
+    assert "PC_TITLE_BLOCK" in out["title"]["blocks"]
+
+
 def test_build_has_one_frame_and_no_source_frame_copy(tmp_path):
     src = make_frame_dxf(tmp_path / "frame.dxf")
     d = tmp_path / "part"
