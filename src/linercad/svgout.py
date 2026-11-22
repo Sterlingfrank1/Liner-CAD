@@ -158,6 +158,11 @@ def _prim(pr, k, std, widths, P, H):
                 )
             else:
                 parts.append("M" + " L".join(P(p) for p in lp) + "Z")
+        if getattr(pr, "solid", False):
+            return (
+                f'<path data-k="{k}" d="{" ".join(parts)}" fill="currentColor" '
+                'fill-opacity="0.18" fill-rule="evenodd" class="hatch solid"/>'
+            )
         fill = "hatch" if pr.angle is None and pr.spacing is None else _hid(pr.angle, pr.spacing)
         return f'<path data-k="{k}" d="{" ".join(parts)}" fill="url(#{fill})" fill-rule="evenodd" class="hatch"/>'
     if isinstance(pr, Text):

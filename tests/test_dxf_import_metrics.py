@@ -137,7 +137,8 @@ def test_entity_retention_by_type(report):
     for kind in ("ARC", "CIRCLE", "LWPOLYLINE", "TEXT", "MTEXT", "SPLINE", "ELLIPSE"):
         assert by_type[kind]["rate"] == 1.0, (kind, by_type[kind])
     assert by_type["LINE"]["source"] == 4 and by_type["LINE"]["retained"] == 3  # one degenerate
-    for kind in ("HATCH", "INSERT", "POINT"):
+    assert by_type["HATCH"]["rate"] == 1.0
+    for kind in ("INSERT", "POINT"):
         assert by_type[kind]["rate"] == 0.0, (kind, by_type[kind])
     assert by_type["DIMENSION"]["rate"] == 1.0
     totals = report["files"][0]["metrics"]["entity_retention"]["totals"]
@@ -160,17 +161,17 @@ def test_text_retention_is_honest_about_notes(report):
     assert text["dims_fallback_notes"] == 1  # the far radius dimension, not a text source
 
 
-def test_hatch_retention_is_measured_as_zero(report):
+def test_hatch_retention_is_measured(report):
     m = report["files"][0]["metrics"]
-    assert m["hatch_retention"] == {"source": 1, "retained": 0, "rate": 0.0}
+    assert m["hatch_retention"] == {"source": 1, "retained": 1, "rate": 1.0}
 
 
 def test_layer_retention(report):
     m = report["files"][0]["metrics"]["layer_retention"]
     assert m["layers_with_content"] == 8
-    assert m["layers_with_content_imported"] == 6  # HATCH-only and DEGENERATE-only layers stay out
-    assert m["not_imported"] == ["DEGENERATE", "HATCH"]
-    assert m["rate"] == 0.75
+    assert m["layers_with_content_imported"] == 7  # only the degenerate layer now stays out
+    assert m["not_imported"] == ["DEGENERATE"]
+    assert m["rate"] == round(7 / 8, 4)
     assert m["names_preserved"] >= 2
     assert "OUTLINE" in m["names_preserved_list"]
     assert "TITLE_FRAME" in m["names_preserved_list"]  # the drawing frame is imported as edges
@@ -362,7 +363,7 @@ def test_summary_aggregates(report):
     assert s["files"] == 1
     assert s["entities"]["retained"] < s["entities"]["source"]
     assert s["text_retention"]["rate"] == 1.0 and s["text_retention"]["note_rate"] == 0.0
-    assert s["hatch_retention"] == 0.0
+    assert s["hatch_retention"] == 1.0
     assert s["layer_names_preserved"] >= 1
     assert s["sheet_guess_available_rate"] == 1.0 and s["sheet_guess_fits_rate"] == 1.0
     assert s["edit_round_rate"] == 1.0 and s["inspect_ok_rate"] == 1.0

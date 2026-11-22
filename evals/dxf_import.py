@@ -293,6 +293,8 @@ def _would_import(doc, e) -> bool:
         return any(_edge_ok(seg) for seg in importdxf._segments(e))
     if bucket in ("notes", "texts"):
         return bool(_source_text(e))
+    if bucket == "hatches":
+        return importdxf.hatch_would_import(e, importdxf.unit_factor(doc)[0])
     if bucket == "raw":
         return _raw_would_import(e)
     return _dim_would_import(e)
@@ -304,7 +306,7 @@ def _would_import(doc, e) -> bool:
 def entity_retention(doc, counts: dict) -> dict:
     source = Counter(e.dxftype() for e in _msp(doc))
     retained = Counter()
-    for bucket in ("edges", "raw", "texts", "notes"):
+    for bucket in ("edges", "raw", "texts", "hatches", "notes"):
         for label, n in counts.get("from", {}).get(bucket, {}).items():
             if label in source:
                 retained[label] += n

@@ -10,7 +10,7 @@ angular)                                        defpoints, the value is ``get_me
                                                 is kept; the anonymous ``*D`` block is NOT exploded
 TEXT / MTEXT                                    leader notes ``N.txt_<n>``
 SPLINE / ELLIPSE                                raw ``X.<n>`` (view-local coordinates, drawn through)
-anything else (HATCH, INSERT, POINT, ...)       skipped, counted by type
+INSERT / POINT / unknown types                      skipped, counted by type (HATCH has its own bucket)
 =============================================  ==============================================================
 
 Coordinates are kept as in the DXF (no origin shift), converted to millimetres from ``$INSUNITS``.
@@ -27,6 +27,7 @@ from pathlib import Path
 import ezdxf
 from ezdxf import units as dxf_units
 from ezdxf.lldxf.encoding import decode_dxf_unicode
+from ezdxf.math import bulge_to_arc
 
 from .errors import InvalidArgument, NotFound
 from .model import DRAW_DIR, Element, RawEl, check_name
@@ -37,7 +38,7 @@ RAW_TYPES = ("SPLINE", "ELLIPSE")
 NOTE_TYPES = ("TEXT", "MTEXT")
 DIM_KINDS = {0: "linear", 1: "aligned", 2: "angular", 3: "diameter", 4: "radius", 5: "angular3p"}
 DIM_UNSUPPORTED = {6: "ordinate"}
-BUCKETS = ("edges", "dims", "texts", "notes", "raw", "skipped")
+BUCKETS = ("edges", "dims", "texts", "hatches", "notes", "raw", "skipped")
 SHEETS = ("A4", "A3", "A2", "A1", "A0")
 SCALE_STEPS = (2, 5, 10, 20, 50, 100, 200, 500, 1000)
 DIM_MARGIN = 25.0  # sheet mm kept free around the geometry for dimensions when guessing the sheet
@@ -124,6 +125,8 @@ def classify(e) -> tuple[str, str]:
         return ("dims", k) if k in DIM_KINDS.values() else ("skipped", f"DIMENSION({k})")
     if t in NOTE_TYPES:
         return "texts", t
+    if t == "HATCH":
+        return "hatches", "HATCH"
     if t in RAW_TYPES:
         return "raw", t
     return "skipped", t
@@ -254,6 +257,17 @@ def _extents(doc, k) -> list | None:
             elif bucket in ("notes", "texts"):
                 v = e.dxf.insert
                 add(v[0], v[1])
+            elif bucket == "hatches":
+                if hatch_representable(e)[0]:
+                    ocs = e.ocs()
+                    elev = float(e.dxf.get("elevation", 0.0) or 0.0)
+                    for path in e.paths:
+                        pts, _flags, bad = _loop_from_path(path, tol=0.01 / k)
+                        if bad:
+                            continue
+                        for x, y in pts:
+                            w = ocs.to_wcs((x, y, elev))
+                            add(w.x, w.y)
             elif t == "SPLINE":
                 for v in list(e.control_points) + list(e.fit_points):
                     add(v[0], v[1])
@@ -457,6 +471,8 @@ class _Ctx:
         self.roles = {}  # role counts of the created edges
         self.fallback = 0
         self.texts = 0
+        self.hatch_skipped = []
+        self.hatch_warnings = []
 
     def own(self, el):
         el._refs.append(self.imp.id)
@@ -662,6 +678,251 @@ def _mtext_align(attachment: int) -> tuple:
     halign = (0, 1, 2)[col]
     valign = (3, 2, 1)[row]  # top -> valign 3, middle -> 2, bottom -> 1
     return halign, valign
+
+
+# ---- hatches -----------------------------------------------------------------------------------------
+
+
+def hatch_representable(e):
+    """(ok, reason): can this HATCH map onto the repository hatch vocabulary (ANSI31 / SOLID)?"""
+    if getattr(e, "gradient", None) is not None:
+        return False, "gradient"
+    if int(e.dxf.get("solid_fill", 0) or 0):
+        return True, None
+    if int(e.dxf.get("pattern_double", 0) or 0):
+        return False, "pattern_double (no equivalent)"
+    name = str(e.dxf.get("pattern_name") or "")
+    if not name:
+        return False, "empty pattern (no SOLID flag)"
+    if name.upper() != "ANSI31":
+        return False, f"pattern {name} (no equivalent in the repository vocabulary)"
+    ptype = int(e.dxf.get("pattern_type", 1) or 1)
+    if ptype != 1:
+        return False, f"pattern {name} (type {ptype})"
+    return True, None
+
+
+def _dist(a, b):
+    return math.hypot(a[0] - b[0], a[1] - b[1])
+
+
+def _arc_step(r, tol):
+    """Angle step whose chord sagitta stays below tol (no lower cap: the tolerance rules)."""
+    if r <= tol:
+        return 5.0
+    step = math.degrees(2.0 * math.acos(max(-1.0, 1.0 - tol / r)))
+    return max(1e-4, min(5.0, step))
+
+
+def _arc_points(c, r, a0, a1, ccw=True, tol=0.01):
+    if ccw:
+        span = (a1 - a0) % 360.0
+        if span < 1e-9:
+            span = 360.0
+        angles = [a0 + span * i / n for i, n in [(0, 1)]]
+        n = max(2, int(math.ceil(span / _arc_step(r, tol))))
+        angles = [a0 + span * k / n for k in range(n + 1)]
+    else:
+        span = (a0 - a1) % 360.0
+        if span < 1e-9:
+            span = 360.0
+        n = max(2, int(math.ceil(span / _arc_step(r, tol))))
+        angles = [a0 - span * k / n for k in range(n + 1)]
+    return [
+        (c[0] + r * math.cos(math.radians(a)), c[1] + r * math.sin(math.radians(a))) for a in angles
+    ]
+
+
+def _loop_area(pts):
+    return abs(
+        sum(
+            pts[k][0] * pts[(k + 1) % len(pts)][1] - pts[(k + 1) % len(pts)][0] * pts[k][1]
+            for k in range(len(pts))
+        )
+        / 2.0
+    )
+
+
+def _close_loop(points, implicit_close=True, tol=0.01):
+    pts = [(float(x), float(y)) for x, y in points]
+    last = pts[-1] if pts else None
+    if len(pts) < 3:
+        return None, "degenerate boundary"
+    if not implicit_close and last is not None and _dist(pts[0], last) > tol:
+        return None, f"open boundary (gap {_dist(pts[0], last):.3f} mm)"
+    if len(pts) > 1 and _dist(pts[0], pts[-1]) <= 1e-6:
+        pts.pop()
+    if len(pts) < 3:
+        return None, "degenerate boundary"
+    if _loop_area(pts) <= 1e-6:
+        return None, "zero-area boundary"
+    return pts, None
+
+
+def _loop_from_path(path, tol=0.01):
+    """(points, flags, error). Points are in the source OCS; flags keep the island bits."""
+    btype = getattr(path.type, "name", str(path.type))
+    flags = int(getattr(path, "path_type_flags", 0) or 0) & ~0x06  # keep external/textbox/outermost
+    if btype == "POLYLINE":
+        if not getattr(path, "is_closed", True):
+            return None, flags, "open polyline boundary path"
+        verts = list(path.vertices)
+        if len(verts) < 3:
+            return None, flags, "degenerate boundary"
+        pts = []
+        n = len(verts)
+        for k, (x, y, b) in enumerate(verts):
+            nx, ny, _nb = verts[(k + 1) % n]
+            if abs(float(b or 0.0)) < 1e-9:
+                pts.append((x, y))
+                continue
+            center, sa, ea, r = bulge_to_arc((x, y), (nx, ny), float(b))
+            arc = _arc_points(
+                (center.x, center.y), r, math.degrees(sa), math.degrees(ea), ccw=True, tol=tol
+            )
+            if _dist(arc[0], (x, y)) > _dist(arc[-1], (x, y)):
+                arc = list(reversed(arc))  # walk the arc in the segment's own direction
+            pts.extend(arc)
+        pts2, bad = _close_loop(pts, implicit_close=True, tol=tol)
+        return pts2, flags, bad
+    if btype == "EDGE":
+        pts = []
+        for k, edge in enumerate(path.edges, 1):
+            name = getattr(edge.type, "name", str(edge.type))
+            if name == "LINE":
+                seg = [
+                    (float(edge.start.x), float(edge.start.y)),
+                    (float(edge.end.x), float(edge.end.y)),
+                ]
+            elif name == "ARC":
+                seg = _arc_points(
+                    (float(edge.center.x), float(edge.center.y)),
+                    float(edge.radius),
+                    float(edge.start_angle),
+                    float(edge.end_angle),
+                    ccw=bool(getattr(edge, "ccw", True)),
+                    tol=tol,
+                )
+            elif name == "ELLIPSE":
+                return None, flags, "ELLIPSE edge (no equivalent)"
+            elif name == "SPLINE":
+                return None, flags, "SPLINE edge (no equivalent)"
+            else:
+                return None, flags, f"{name} edge (no equivalent)"
+            if pts and _dist(pts[-1], seg[0]) > tol:
+                return None, flags, f"open boundary at edge {k}"
+            if pts and _dist(pts[-1], seg[0]) <= 1e-6:
+                seg = seg[1:]
+            pts.extend(seg)
+        pts2, bad = _close_loop(pts, implicit_close=False, tol=tol)
+        return pts2, flags, bad
+    return None, flags, f"boundary path {btype}"
+
+
+def hatch_would_import(e, k=1.0) -> bool:
+    """Would the importer actually keep this HATCH (same checks as _hatch, without creating)?"""
+    ok, _reason = hatch_representable(e)
+    if not ok:
+        return False
+    tol = 0.01 / (k or 1.0)
+    for path in e.paths:
+        pts, _flags, bad = _loop_from_path(path, tol=tol)
+        if not bad:
+            return True
+    return False
+
+
+def _hatch(ctx, e) -> bool:
+    ok, reason = hatch_representable(e)
+    if not ok:
+        ctx.hatch_skipped.append(
+            {"handle": str(e.dxf.handle), "layer": str(e.dxf.layer), "reason": reason}
+        )
+        return False
+    style = int(e.dxf.get("hatch_style", 0) or 0)
+    ocs = e.ocs()
+    elev = float(e.dxf.get("elevation", 0.0) or 0.0)
+    tol = 0.01 / ctx.k
+
+    def to_wcs(pt):
+        w = ocs.to_wcs((pt[0], pt[1], elev))
+        return (w.x, w.y)
+
+    extrusion = e.dxf.get("extrusion", (0, 0, 1))
+    flipped = float(extrusion[2]) < 0
+    pattern_angle = float(e.dxf.get("pattern_angle", 0.0) or 0.0)
+    if flipped:
+        pattern_angle = (180.0 - pattern_angle) % 180.0
+    loops = []
+    dropped = []
+    for k, path in enumerate(e.paths, 1):
+        pts, flags, bad = _loop_from_path(path, tol=tol)
+        if not bad:
+            wpts = [to_wcs(p) for p in pts]
+            if _loop_area(wpts) * ctx.k * ctx.k <= 1e-6:
+                dropped.append(f"path {k}: degenerate after OCS projection")
+                ctx.hatch_warnings.append(
+                    {
+                        "handle": str(e.dxf.handle),
+                        "layer": str(e.dxf.layer),
+                        "reason": f"path {k}: degenerate after OCS projection",
+                    }
+                )
+                continue
+            pts = wpts
+        if bad:
+            dropped.append(f"path {k}: {bad}")
+            ctx.hatch_warnings.append(
+                {
+                    "handle": str(e.dxf.handle),
+                    "layer": str(e.dxf.layer),
+                    "reason": f"path {k}: {bad}",
+                }
+            )
+            continue
+        loops.append(
+            {
+                "points": [[_r6(x * ctx.k), _r6(y * ctx.k)] for x, y in pts],
+                "flags": flags,
+            }
+        )
+    if not loops:
+        ctx.hatch_skipped.append(
+            {
+                "handle": str(e.dxf.handle),
+                "layer": str(e.dxf.layer),
+                "reason": "; ".join(dropped) or "no boundary",
+            }
+        )
+        return False
+    if style != 0:
+        ctx.hatch_warnings.append(
+            {
+                "handle": str(e.dxf.handle),
+                "layer": str(e.dxf.layer),
+                "reason": f"hatch_style {style} approximated as even-odd islands",
+            }
+        )
+    name = str(e.dxf.get("pattern_name") or "")
+    solid = bool(int(e.dxf.get("solid_fill", 0) or 0))
+    intent = {
+        "view": ctx.view.name,
+        "loops": loops,
+        "solid": solid,
+        "pattern": name or None,
+        "pattern_angle": pattern_angle,
+        "flipped": flipped,
+        "scale": float(e.dxf.get("pattern_scale", 1.0) or 1.0),
+        "angle": pattern_angle,  # OCS-mirrored source pattern angle
+        "hatch_style": style,
+        "dxf": {"layer": str(e.dxf.layer), "handle": str(e.dxf.handle)},
+        "dropped_paths": dropped,
+    }
+    from .annotate import Hatch as HatchEl
+
+    name_id = ctx.d._auto_name("H", (), "hatch")
+    ctx.own(ctx.d._add(HatchEl(ctx.d, f"H.{name_id}", intent, refs=[ctx.view.id])))
+    return True
 
 
 # ---- dimensions -----------------------------------------------------------------------------------------
@@ -897,7 +1158,11 @@ def import_dxf(d, path, view="front"):
         else:
             skipped[f"{label}(degenerate)"] = skipped.get(f"{label}(degenerate)", 0) + 1
 
-    for stage in (("edges", "raw"), ("dims", "texts")):  # geometry first: dimensions look edges up
+    for stage in (
+        ("edges", "raw"),
+        ("dims", "texts"),
+        ("hatches",),
+    ):  # geometry first: dimensions look edges up
         for e in ents:
             bucket, label = classify(e)
             if bucket == "skipped":
@@ -907,7 +1172,24 @@ def import_dxf(d, path, view="front"):
                 if not _visible(doc, e):
                     skipped[f"{label}(layer off)"] = skipped.get(f"{label}(layer off)", 0) + 1
                     continue
-                fn = {"edges": _edges, "raw": _raw, "dims": _dimension, "texts": _text}[bucket]
+                fn = {
+                    "edges": _edges,
+                    "raw": _raw,
+                    "dims": _dimension,
+                    "texts": _text,
+                    "hatches": _hatch,
+                }[bucket]
+                if bucket == "hatches":
+                    if fn(ctx, e):
+                        made["hatches"] += 1
+                        from_["hatches"][label] = from_["hatches"].get(label, 0) + 1
+                    else:
+                        reason = (
+                            ctx.hatch_skipped[-1]["reason"] if ctx.hatch_skipped else "unsupported"
+                        )
+                        key = f"HATCH({reason})"
+                        skipped[key] = skipped.get(key, 0) + 1
+                    continue
                 done(bucket, label, fn(ctx, e))
     imp._intent.update(
         sha256=content_hash(src),
@@ -919,6 +1201,9 @@ def import_dxf(d, path, view="front"):
             "dims": made["dims"] - ctx.fallback,
             "notes": ctx.fallback,
             "texts": made["texts"],
+            "hatches": made["hatches"],
+            "hatch_skipped": list(ctx.hatch_skipped),
+            "hatch_warnings": list(ctx.hatch_warnings),
             "raw": made["raw"],
             "skipped": dict(sorted(skipped.items())),
             "dims_as_notes": ctx.fallback,
