@@ -82,8 +82,25 @@ PLACEMENT_DEBT = {
         ("place_ext_line", "D.gh"),
         ("place_ext_line", "D.gw"),
         ("place_nesting", "D.L"),
-        ("place_row_spacing", "D.l2"),
-        ("place_row_spacing", "D.l4"),
+        ("place_text_overlap", "D.kd"),
+    },
+    "flange": set(),
+    "bracket": set(),
+}
+
+#: placement debt after the eight edit rounds (frozen the same way; the rounds intentionally move
+#: dimensions into crowded places, so this set is a separate yardstick from the init debt)
+PLACEMENT_DEBT_FINAL = {
+    "shaft": {
+        ("place_dim_outline", "D.d1"),
+        ("place_dim_outline", "D.d2"),
+        ("place_dim_outline", "D.d3"),
+        ("place_dim_outline", "D.d5"),
+        ("place_ext_line", "D.gh"),
+        ("place_ext_line", "D.gw"),
+        ("place_nesting", "D.L"),
+        ("place_text_overlap", "D.kd"),
+        ("place_text_overlap", "D.ug"),
     },
     "flange": set(),
     "bracket": set(),
@@ -129,6 +146,13 @@ def test_eight_rounds(tmp_path, part):
         if kind != "fail":
             assert re.fullmatch(rf"e\d+ · {re.escape(msg)}", subj[0])
         assert set(git(d, "ls-files").split()) == SOURCES
+    # E5: after the eight rounds the placement debt must be exactly the frozen final set (the
+    # rounds move annotations on purpose; a new rule/id pair is a placement regression)
+    code, out = lcad(d, "check")
+    assert code == 0
+    placement = {(w["rule"], w["id"]) for w in out["packs"]["placement"]}
+    if placement != PLACEMENT_DEBT_FINAL[part]:
+        raise AssertionError(sorted(placement))
     assert git(d, "status", "--porcelain").strip() == ""
     code, out = lcad(d, "context")
     assert code == 0

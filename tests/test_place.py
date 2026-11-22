@@ -570,3 +570,174 @@ def test_profile_values_inherit_and_override():
     assert _run(d, "place_balloon_align")[0] == []
     d.std["placement"]["balloon_align_tol"] = 0.1
     assert _run(d, "place_balloon_align")[0]
+
+
+# ---- round 3 review: rows use the dimension-line positions, own texts, hatch parity, global
+# balloon spacing, cross-view outlines, collinear leaders, aligned results ---------------------
+
+
+def test_row_spacing_uses_the_dimension_line_positions():
+    d = _dims()
+    w = _dim_line(_el(d, "D.W"))
+    ln = _dim_line(_el(d, "D.L"))
+    # move only L's dimension line: 6 mm from W's line, whatever the extension lines record
+    _set_line(_el(d, "D.L"), ln, (ln.p[0], w.p[1] - 6.0), (ln.q[0], w.q[1] - 6.0))
+    findings, _ = _run(d, "place_row_spacing")
+    assert "D.L" in [f["id"] for f in findings]
+
+
+def test_own_tolerance_texts_must_not_overlap_each_other():
+    d = Drawing(sheet="A3")
+    f = d.view("front")
+    f.rect((0, 0), 120, 60, name="body")
+    f.dim.linear("t", (0, 0), (60, 0), value=60, side="bottom", tol=("+0.1", "-0.1"))
+    layout(d)
+    e = _el(d, "D.t")
+    texts = [p for p in e._prims if isinstance(p, Text)]
+    assert len(texts) >= 2  # the number plus the deviation text
+    first, second = texts[0], texts[1]
+    moved = Text(
+        second.text,
+        (first.at[0] + 0.3, first.at[1]),
+        second.height,
+        second.rot,
+        second.layer,
+        (first.box[0] + 0.3, first.box[1], first.box[2] + 0.3, first.box[3]),
+    )
+    e._prims = [moved if p is second else p for p in e._prims]
+    findings, _ = _run(d, "place_text_overlap")
+    assert "D.t" in [f["id"] for f in findings]
+
+
+def _circle_centre(d, view="front"):
+    for e in d._els.values():
+        if e.kind == "edge" and e.view == view:
+            for p in e._prims:
+                if isinstance(p, Circle):
+                    return p.c
+    raise AssertionError("no circle")
+
+
+def test_hatch_even_odd_region():
+    d = Drawing(sheet="A3")
+    f = d.view("front")
+    body = f.rect((0, 0), 120, 60, name="body")
+    hole = f.circle((60, 30), 12, name="hole")
+    f.hatch("h", loops=[body, hole])
+    f.dim.linear("inside", (10, 30), (110, 30), value=100, side="inside")
+    layout(d)
+    e = _el(d, "D.inside")
+    centre = _circle_centre(d)
+    text = [p for p in e._prims if isinstance(p, Text)][0]
+
+    def moved_text(at):
+        box = (at[0] - 2, at[1] - 1.5, at[0] + 2, at[1] + 1.5)
+        return Text(text.text, at, text.height, text.rot, text.layer, box)
+
+    def hatch_hits():
+        findings, _ = _run(d, "place_text_overlap")
+        return [f for f in findings if "H.front.h" in f["measured"].get("with", [])]
+
+    e._prims = [moved_text(centre) if p is text else p for p in e._prims]
+    assert hatch_hits() == []  # the hole centre is empty in the even-odd region
+    text = next(p for p in e._prims if isinstance(p, Text))
+    e._prims = [moved_text((centre[0], centre[1] + 22.0)) if p is text else p for p in e._prims]
+    assert hatch_hits()  # between the hole and the outline the lining is drawn
+
+
+def test_balloon_spacing_is_checked_across_views():
+    d = Drawing(sheet="A3")
+    front, left = d.view("front"), d.view("left")
+    front.rect((0, 0), 100, 60, name="b1")
+    left.rect((0, 0), 60, 40, name="b2")
+    layout(d)
+    bf = front.bbox
+    shared = (bf[0] - 20.0, bf[1] + 20.0)
+    for k, (view, circle_c, anchor) in enumerate(
+        [
+            ("front", shared, (bf[0] + 30.0, bf[1] + 20.0)),
+            ("left", shared, (left.bbox[0] + 20.0, left.bbox[1] + 15.0)),
+        ]
+    ):
+        el = Balloon(
+            d,
+            f"B.b{k}",
+            {"view": view, "component": f"A.b{k}", "anchor": list(anchor)},
+            refs=[f"V.{view}"],
+        )
+        d._add(el)
+        el._prims = [
+            Circle(circle_c, 4.5, "thin"),
+            Line(anchor, (circle_c[0] + 4.5, circle_c[1]), "thin"),
+            Text(
+                str(k + 1),
+                circle_c,
+                5.0,
+                0,
+                "text",
+                (circle_c[0] - 2.5, circle_c[1] - 3.5, circle_c[0] + 2.5, circle_c[1] + 3.5),
+            ),
+        ]
+    findings, _ = _run(d, "place_balloon_spacing")
+    assert findings  # the two circles overlap on the sheet even though they belong to two views
+
+
+def test_dimension_line_crosses_another_views_outline():
+    d = Drawing(sheet="A3")
+    front, left = d.view("front"), d.view("left")
+    front.rect((0, 0), 100, 60, name="b1")
+    left.rect((0, 0), 60, 40, name="b2")
+    front.dim.linear("L", (0, 0), (100, 0), value=100, side="bottom")
+    layout(d)
+    lb = left.bbox
+    ln = _dim_line(_el(d, "D.L"))
+    y = (lb[1] + lb[3]) / 2
+    _set_line(_el(d, "D.L"), ln, (lb[0] - 5, y), (lb[2] + 5, y))
+    findings, _ = _run(d, "place_dim_outline")
+    assert "D.L" in [f["id"] for f in findings]
+
+
+def test_leader_shoulder_takes_part_in_crossing():
+    d = Drawing(sheet="A3")
+    v = d.view("front")
+    c = v.circle((0, 0), 30, name="outer")
+    v.dim.dia("Dd", circle=c, at=0)
+    v.dim.linear("X", (40, -40), (40, 40), dir="v", value=80, side="right")
+    layout(d)
+    shoulder = place._leader_dim(_el(d, "D.Dd"))["lines"][1]
+    midx = (shoulder.p[0] + shoulder.q[0]) / 2
+    y = shoulder.p[1]
+    x = _dim_line(_el(d, "D.X"))
+    # pull the second dimension's line across the leader's short shoulder (not the long part)
+    _set_line(_el(d, "D.X"), x, (midx, y - 20.0), (midx, y + 20.0))
+    findings, _ = _run(d, "place_dim_cross")
+    hit = {(f["id"], f["measured"]["with"]) for f in findings}
+    assert ("D.Dd", "D.X") in hit or ("D.X", "D.Dd") in hit
+
+
+def test_aligned_dimensions_row_spacing_is_judged():
+    d = Drawing(sheet="A3")
+    f = d.view("front")
+    f.rect((0, 0), 100, 60, name="body")
+    f.dim.aligned("A", (0, 0), (100, 60))
+    f.dim.aligned("B", (0, 10), (100, 70))
+    layout(d)
+    assert _run(d, "place_row_spacing")[0] == []
+    a = place._frame_dim(_el(d, "D.A"))["dim"]
+    b = place._frame_dim(_el(d, "D.B"))["dim"]
+    u = place._unit(a.p, a.q)
+    n = (-u[1], u[0])
+    dx = b.p[0] - a.p[0]
+    dist = dx * n[0] + (b.p[1] - a.p[1]) * n[1]
+    shift = 1.0 - abs(dist)  # bring B one millimetre from A
+    sign = 1.0 if dist >= 0 else -1.0
+    ddx, ddy = n[0] * shift * sign, n[1] * shift * sign
+    e = _el(d, "D.B")
+    e._prims = [
+        Line((p.p[0] + ddx, p.p[1] + ddy), (p.q[0] + ddx, p.q[1] + ddy), p.layer)
+        if isinstance(p, Line)
+        else p
+        for p in e._prims
+    ]
+    findings, _ = _run(d, "place_row_spacing")
+    assert "D.B" in [f["id"] for f in findings]

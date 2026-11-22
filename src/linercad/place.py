@@ -271,29 +271,33 @@ def _view_bbox(d, name):
 
 
 def _frame_axis(info):
+    """Canonical (u, n): u is the dimension-line direction with a stable sign, n its normal."""
     u = _unit(info["dim"].p, info["dim"].q)
-    return u, (-u[1], u[0]), _dot(info["dim"].p, (-u[1], u[0]))
+    if u[0] < -1e-9 or (abs(u[0]) <= 1e-9 and u[1] < 0):
+        u = (-u[0], -u[1])
+    return u, (-u[1], u[0])
 
 
 def _frame_rows(info):
-    """(u, outward, offset, interval) of a frame dimension placed outside the outline.
+    """(u, n, outward, position, interval) of a frame dimension placed outside the outline.
 
-    The extension lines themselves give the outward direction (their short end is the one that
-    stops just past the dimension line) and the offset of the dimension line from the measured
-    points, so the same treatment works for axis-aligned and aligned dimensions without looking at
-    the view box. Returns None for inside dimensions (no extension lines)."""
+    outward says which side of the measured geometry the dimension line sits on (taken from the
+    short "beyond" end of the extension lines), position is the dimension line's normal coordinate
+    with the outward sign applied, so two parallel dimension lines' spacing is simply the
+    difference of their positions (whatever each dimension measures)."""
     if not info["ext"]:
         return None
-    u, n, level = _frame_axis(info)
-    signs, offsets = [], []
+    u, n = _frame_axis(info)
+    level = _dot(info["dim"].p, n)
+    signs = []
     for ext in info["ext"]:
         s = [_dot(pt, n) - level for pt in (ext.p, ext.q)]
         k = 0 if abs(s[0]) < abs(s[1]) else 1
         signs.append(1 if s[k] >= 0 else -1)
-        offsets.append(max(abs(s[0]), abs(s[1])))
     if len(set(signs)) != 1:
-        return None  # the two extension lines disagree on the side: not a clean row
-    return u, signs[0], max(offsets), _frame_interval(info)
+        return None  # the extension lines disagree on the side: not a clean row
+    outward = signs[0]
+    return u, n, outward, outward * level, _frame_interval(info)
 
 
 def _frame_interval(info):
@@ -341,6 +345,19 @@ def _edge_segments(d, view):
         if e.kind != "edge" or e.view != view:
             continue
         if e.role not in ("thick", "hidden"):
+            continue
+        for p in e._prims:
+            if isinstance(p, Hatch):
+                continue
+            out += prim_segments(p)
+    return out
+
+
+def _all_edge_segments(d):
+    """Every visible / hidden contour segment of the drawing, whatever view it belongs to."""
+    out = []
+    for e in d._els.values():
+        if e.kind != "edge" or e.role not in ("thick", "hidden"):
             continue
         for p in e._prims:
             if isinstance(p, Hatch):
@@ -442,9 +459,9 @@ def place_dim_outline(d):
     by the leader rules, not by this clause."""
     items = [(e, info[1]) for e in d._els.values() if (info := _dim_info(e)) is not None]
     items = [(e, info) for e, info in items if info["dir"] != "leader"]
+    edges = _all_edge_segments(d)
     findings = []
     for e, info in items:
-        edges = _edge_segments(d, e.view)
         hit = any(_crosses(seg.p, seg.q, a, b) for seg in _dim_segments(info) for a, b in edges)
         if hit:
             findings.append(
@@ -466,8 +483,9 @@ def place_dim_outline(d):
 
 
 def _side_groups(d):
-    """{(view, direction, outward): [(element, info, offset)]} for frame dimensions outside the
-    outline; axis-aligned and aligned frames share the same treatment (parallel rows)."""
+    """{(view, direction, outward): [(element, info, position)]} for frame dimensions outside the
+    outline; parallel dimension lines (axis-aligned or aligned) share one group and are ordered by
+    their normal position, so their spacing is the real row spacing."""
     groups = {}
     for e in d._els.values():
         info = _frame_dim(e)
@@ -476,9 +494,9 @@ def _side_groups(d):
         rows = _frame_rows(info)
         if rows is None:
             continue
-        u, outward, offset, _interval = rows
+        u, _n, outward, position, _interval = rows
         key = (e.view, round(math.degrees(math.atan2(u[1], u[0])) % 180.0, 1), outward)
-        groups.setdefault(key, []).append((e, info, offset))
+        groups.setdefault(key, []).append((e, info, position))
     for items in groups.values():
         items.sort(key=lambda item: item[2])
     return groups
@@ -569,8 +587,8 @@ def place_ext_line(d):
         rows = _frame_rows(info)
         if rows is None:
             continue
-        _u, outward, _offset, _interval = rows
-        _u2, n, level = _frame_axis(info)
+        _u, n, outward, position, _interval = rows
+        level = outward * position
         edges = _edge_segments(d, e.view) + _center_segments(d, e.view)
         checks += 1  # one check per dimension, however many extension lines it has
         bad = []
@@ -659,8 +677,11 @@ def place_text_overlap(d):
     ]
     hatches = []
     for e in d._els.values():
-        if e.kind == "hatch":
-            hatches.append((e._id, [poly for poly, view in _hatch_polys(d) if view == e.view]))
+        if e.kind != "hatch":
+            continue
+        loops = [poly for poly, view in _hatch_polys(d) if view == e.view]
+        if loops:
+            hatches.append((e._id, loops))  # even-odd over all loops of the hatch
     findings = []
     checks = 0
     for e in d._els.values():
@@ -673,8 +694,8 @@ def place_text_overlap(d):
             box = t.box
             center = ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2)
             for o, (osegs, oboxes) in prims.items():
-                if o == e._id:  # own primitives are judged, own text boxes are not conflicts
-                    oboxes = []
+                if o == e._id:  # own primitives are judged; only the very same box is skipped
+                    oboxes = [b for b in oboxes if b != box]
                 for a, b in osegs:
                     ov = _seg_in_box(a, b, box)
                     if ov > 0.05:
@@ -683,8 +704,8 @@ def place_text_overlap(d):
                     ov = _box_overlap(box, ob)
                     if ov > 0.05:
                         viol[o] = max(viol.get(o, 0.0), ov)
-            for hid, polys in hatches:
-                if any(_point_in_poly(center, poly) for poly in polys):
+            for hid, loops in hatches:
+                if sum(1 for poly in loops if _point_in_poly(center, poly)) % 2 == 1:
                     viol[hid] = max(viol.get(hid, 1.0), 1.0)
         if viol:
             findings.append(
@@ -843,38 +864,33 @@ def place_balloon_align(d):
 
 
 def place_balloon_spacing(d):
-    """序号圆圈之间留间隙、不重叠 (GB/T 4458.2), per view and side."""
+    """序号圆圈之间留间隙、不重叠 (GB/T 4458.2); every pair of balloons on the sheet is checked."""
     cfg = _cfg(d)
     clearance = cfg["balloon_clearance"]
-    groups = {}
+    items = []
     for e in d._els.values():
         parts = _balloon_parts(e)
-        if parts is None:
-            continue
-        side = _balloon_side(d, e, parts[1])
-        if side is None:
-            continue
-        groups.setdefault((e.view, side), []).append((e, parts[1]))
-    findings, checks = [], 0
-    for (_view, side), items in groups.items():
-        k = 1 if side in ("left", "right") else 0
-        items.sort(key=lambda t: t[1].c[k])
-        for i, (e0, c0) in enumerate(items):
-            for e1, c1 in items[i + 1 :]:
-                checks += 1
-                gap = math.dist(c0.c, c1.c) - c0.r - c1.r
-                if gap < clearance - 1e-9:
-                    findings.append(
-                        _f(
-                            "place_balloon_spacing",
-                            d,
-                            e1.id,
-                            f"{e1.id} 与 {e0.id} 的序号间距 {gap:.2f} 小于 {clearance:g}",
-                            measured={"gap": round(gap, 3), "with": e0.id},
-                            expected={"gap": f">= {clearance:g}"},
-                            candidates=[f"拉开 {e1.id} 与 {e0.id} 的序号"],
-                        )
+        if parts is not None:
+            items.append((e, parts[1]))
+    items.sort(key=lambda item: item[0].id)
+    findings = []
+    checks = 0
+    for i, (e0, c0) in enumerate(items):
+        for e1, c1 in items[i + 1 :]:
+            checks += 1
+            gap = math.dist(c0.c, c1.c) - c0.r - c1.r
+            if gap < clearance - 1e-9:
+                findings.append(
+                    _f(
+                        "place_balloon_spacing",
+                        d,
+                        e1.id,
+                        f"{e1.id} 与 {e0.id} 的序号间距 {gap:.2f} 小于 {clearance:g}",
+                        measured={"gap": round(gap, 3), "with": e0.id},
+                        expected={"gap": f">= {clearance:g}"},
+                        candidates=[f"拉开 {e1.id} 与 {e0.id} 的序号"],
                     )
+                )
     return findings, checks
 
 
