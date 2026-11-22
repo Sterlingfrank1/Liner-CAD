@@ -624,7 +624,6 @@ class _ViewLayout:
                         loops.append(("circle", self.P(lpts[1]), lpts[2] * self.s))
                     else:
                         loops.append(tuple(self.P(p) for p in lpts))
-                loop_flags.append(1)
             it = e._intent
             hs = self.std["hatch"]
             imported = it.get("pattern") is not None
