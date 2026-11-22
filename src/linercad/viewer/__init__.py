@@ -6,12 +6,16 @@
 from __future__ import annotations
 
 import ast
+import contextlib
 import io
 import json
 import math
+import os
 import re
 import secrets
+import socket
 import subprocess
+import sys
 import threading
 import time
 from datetime import UTC, datetime
@@ -19,6 +23,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
+from urllib.request import Request as URLRequest
+from urllib.request import urlopen
 
 from .. import svgout
 from ..errors import InvalidArgument, LinerError
@@ -86,6 +92,8 @@ class Viewer:
         self.token = secrets.token_hex(16)  # per run; the served page carries it (SPEC §2 安全)
         self.retried = None
         self.refresh()
+        # H3: the idle clock starts after the initial build, so a slow drawing is not born expired
+        self.last_active = time.monotonic()
 
     # ---- build state ------------------------------------------------------------------------
     def _head(self):
@@ -159,6 +167,8 @@ class Viewer:
             return {
                 "ok": True,
                 "version": self.version,
+                "pid": os.getpid(),
+                "dir": str(self.dir),
                 "edit": edit,
                 "status": status,
                 "message": msg,
@@ -657,6 +667,7 @@ def make_handler(viewer: Viewer):
             )
 
         def do_GET(self):  # noqa: N802
+            viewer.last_active = time.monotonic()
             path = self.path.split("?")[0]
             try:
                 if not self._host_ok():
@@ -674,6 +685,8 @@ def make_handler(viewer: Viewer):
                     if not svg:
                         return self._json({"ok": False, "error": viewer.error}, 503)
                     return self._send(200, svg.encode("utf-8"), "image/svg+xml")
+                if path == "/api/ping":  # H3 identity probe: lightweight, never rebuilds
+                    return self._json({"ok": True, "pid": os.getpid(), "dir": str(viewer.dir)})
                 if path == "/api/state":
                     return self._json(viewer.state())
                 if path == "/api/model":
@@ -715,6 +728,7 @@ def make_handler(viewer: Viewer):
             )
 
         def do_POST(self):  # noqa: N802
+            viewer.last_active = time.monotonic()
             # same origin + per-run token: another local page cannot drive the service
             tok = self.headers.get("X-LCAD-Token", "")
             try:
@@ -774,19 +788,413 @@ class _Server(ThreadingHTTPServer):
         super().server_bind()
 
 
-def serve(dir, port=8765, open_browser=True):
-    """Start the Viewer on 127.0.0.1:<port> (blocks). Returns after Ctrl+C."""
+# ---- H3: background Viewer lifecycle ---------------------------------------------------------------
+
+STATE_PATH = Path(".linercad") / "viewer.json"
+LOG_PATH = Path(".linercad") / "viewer.log"
+DEFAULT_IDLE_TIMEOUT = 1800.0  # seconds without a request before the background Viewer exits
+
+
+def _state_path(dir):
+    return Path(dir) / STATE_PATH
+
+
+def _log_path(dir):
+    return Path(dir) / LOG_PATH
+
+
+def _pid_alive(pid) -> bool:
+    """Is the process still running? (the Windows branch also works for a detached child)."""
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        SYNCHRONIZE = 0x00100000
+        STILL_ACTIVE = 259
+        h = ctypes.windll.kernel32.OpenProcess(
+            SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, False, pid
+        )
+        if not h:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            ok = ctypes.windll.kernel32.GetExitCodeProcess(h, ctypes.byref(code))
+            return bool(ok) and code.value == STILL_ACTIVE
+        finally:
+            ctypes.windll.kernel32.CloseHandle(h)
+    # a detached child that exited but was not reaped is a zombie: it is not a running Viewer
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8", errors="replace")
+        if stat.rsplit(")", 1)[1].split()[0] == "Z":
+            return False
+    except (OSError, IndexError):
+        pass
+    try:
+        os.kill(pid, 0)
+    except (ProcessLookupError, OSError):
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _port_open(port) -> bool:
+    try:
+        with socket.create_connection(("127.0.0.1", int(port)), timeout=0.4):
+            return True
+    except OSError:
+        return False
+
+
+def _read_state(dir):
+    try:
+        doc = json.loads(_state_path(dir).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return doc if isinstance(doc, dict) else None
+
+
+def _clear_state(dir, pid=None):
+    p = _state_path(dir)
+    try:
+        doc = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        doc = None
+    if pid is not None and doc is not None and doc.get("pid") != pid:
+        return
+    try:
+        p.unlink()
+    except OSError:
+        pass
+
+
+def _idle_timeout(value=None) -> float:
+    """Seconds of inactivity after which the background Viewer exits."""
+    if value is not None:
+        return max(1.0, float(value))
+    raw = os.environ.get("LCAD_VIEW_IDLE_TIMEOUT")
+    if not raw:
+        return DEFAULT_IDLE_TIMEOUT
+    try:
+        return max(1.0, float(raw))
+    except ValueError:
+        return DEFAULT_IDLE_TIMEOUT
+
+
+def _suppressed(disabled=False) -> bool:
+    """--no-view, the env switch and CI all keep the auto-open off (tests open no browser)."""
+    if disabled or os.environ.get("LCAD_NO_VIEW"):
+        return True
+    return bool(os.environ.get("CI"))
+
+
+def _viewer_identity(doc, dir):
+    """Does this state document describe a live Viewer of *this* drawing?
+
+    A stale pid/port can be reused by an unrelated process after a crash; ask the service who it is
+    (any loopback HTTP service answers, but only a Liner-CAD Viewer for this dir has the pid + dir).
+    """
+    try:
+        port = int(doc["port"])
+        req = URLRequest(f"http://127.0.0.1:{port}/api/ping", headers={"Host": f"127.0.0.1:{port}"})
+        with urlopen(req, timeout=0.6) as resp:  # noqa: S310 - loopback only
+            st = json.loads(resp.read().decode("utf-8"))
+    except (OSError, ValueError, KeyError):
+        return False
+    try:
+        return (
+            st.get("ok") is True
+            and int(st.get("pid", 0)) == int(doc.get("pid", -1))
+            and Path(str(st.get("dir", ""))).resolve() == Path(dir).resolve()
+        )
+    except (TypeError, ValueError, OSError):
+        return False
+
+
+def _running(dir):
+    """The state document of a live Viewer for this drawing, or None (stale files removed)."""
+    doc = _read_state(dir)
+    if not doc:
+        return None
+    try:
+        pid, port = int(doc["pid"]), int(doc["port"])
+    except (KeyError, TypeError, ValueError):
+        _clear_state(dir)
+        return None
+    if _pid_alive(pid) and _port_open(port) and _viewer_identity(doc, dir):
+        return doc
+    _clear_state(dir, pid)
+    return None
+
+
+def _log_tail(dir, limit=400) -> str:
+    try:
+        data = _log_path(dir).read_bytes()[-limit:]
+    except OSError:
+        return ""
+    return data.decode("utf-8", "replace").strip()
+
+
+#: Popen objects of spawned viewers; polled so exited children are reaped (no zombies).
+_CHILDREN = []
+_CHILDREN_LOCK = threading.Lock()
+_LOCK = ".linercad/viewer.lock"
+_LOCK_WAIT = 30.0  # seconds one build may wait for another one's spawn decision
+_START_TIMEOUT = 15.0  # seconds to wait for the child's state file (CI can be slow)
+
+
+def _reap_children():
+    with _CHILDREN_LOCK:
+        for proc in list(_CHILDREN):
+            if proc.poll() is not None:
+                _CHILDREN.remove(proc)
+
+
+def _kill_tree(pid):
+    """Terminate the background child (and its process tree) after a startup timeout."""
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return
+    if pid <= 0 or pid == os.getpid():
+        return
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)], capture_output=True)
+        return
+    try:
+        os.kill(pid, 15)
+    except OSError:
+        return
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline and _pid_alive(pid):
+        time.sleep(0.1)
+    if _pid_alive(pid):
+        try:
+            os.kill(pid, 9)
+        except OSError:
+            pass
+
+
+def _lock_owner(path):
+    """pid recorded in the lock file, or None when it cannot be read (mid-creation)."""
+    try:
+        return int(path.read_text(encoding="utf-8").strip() or 0) or None
+    except (OSError, ValueError):
+        return None
+
+
+@contextlib.contextmanager
+def _viewer_lock(dir):
+    """A cross-process lock: only one build/edit may decide to spawn the background Viewer."""
+    path = Path(dir) / _LOCK
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = None
+    deadline = time.monotonic() + _LOCK_WAIT
+    while time.monotonic() < deadline:
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            break
+        except FileExistsError:
+            owner = _lock_owner(path)
+            stale = False
+            if owner is not None:
+                stale = not _pid_alive(owner)  # only a dead owner's lock may be taken over
+            else:
+                try:  # the file exists but has no owner yet: a live owner may be writing it
+                    stale = time.time() - path.stat().st_mtime > 300
+                except OSError:
+                    stale = False
+            if stale:
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+            time.sleep(0.05)
+    if fd is None:
+        raise TimeoutError("另一个 lcad 进程正在启动 Viewer，请稍后重试")
+    try:
+        os.write(fd, str(os.getpid()).encode("ascii"))
+        os.close(fd)
+        fd = None
+        yield
+    finally:
+        if fd is not None:
+            os.close(fd)
+        owner = _lock_owner(path)
+        if owner == os.getpid():  # never remove a lock a newer owner already took over
+            try:
+                path.unlink()
+            except OSError:
+                pass
+
+
+def autostart(dir, disabled=False, open_browser=True):
+    """After a successful build / edit: make sure a Viewer runs and open it once.
+
+    Returns {"url": ..., "opened": bool}; None when auto-opening is off (--no-view,
+    LCAD_NO_VIEW or CI). An already running Viewer is reused without opening a new tab.
+    """
+    if _suppressed(disabled):
+        return None
+    dir = Path(dir).resolve()  # --dir and the child cwd must agree for lcad -C <relative>
+    _reap_children()
+    try:
+        with _viewer_lock(dir):
+            running = _running(dir)
+            if running is not None:
+                return {"url": running["url"], "opened": False}
+            log = _log_path(dir)
+            log.parent.mkdir(parents=True, exist_ok=True)
+            args = [
+                sys.executable,
+                "-m",
+                "linercad.viewer",
+                "--background",
+                "--dir",
+                str(dir),
+                "--port",
+                "0",
+                "--idle-timeout",
+                str(_idle_timeout()),
+            ]
+            kwargs = dict(
+                stdin=subprocess.DEVNULL,
+                stderr=subprocess.STDOUT,
+                cwd=str(dir),
+                close_fds=True,
+            )
+            if os.name == "nt":
+                kwargs["creationflags"] = (
+                    subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+                )
+            else:
+                kwargs["start_new_session"] = True
+            with open(log, "ab") as handle:
+                proc = subprocess.Popen(args, stdout=handle, **kwargs)
+            with _CHILDREN_LOCK:
+                _CHILDREN.append(proc)
+            # the Windows venv launcher may exit after starting the real interpreter, so accept
+            # the state file written by the child (any live pid + open port)
+            state = None
+            deadline = time.monotonic() + _START_TIMEOUT
+            while time.monotonic() < deadline:
+                candidate = _read_state(dir)
+                if (
+                    candidate
+                    and candidate.get("pid")
+                    and candidate.get("port")
+                    and _pid_alive(candidate["pid"])
+                    and _port_open(candidate["port"])
+                ):
+                    state = candidate
+                    break
+                time.sleep(0.05)
+            if not state or not state.get("port"):
+                # do not leave a half-started child behind (it may bind later and become an
+                # unregistered viewer); kill the tree and any state it managed to publish
+                _kill_tree(proc.pid)
+                late = _read_state(dir)
+                if late and late.get("pid"):
+                    _kill_tree(late["pid"])
+                _clear_state(dir)
+                return {
+                    "url": None,
+                    "opened": False,
+                    "error": _log_tail(dir) or "Viewer 后台进程启动失败",
+                }
+            url = state["url"]
+    except Exception as e:  # noqa: BLE001 - a Viewer failure must not fail the build/edit
+        return {"url": None, "opened": False, "error": f"{type(e).__name__}: {e}"}
+    opened = False
+    if open_browser:
+        try:
+            import webbrowser
+
+            opened = bool(webbrowser.open(url))
+        except Exception:  # noqa: BLE001 - no browser is a supported degradation
+            opened = False
+    return {"url": url, "opened": opened}
+
+
+def _serve_until_idle(httpd, v, idle_timeout):
+    """Serve one request at a time and exit after idle_timeout seconds without any request."""
+    httpd.timeout = min(1.0, max(idle_timeout / 4, 0.05))
+    while True:
+        httpd.handle_request()
+        if time.monotonic() - v.last_active > idle_timeout:
+            return
+
+
+def _start_server(dir, port):
+    """Bind the Viewer server and publish its state; the caller owns the lock/idle loop."""
     v = Viewer(dir)
+    v.last_active = time.monotonic()  # the idle clock starts when the service is ready
     httpd = _Server(("127.0.0.1", int(port)), make_handler(v))
     url = f"http://127.0.0.1:{httpd.server_address[1]}/"
-    print(json.dumps({"ok": True, "url": url, "dir": str(v.dir)}, ensure_ascii=False), flush=True)
-    if open_browser:
+    _write_json(
+        _state_path(dir),
+        {
+            "pid": os.getpid(),
+            "port": int(httpd.server_address[1]),
+            "url": url,
+            "started": datetime.now(UTC).isoformat(timespec="seconds"),
+        },
+    )
+    return v, httpd, url
+
+
+def _open(url):
+    try:
         import webbrowser
 
-        webbrowser.open(url)
+        return bool(webbrowser.open(url))
+    except Exception:  # noqa: BLE001 - no browser is a supported degradation
+        return False
+
+
+def serve(dir, port=8765, open_browser=True, idle_timeout=None, background=False):
+    """Start the Viewer on 127.0.0.1:<port> (blocks). Writes .linercad/viewer.json for H3.
+
+    ``background`` is the autostart child: its parent holds the spawn lock, so the child must not
+    take it again (that would deadlock the two of them). An explicit ``lcad view`` reuses a live
+    Viewer and opens its URL when asked; it never overwrites a live process' state file.
+    """
+    dir = Path(dir).resolve()
+    if background:
+        v, httpd, url = _start_server(dir, port)
+    else:
+        with _viewer_lock(dir):
+            existing = _running(dir)
+            if existing is not None and int(existing.get("pid", 0)) != os.getpid():
+                # another Viewer already serves this drawing: report it instead of writing a
+                # state file that would orphan the running process (lcad view + auto-open)
+                print(
+                    json.dumps(
+                        {"ok": True, "url": existing["url"], "dir": str(dir), "existing": True},
+                        ensure_ascii=False,
+                    ),
+                    flush=True,
+                )
+                if open_browser:
+                    _open(existing["url"])
+                return
+            v, httpd, url = _start_server(dir, port)
+    print(json.dumps({"ok": True, "url": url, "dir": str(v.dir)}, ensure_ascii=False), flush=True)
+    if open_browser:
+        _open(url)
     try:
-        httpd.serve_forever()
+        if idle_timeout:
+            _serve_until_idle(httpd, v, float(idle_timeout))
+        else:
+            httpd.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
         httpd.server_close()
+        _clear_state(dir, os.getpid())
