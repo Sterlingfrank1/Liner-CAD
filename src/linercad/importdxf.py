@@ -391,6 +391,39 @@ def raw_polylines(intent, distance=0.05) -> list:
 # ---- the import element ---------------------------------------------------------------------------------
 
 
+class PlainText(Element):
+    """A plain text element imported from a DXF TEXT / MTEXT entity (no leader)."""
+
+    kind = "text"
+    SETTABLE = ("text", "height", "rotation")
+    READ = ("text", "at", "height", "rotation", "style", "halign", "valign", "layer")
+
+    text = property(lambda s: s._intent["text"])
+    at = property(lambda s: list(s._intent["at"]))
+    height = property(lambda s: s._intent["height"])
+    rotation = property(lambda s: s._intent["rotation"])
+    style = property(lambda s: s._intent.get("style", "Standard"))
+    halign = property(lambda s: s._intent.get("halign", 0))
+    valign = property(lambda s: s._intent.get("valign", 0))
+    layer = property(lambda s: s._intent.get("layer", "0"))
+
+    def _apply_set(self, fields):
+        from .errors import InvalidArgument
+
+        if "text" in fields:
+            self._intent["text"] = str(fields["text"])
+        for key in ("height", "rotation"):
+            if key in fields:
+                v = float(fields[key])
+                if key == "height" and not (v > 0):
+                    raise InvalidArgument(f"{self._id} 的字高必须为正", id=self._id)
+                self._intent[key] = v
+
+    def _apply_move(self, dx, dy):
+        at = self._intent["at"]
+        self._intent["at"] = [at[0] + dx, at[1] + dy]
+
+
 class Import(Element):
     """One imported DXF file: what it brought in, and the owner of everything it created."""
 
@@ -419,6 +452,7 @@ class _Ctx:
         self.lines = []  # line edges: (id, p1, p2)
         self.roles = {}  # role counts of the created edges
         self.fallback = 0
+        self.texts = 0
 
     def own(self, el):
         el._refs.append(self.imp.id)
@@ -530,12 +564,60 @@ def _note(ctx, text, p) -> bool:
 
 
 def _text(ctx, e) -> bool:
+    """TEXT / MTEXT → a plain text element (no leader), keeping position, height, rotation,
+    alignment and style. MTEXT keeps its line breaks."""
+    k = ctx.k
+    raw = e.plain_text() if e.dxftype() == "MTEXT" else e.dxf.text
+    if e.dxftype() == "MTEXT" and "\n" in raw:
+        # clean_text() collapses newlines; MTEXT line breaks must survive into the element
+        text = "\n".join(clean_text(part) for part in raw.split("\n"))
+    else:
+        text = clean_text(raw)
+    if not text:
+        return False
     if e.dxftype() == "MTEXT":
-        return _note(ctx, e.plain_text(), e.dxf.insert)
-    p = e.dxf.insert
-    if (e.dxf.get("halign", 0) or e.dxf.get("valign", 0)) and e.dxf.hasattr("align_point"):
-        p = e.dxf.align_point
-    return _note(ctx, e.dxf.text, p)
+        h = float(e.dxf.get("char_height", 2.5))
+        rot = float(e.dxf.get("rotation", 0.0))
+        p = e.dxf.insert
+        attachment = int(e.dxf.get("attachment_point", 1))
+        halign, valign = _mtext_align(attachment)
+        style = str(e.dxf.get("style", "Standard"))
+    else:
+        h = float(e.dxf.get("height", 2.5))
+        rot = float(e.dxf.get("rotation", 0.0))
+        p = e.dxf.insert
+        halign = int(e.dxf.get("halign", 0))
+        valign = int(e.dxf.get("valign", 0))
+        if (halign or valign) and e.dxf.hasattr("align_point"):
+            p = e.dxf.align_point
+        style = str(e.dxf.get("style", "Standard"))
+    intents = {
+        "view": ctx.view.name,
+        "text": text,
+        "at": [_r6(p[0] * k), _r6(p[1] * k)],
+        "height": _r6(h * k),
+        "rotation": _r6(rot),
+        "halign": halign,
+        "valign": valign,
+        "style": style,
+        "layer": str(e.dxf.get("layer", "0")),
+        "dxf": {"layer": str(e.dxf.layer), "handle": str(e.dxf.handle)},
+    }
+    name = ctx.d._auto_name("T", (), "txt")
+    if not text or not (intents["height"] > 0):
+        return False
+    ctx.own(ctx.d._add(PlainText(ctx.d, f"T.{name}", intents, refs=[ctx.view.id])))
+    ctx.texts += 1
+    return True
+
+
+def _mtext_align(attachment: int) -> tuple:
+    """MTEXT attachment point 1..9 → (horizontal 0/1/2, vertical 0/1/2) as in DXF TEXT aligment."""
+    col = (attachment - 1) % 3
+    row = (attachment - 1) // 3
+    halign = (0, 1, 2)[col]
+    valign = (2, 1, 0)[row]  # top → valign 0 (baseline-like), middle → 1, bottom → 2
+    return halign, valign
 
 
 # ---- dimensions -----------------------------------------------------------------------------------------
@@ -791,7 +873,8 @@ def import_dxf(d, path, view="front"):
         counts={
             "edges": dict(sorted(ctx.roles.items())),
             "dims": made["dims"] - ctx.fallback,
-            "notes": made["notes"] + ctx.fallback,
+            "notes": ctx.fallback,
+            "texts": ctx.texts,
             "raw": made["raw"],
             "skipped": dict(sorted(skipped.items())),
             "dims_as_notes": ctx.fallback,

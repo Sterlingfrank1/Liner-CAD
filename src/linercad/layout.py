@@ -1309,6 +1309,43 @@ class _ViewLayout:
         for item in late:  # leaders whose target dimension was placed above
             place_pmi(item)
 
+    def plain_texts(self):
+        """Imported plain text elements (DXF TEXT / MTEXT): no leader, fixed position / height /
+        rotation from the source, MTEXT line breaks stacked as separate text lines."""
+        from .text import has_cjk
+
+        for e in self.els("text"):
+            i = e._intent
+            h = i["height"] * self.s
+            rot = i.get("rotation", 0.0)
+            halign = i.get("halign", 0)
+            valign = i.get("valign", 0)
+            lines = str(i["text"]).split("\n")
+            spacing = self.std.get("text", {}).get("line_spacing", 1.5)
+            c, s_ = math.cos(math.radians(rot)), math.sin(math.radians(rot))
+            x0, y0 = self.P(i["at"])
+            cjk = has_cjk(i["text"]) or None
+            prims = []
+            for k, line in enumerate(lines):
+                w, hh = text_size(line, h, self.std, cjk)
+                if halign == 1:
+                    dx = 0.0
+                elif halign == 2:
+                    dx = -w / 2.0
+                else:
+                    dx = w / 2.0
+                if valign == 2:
+                    dy = 0.0
+                elif valign == 3:
+                    dy = -hh / 2.0
+                else:
+                    dy = hh / 2.0
+                ly = dy - k * h * spacing
+                px = x0 + dx * c - ly * s_
+                py = y0 + dx * s_ + ly * c
+                prims.append(make_text(line, (px, py), h, self.std, rot, layer="text", cjk=cjk))
+            self.put(e, prims)
+
     def section_labels(self):
         sec = self.std["section"]
         h = sec["label_height"]
@@ -1353,6 +1390,7 @@ class _ViewLayout:
     def run(self):
         self.geometry()
         self.section_symbols()
+        self.plain_texts()
         self.annotations()
         self.section_labels()
         self.balloons()

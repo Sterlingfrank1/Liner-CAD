@@ -87,7 +87,10 @@ def _rate(retained: int, source: int):
 
 def _source_text(e) -> str:
     if e.dxftype() == "MTEXT":
-        return importdxf.clean_text(e.plain_text())
+        raw = e.plain_text()
+        if "\n" in raw:  # MTEXT line breaks are part of the text (C2 keeps them)
+            return "\n".join(importdxf.clean_text(part) for part in raw.split("\n"))
+        return importdxf.clean_text(raw)
     return importdxf.clean_text(e.dxf.text)
 
 
@@ -555,16 +558,18 @@ def edit_round(path: Path) -> dict:
         model = json.loads(model_path.read_text(encoding="utf-8"))
         ids = [e["id"] for e in model["elements"]]
         notes = sorted(i for i in ids if i.startswith("N."))
+        texts = sorted(e["id"] for e in model["elements"] if e["kind"] == "text")
+        editable = notes + texts
         candidates = _move_candidates(model)
-        if not candidates or not notes:
+        if not candidates or not editable:
             return {
                 "ok": False,
-                "error": "no movable dimension / note to edit",
+                "error": "no movable dimension / editable text to edit",
                 "candidates": len(candidates),
-                "notes": len(notes),
+                "editable": len(editable),
                 "build_ok": False,
             }
-        note = notes[0]
+        note = editable[0]
         script = part / ".linercad" / "tmp" / "c1_edit_round.py"
         script.parent.mkdir(parents=True, exist_ok=True)
         body = [

@@ -55,6 +55,24 @@ ATTRIB 0/60、HATCH 0/4、INSERT 0/9（导入器当前跳过，是现状读数�
 应上升；图框层几何 4 条/文件作为普通 edges 导入（frame_edges 16/16），最终图纸另有模板 frame（model_frames 1），
 故 single_frame_ok=false —— 这就是 C4"只剩一个图框"要改善的读数。
 
+
+## C2 后（TEXT / MTEXT 导成普通文字元素）：C1 指标变化
+
+C2 把 modelspace 的 TEXT / MTEXT 从 leader note 改为普通文字元素（kind=text，无引线，保留位置/字高/旋转/对齐/样式，
+MTEXT 保留换行）。C1 尺子的读数变化（同一 4 样例、同一命令）：
+
+| 指标 | C1 基线（C2 前） | C2 后 | 说明 |
+|---|---|---|---|
+| text as_text | 0 / 67（rate 0.0） | **67 / 67（rate 1.0）** | 目标②达成：文字保留率显著上升 |
+| text as_note | 67 / 67（note_rate 1.0） | **0 / 67（note_rate 0.0）** | 不再借用 leader note |
+| layer names_preserved | 16 | **21** | 普通文字元素也带源图层 dxf 元数据 |
+| dims as_note（尺寸降级） | 1 | 1 | 未变，仍单列 dims_fallback_notes |
+| 标题块模板文字 as_text | 0 / 64 | **0 / 64** | 边界：C2 只覆盖 modelspace 的 TEXT/MTEXT；标题块内部模板文字仍随 INSERT 跳过，留 C4 |
+| entities / dims / hatch / 图框 / sheet / inspect / edit | 见上表 | **逐项不变** | edit_round 现在可直接改导入文字（4/4，3 个样例改的是 T.txt_1） |
+
+4 样例合计：text as_text 67/67；layer names 21；其余（entities 252/325、dims 25/26+1 note、hatch 0/4、
+图框 4 INSERT/16 边/model_frames 4/single_ok 0.0、sheet 4/4 fits、inspect 4/4 ok·png·匹配、edit_round 4/4）与 C1 基线一致。
+
 ## 口径用途（C2 / C3 / C4 的尺子）
 
 - C2（普通文字 / 标题栏 / 图层）：以 text_retention.as_text、frame_title.title_texts_as_text、title_attrib_retained、

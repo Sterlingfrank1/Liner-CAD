@@ -40,7 +40,7 @@ def make_text_dxf(path):
         rotation=30.0,
         dxfattribs={"layer": "TEXT", "style": "Standard"},
     ).set_placement((20, 30))
-    msp.add_mtext("第一行\\n第二行", dxfattribs={"layer": "TEXT", "style": "Standard"}).set_location(
+    msp.add_mtext("第一行\n第二行", dxfattribs={"layer": "TEXT", "style": "Standard"}).set_location(
         (60, 50)
     )
     doc.saveas(path)
@@ -124,7 +124,7 @@ def test_edit_an_imported_text_and_rebuild(tmp_path):
     script = d / ".linercad/tmp/edit_text.py"
     script.parent.mkdir(parents=True, exist_ok=True)
     script.write_text(
-        "def apply(d):\n" f'    d["{texts[0]}"].set(text="改过的导入文字")\n', encoding="utf-8"
+        f'def apply(d):\n    d["{texts[0]}"].set(text="改过的导入文字")\n', encoding="utf-8"
     )
     code, out = lcad(d, "edit", str(script), "-m", "改一段导入文字")
     assert code == 0, out
