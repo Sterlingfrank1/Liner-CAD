@@ -1359,7 +1359,7 @@ class _ViewLayout:
             else:  # TEXT baseline
                 dy0 = sizes[0][1] / 2.0
             prims = []
-            for k, (line, (w, hh)) in enumerate(zip(lines, sizes)):
+            for k, (line, (w, _hh)) in enumerate(zip(lines, sizes)):
                 if halign == 0:
                     dx = w / 2.0
                 elif halign in (3, 5):  # ALIGNED / FIT: anchor is the second alignment point
