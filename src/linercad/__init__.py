@@ -3,7 +3,7 @@
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _version
 
-from . import errors, features, place, res  # noqa: F401  (features attaches drawing tools)
+from . import catalog, errors, features, place, res  # noqa: F401  (features attaches drawing tools)
 from .model import Drawing
 from .params import Param
 

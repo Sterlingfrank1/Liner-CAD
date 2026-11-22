@@ -1,0 +1,532 @@
+{
+ "version": 2,
+ "note": "冻结的参考图已知违规（真阳性，不是误报）：E5 的 D.place/A.place 债务 + E2 新增径向引线交叉规则对参考图的现存检出。每条带 measured 签名 (rule, id, signature)，债务集合与当前实际集合必须完全相等（evals/mutate.py 的 known_debt.exact）；任何新增/移除都必须随 PR 更新并说明。",
+ "total": 97,
+ "cases": {
+  "L1/center_hole_A2": [
+   [
+    "place_dim_outline",
+    "D.db",
+    "{\"line\": [[135.54, 135.41]]}"
+   ]
+  ],
+  "L1/undercut_3x13": [
+   [
+    "place_dim_outline",
+    "D.d1",
+    "{\"line\": [[100.0, 134.13]]}"
+   ],
+   [
+    "place_dim_outline",
+    "D.d2",
+    "{\"line\": [[130.0, 131.13]]}"
+   ]
+  ],
+  "L1/keyway_d28": [
+   [
+    "place_text_overlap",
+    "D.kd",
+    "{\"overlap\": 0.16, \"with\": [\"D.kd\"]}"
+   ]
+  ],
+  "L1/keyway_d44": [
+   [
+    "place_text_overlap",
+    "D.kd",
+    "{\"overlap\": 0.16, \"with\": [\"D.kd\"]}"
+   ]
+  ],
+  "L1/hub_keyway_30": [
+   [
+    "place_text_overlap",
+    "D.kd",
+    "{\"overlap\": 0.16, \"with\": [\"D.kd\"]}"
+   ]
+  ],
+  "L1/hub_keyway_40": [
+   [
+    "place_text_overlap",
+    "D.kd",
+    "{\"overlap\": 0.16, \"with\": [\"D.kd\"]}"
+   ]
+  ],
+  "L2/box/bearing_seat": [
+   [
+    "place_dim_cross",
+    "D.Db",
+    "{\"at\": [117.38, 97.25], \"with\": \"D.dp\"}"
+   ],
+   [
+    "place_dim_cross",
+    "D.R2",
+    "{\"at\": [117.38, 232.62], \"with\": \"D.dc\"}"
+   ],
+   [
+    "place_dim_cross",
+    "D.dc",
+    "{\"at\": [117.38, 232.62], \"with\": \"D.R2\"}"
+   ],
+   [
+    "place_dim_cross",
+    "D.dp",
+    "{\"at\": [117.38, 97.25], \"with\": \"D.Db\"}"
+   ],
+   [
+    "place_dim_outline",
+    "D.rw",
+    "{\"line\": [[107.38, 193.62]]}"
+   ],
+   [
+    "place_ext_line",
+    "D.Hc",
+    "{\"lines\": [{\"beyond\": 2.0, \"gap\": 19.0}]}"
+   ],
+   [
+    "place_leader_cross",
+    "D.Db",
+    "{\"at\": [117.38, 97.25], \"with\": \"D.dp\"}"
+   ],
+   [
+    "place_leader_cross",
+    "D.R2",
+    "{\"at\": [117.38, 232.62], \"with\": \"D.dc\"}"
+   ],
+   [
+    "place_leader_cross",
+    "D.dc",
+    "{\"at\": [117.38, 232.62], \"with\": \"D.R2\"}"
+   ],
+   [
+    "place_leader_cross",
+    "D.dp",
+    "{\"at\": [117.38, 97.25], \"with\": \"D.Db\"}"
+   ],
+   [
+    "place_nesting",
+    "D.Hc",
+    "{\"inner\": \"D.Hc\", \"inner_span\": 60.0, \"outer\": \"D.t\", \"outer_span\": 14.0}"
+   ]
+  ],
+  "L2/box/box_cover": [
+   [
+    "place_dim_cross",
+    "D.Dvt",
+    "{\"at\": [122.65, 121.25], \"with\": \"D.dvt\"}"
+   ],
+   [
+    "place_dim_cross",
+    "D.dvt",
+    "{\"at\": [122.65, 121.25], \"with\": \"D.Dvt\"}"
+   ],
+   [
+    "place_dim_outline",
+    "D.Bb",
+    "{\"line\": [[227.35, 224.62]]}"
+   ],
+   [
+    "place_dim_outline",
+    "D.fw",
+    "{\"line\": [[294.35, 221.12]]}"
+   ],
+   [
+    "place_dim_outline",
+    "D.s",
+    "{\"line\": [[288.35, 236.62]]}"
+   ],
+   [
+    "place_ext_line",
+    "D.A",
+    "{\"lines\": [{\"beyond\": 2.0, \"gap\": 6.0}, {\"beyond\": 2.0, \"gap\": 6.0}]}"
+   ],
+   [
+    "place_leader_cross",
+    "D.Dvt",
+    "{\"at\": [122.65, 121.25], \"with\": \"D.dvt\"}"
+   ],
+   [
+    "place_leader_cross",
+    "D.dvt",
+    "{\"at\": [122.65, 121.25], \"with\": \"D.Dvt\"}"
+   ],
+   [
+    "place_nesting",
+    "D.D2",
+    "{\"inner\": \"D.D2\", \"inner_span\": 40.0, \"outer\": \"D.d2\", \"outer_span\": 30.0}"
+   ],
+   [
+    "place_nesting",
+    "D.Dv",
+    "{\"inner\": \"D.Dv\", \"inner_span\": 28.0, \"outer\": \"D.dv\", \"outer_span\": 12.0}"
+   ],
+   [
+    "place_row_spacing",
+    "D.L",
+    "{\"gap\": 2.0, \"with\": \"D.d2\"}"
+   ]
+  ],
+  "L2/box/gearbox_base": [
+   [
+    "place_dim_cross",
+    "D.D1",
+    "{\"at\": [111.38, 240.62], \"with\": \"D.d1\"}"
+   ],
+   [
+    "place_dim_cross",
+    "D.D2",
+    "{\"at\": [163.38, 240.62], \"with\": \"D.d2\"}"
+   ],
+   [
+    "place_dim_cross",
+    "D.d1",
+    "{\"at\": [111.38, 240.62], \"with\": \"D.D1\"}"
+   ],
+   [
+    "place_dim_cross",
+    "D.d2",
+    "{\"at\": [163.38, 240.62], \"with\": \"D.D2\"}"
+   ],
+   [
+    "place_dim_outline",
+    "D.B",
+    "{\"line\": [[259.38, 224.62]]}"
+   ],
+   [
+    "place_dim_outline",
+    "D.Bb",
+    "{\"line\": [[251.38, 232.62]]}"
+   ],
+   [
+    "place_dim_outline",
+    "D.s",
+    "{\"line\": [[312.38, 248.62]]}"
+   ],
+   [
+    "place_leader_cross",
+    "D.D1",
+    "{\"at\": [111.38, 240.62], \"with\": \"D.d1\"}"
+   ],
+   [
+    "place_leader_cross",
+    "D.D2",
+    "{\"at\": [163.38, 240.62], \"with\": \"D.d2\"}"
+   ],
+   [
+    "place_leader_cross",
+    "D.d1",
+    "{\"at\": [111.38, 240.62], \"with\": \"D.D1\"}"
+   ],
+   [
+    "place_leader_cross",
+    "D.d2",
+    "{\"at\": [163.38, 240.62], \"with\": \"D.D2\"}"
+   ],
+   [
+    "place_nesting",
+    "D.Ai",
+    "{\"inner\": \"D.Ai\", \"inner_span\": 88.0, \"outer\": \"D.fx\", \"outer_span\": 35.0}"
+   ],
+   [
+    "place_nesting",
+    "D.Hc",
+    "{\"inner\": \"D.Hc\", \"inner_span\": 32.0, \"outer\": \"D.t\", \"outer_span\": 10.0}"
+   ]
+  ],
+  "L2/box/valve_body": [
+   [
+    "place_dim_cross",
+    "D.Bd",
+    "{\"at\": [131.31, 91.62], \"with\": \"D.bpcd\"}"
+   ],
+   [
+    "place_dim_cross",
+    "D.bpcd",
+    "{\"at\": [131.31, 91.62], \"with\": \"D.Bd\"}"
+   ],
+   [
+    "place_leader_cross",
+    "D.Bd",
+    "{\"at\": [131.31, 91.62], \"with\": \"D.bpcd\"}"
+   ],
+   [
+    "place_leader_cross",
+    "D.bpcd",
+    "{\"at\": [131.31, 91.62], \"with\": \"D.Bd\"}"
+   ],
+   [
+    "place_nesting",
+    "D.Ds",
+    "{\"inner\": \"D.Ds\", \"inner_span\": 30.0, \"outer\": \"D.Dv\", \"outer_span\": 22.0}"
+   ],
+   [
+    "place_nesting",
+    "D.H",
+    "{\"inner\": \"D.H\", \"inner_span\": 94.0, \"outer\": \"D.ds\", \"outer_span\": 8.0}"
+   ],
+   [
+    "place_nesting",
+    "D.Hn",
+    "{\"inner\": \"D.Hn\", \"inner_span\": 56.0, \"outer\": \"D.ds\", \"outer_span\": 8.0}"
+   ],
+   [
+    "place_nesting",
+    "D.L",
+    "{\"inner\": \"D.L\", \"inner_span\": 100.0, \"outer\": \"D.Ft\", \"outer_span\": 10.0}"
+   ]
+  ],
+  "L2/disc/bearing_cap": [
+   [
+    "place_dim_outline",
+    "D.dg",
+    "{\"line\": [[147.6, 139.25]]}"
+   ],
+   [
+    "place_text_overlap",
+    "D.dg",
+    "{\"overlap\": 1.0, \"with\": [\"H.front.body\"]}"
+   ]
+  ],
+  "L2/disc/gear_blank": [
+   [
+    "place_text_overlap",
+    "D.kd",
+    "{\"overlap\": 0.16, \"with\": [\"D.kd\"]}"
+   ]
+  ],
+  "L2/disc/pulley": [
+   [
+    "place_dim_outline",
+    "D.tw",
+    "{\"line\": [[126.06, 221.03]]}"
+   ],
+   [
+    "place_nesting",
+    "D.B",
+    "{\"inner\": \"D.B\", \"inner_span\": 40.0, \"outer\": \"D.e\", \"outer_span\": 18.0}"
+   ],
+   [
+    "place_nesting",
+    "D.da",
+    "{\"inner\": \"D.da\", \"inner_span\": 120.0, \"outer\": \"D.di\", \"outer_span\": 84.0}"
+   ],
+   [
+    "place_text_overlap",
+    "D.kd",
+    "{\"overlap\": 0.16, \"with\": [\"D.kd\"]}"
+   ]
+  ],
+  "L2/fork/angle_bracket": [
+   [
+    "place_text_overlap",
+    "D.Ls",
+    "{\"overlap\": 1.587, \"with\": [\"D.Ls\"]}"
+   ],
+   [
+    "place_text_overlap",
+    "D.tp",
+    "{\"overlap\": 1.587, \"with\": [\"D.tp\"]}"
+   ]
+  ],
+  "L2/fork/bearing_support": [
+   [
+    "place_dim_cross",
+    "D.D",
+    "{\"at\": [114.38, 216.38], \"with\": \"D.d\"}"
+   ],
+   [
+    "place_dim_cross",
+    "D.d",
+    "{\"at\": [114.38, 216.38], \"with\": \"D.D\"}"
+   ],
+   [
+    "place_leader_cross",
+    "D.D",
+    "{\"at\": [114.38, 216.38], \"with\": \"D.d\"}"
+   ],
+   [
+    "place_leader_cross",
+    "D.d",
+    "{\"at\": [114.38, 216.38], \"with\": \"D.D\"}"
+   ],
+   [
+    "place_nesting",
+    "D.px",
+    "{\"inner\": \"D.px\", \"inner_span\": 80.0, \"outer\": \"D.rt\", \"outer_span\": 10.0}"
+   ]
+  ],
+  "L2/fork/link": [
+   [
+    "place_dim_cross",
+    "D.D1",
+    "{\"at\": [74.38, 244.25], \"with\": \"D.d1\"}"
+   ],
+   [
+    "place_dim_cross",
+    "D.D2",
+    "{\"at\": [174.38, 244.25], \"with\": \"D.d2\"}"
+   ],
+   [
+    "place_dim_cross",
+    "D.d1",
+    "{\"at\": [74.38, 244.25], \"with\": \"D.D1\"}"
+   ],
+   [
+    "place_dim_cross",
+    "D.d2",
+    "{\"at\": [174.38, 244.25], \"with\": \"D.D2\"}"
+   ],
+   [
+    "place_ext_line",
+    "D.Lt",
+    "{\"lines\": [{\"beyond\": 2.0, \"gap\": 9.113}, {\"beyond\": 2.0, \"gap\": 5.799}]}"
+   ],
+   [
+    "place_leader_cross",
+    "D.D1",
+    "{\"at\": [74.38, 244.25], \"with\": \"D.d1\"}"
+   ],
+   [
+    "place_leader_cross",
+    "D.D2",
+    "{\"at\": [174.38, 244.25], \"with\": \"D.d2\"}"
+   ],
+   [
+    "place_leader_cross",
+    "D.d1",
+    "{\"at\": [74.38, 244.25], \"with\": \"D.D1\"}"
+   ],
+   [
+    "place_leader_cross",
+    "D.d2",
+    "{\"at\": [174.38, 244.25], \"with\": \"D.D2\"}"
+   ],
+   [
+    "place_nesting",
+    "D.Lt",
+    "{\"inner\": \"D.Lt\", \"inner_span\": 136.0, \"outer\": \"D.L\", \"outer_span\": 100.0}"
+   ]
+  ],
+  "L2/fork/shift_fork": [
+   [
+    "place_dim_cross",
+    "D.D",
+    "{\"at\": [100.38, 232.25], \"with\": \"D.d\"}"
+   ],
+   [
+    "place_dim_cross",
+    "D.d",
+    "{\"at\": [100.38, 232.25], \"with\": \"D.D\"}"
+   ],
+   [
+    "place_leader_cross",
+    "D.D",
+    "{\"at\": [100.38, 232.25], \"with\": \"D.d\"}"
+   ],
+   [
+    "place_leader_cross",
+    "D.d",
+    "{\"at\": [100.38, 232.25], \"with\": \"D.D\"}"
+   ]
+  ],
+  "L2/shaft/pump_shaft": [
+   [
+    "place_dim_outline",
+    "D.d1",
+    "{\"line\": [[174.58, 176.04]]}"
+   ],
+   [
+    "place_dim_outline",
+    "D.d2",
+    "{\"line\": [[202.83, 174.04]]}"
+   ],
+   [
+    "place_dim_outline",
+    "D.d3",
+    "{\"line\": [[221.83, 171.04]]}"
+   ],
+   [
+    "place_dim_outline",
+    "D.d4",
+    "{\"line\": [[243.33, 174.04]]}"
+   ],
+   [
+    "place_dim_outline",
+    "D.d5",
+    "{\"line\": [[293.83, 175.04]]}"
+   ],
+   [
+    "place_nesting",
+    "D.L",
+    "{\"inner\": \"D.L\", \"inner_span\": 136.0, \"outer\": \"D.l2\", \"outer_span\": 30.0}"
+   ],
+   [
+    "place_text_overlap",
+    "D.kd",
+    "{\"overlap\": 0.16, \"with\": [\"D.kd\"]}"
+   ]
+  ],
+  "L2/shaft/shaft": [
+   [
+    "place_dim_outline",
+    "D.d1",
+    "{\"line\": [[146.0, 197.67]]}"
+   ],
+   [
+    "place_dim_outline",
+    "D.d2",
+    "{\"line\": [[179.0, 183.92]]}"
+   ],
+   [
+    "place_dim_outline",
+    "D.d3",
+    "{\"line\": [[199.0, 187.67]]}"
+   ],
+   [
+    "place_dim_outline",
+    "D.d5",
+    "{\"line\": [[303.0, 194.67]]}"
+   ],
+   [
+    "place_ext_line",
+    "D.gh",
+    "{\"lines\": [{\"beyond\": 2.0, \"gap\": null}, {\"beyond\": 2.0, \"gap\": null}]}"
+   ],
+   [
+    "place_ext_line",
+    "D.gw",
+    "{\"lines\": [{\"beyond\": 2.0, \"gap\": null}, {\"beyond\": 2.0, \"gap\": null}]}"
+   ],
+   [
+    "place_nesting",
+    "D.L",
+    "{\"inner\": \"D.L\", \"inner_span\": 200.0, \"outer\": \"D.l2\", \"outer_span\": 30.0}"
+   ],
+   [
+    "place_text_overlap",
+    "D.kd",
+    "{\"overlap\": 0.16, \"with\": [\"D.kd\"]}"
+   ]
+  ],
+  "L2/shaft/spline_shaft": [
+   [
+    "place_dim_outline",
+    "D.d2",
+    "{\"line\": [[163.17, 124.4]]}"
+   ],
+   [
+    "place_dim_outline",
+    "D.d3",
+    "{\"line\": [[183.17, 120.4]]}"
+   ],
+   [
+    "place_dim_outline",
+    "D.d5",
+    "{\"line\": [[210.17, 124.4]]}"
+   ],
+   [
+    "place_nesting",
+    "D.L",
+    "{\"inner\": \"D.L\", \"inner_span\": 120.0, \"outer\": \"D.l2\", \"outer_span\": 30.0}"
+   ]
+  ]
+ }
+}

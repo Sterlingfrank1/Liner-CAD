@@ -529,8 +529,10 @@ def general_tol(d):
             and not i.get("reference")
         ):
             dims.append(e)
-    if general_class(d) or not dims:
-        return [], 1  # the drawing-level check ran and passed
+    if not dims:
+        return [], 0  # no untoleranced dimension: nothing for the drawing-level check to look at
+    if general_class(d):
+        return [], 1  # the drawing-level check ran against the declared class and passed
     e = dims[0]
     return [
         _f(

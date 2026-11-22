@@ -16,6 +16,8 @@ PLACEMENT_DEBT = {
     "bearing_support": {
         ("place_dim_cross", "D.D"),
         ("place_dim_cross", "D.d"),
+        ("place_leader_cross", "D.D"),
+        ("place_leader_cross", "D.d"),
         ("place_nesting", "D.px"),
     },
     "bracket": set(),
@@ -32,6 +34,8 @@ PLACEMENT_DEBT = {
         ("place_dim_cross", "D.Db"),
         ("place_dim_cross", "D.dp"),
         ("place_ext_line", "D.Hc"),
+        ("place_leader_cross", "D.Db"),
+        ("place_leader_cross", "D.dp"),
         ("place_nesting", "D.Df"),
         ("place_nesting", "D.Hc"),
         ("place_nesting", "D.W"),
@@ -48,7 +52,12 @@ PLACEMENT_DEBT = {
         ("place_nesting", "D.L"),
         ("place_text_overlap", "D.kd"),
     },
-    "shift_fork": {("place_dim_cross", "D.D"), ("place_dim_cross", "D.d")},
+    "shift_fork": {
+        ("place_dim_cross", "D.D"),
+        ("place_dim_cross", "D.d"),
+        ("place_leader_cross", "D.D"),
+        ("place_leader_cross", "D.d"),
+    },
     "sleeve": set(),
     "spline_shaft": {
         ("place_dim_outline", "D.d2"),
