@@ -104,13 +104,17 @@ def _decode(name) -> str:
 
 
 def _title_name(name) -> bool:
-    up = _decode(name).upper()
-    return any(w in up for w in TITLE_BLOCK_WORDS)
+    # C4: strict block-name rule shared with the importer
+    return importdxf.is_frame_block(name)
 
 
 def _title_layer(name) -> bool:
-    up = _decode(name).upper()
-    return any(w in up for w in TITLE_LAYER_WORDS)
+    # C4: one detection rule shared with the importer (exact frame/title layer names only)
+    return importdxf.is_frame_layer(name)
+
+
+def _title_insert(e) -> bool:
+    return e.dxftype() == "INSERT" and (_title_name(e.dxf.name) or _title_layer(e.dxf.layer))
 
 
 def _title_field(tag) -> bool:
@@ -160,7 +164,7 @@ def _created_of_kind(created, kinds) -> list:
 
 
 def _all_attribs(doc, inserts) -> list:
-    out = [e for e in _msp(doc) if e.dxftype() == "ATTRIB"]
+    out = [e for e in _msp(doc) if e.dxftype() == "ATTRIB" and _title_layer(e.dxf.layer)]
     for br in inserts:
         out.extend(getattr(br, "attribs", ()))
     return out
@@ -312,6 +316,11 @@ def entity_retention(doc, counts: dict) -> dict:
                 retained[label] += n
     # every DIMENSION that became a dimension or a fallback note is retained as an entity
     retained["DIMENSION"] += sum(counts.get("from", {}).get("dims", {}).values())
+    # C4: source frame / title geometry is absorbed into the template frame semantics; count it
+    absorbed = counts.get("frame", {}).get("absorbed", {})
+    for label, n in absorbed.items():
+        if label in source:
+            retained[label] += n
     by_type = {}
     for kind in sorted(set(source) | set(retained)):
         src = source.get(kind, 0)
@@ -332,8 +341,19 @@ def layer_retention(doc, created) -> dict:
     grouped = {}
     for e in _msp(doc):
         grouped.setdefault(e.dxf.layer, []).append(_would_import(doc, e))
+    absorbed_layers = [
+        e.dxf.layer
+        for e in _msp(doc)
+        if importdxf.classify(e)[0] == "edges"
+        and importdxf.is_frame_layer(e.dxf.layer)
+        and importdxf.edge_has_geometry(e)
+        and importdxf._visible(doc, e)
+    ]
+    absorbed_layers = list(dict.fromkeys(absorbed_layers))
     not_imported = [
-        _decode(lay["name"]) for lay in with_content if not any(grouped.get(lay["name"], ()))
+        _decode(lay["name"])
+        for lay in with_content
+        if not any(grouped.get(lay["name"], ())) and lay["name"] not in absorbed_layers
     ]
     imported = len(with_content) - len(not_imported)
     source_names = {str(lay["name"]) for lay in layers}
@@ -343,17 +363,21 @@ def layer_retention(doc, created) -> dict:
         if el._intent.get("dxf", {}).get("layer") is not None
     }
     names_preserved = sorted(element_layers & source_names)
+    absorbed_layer_names = [_decode(n) for n in absorbed_layers]
     return {
         "source_layers": len(layers),
         "layers_with_content": len(with_content),
         "layers_with_content_imported": imported,
         "not_imported": sorted(not_imported),
+        "absorbed_layers": sorted(absorbed_layer_names),
         "names_preserved": len(names_preserved),
         "names_preserved_rate": _rate(len(names_preserved), len(with_content)),
         "names_preserved_list": [_decode(n) for n in names_preserved],
         "note": (
             "imported edge elements carry their source layer in intent.dxf.layer; dimensions and "
-            "notes do not, so names_preserved is a per-element-kind reading (improves with C2)"
+            "notes do not, so names_preserved is a per-element-kind reading. Absorbed frame-layer "
+            "content counts as imported content (represented by the single template frame) and is "
+            "listed separately in absorbed_layers; it is not counted as an element-carried name."
         ),
         "rate": _rate(imported, len(with_content)),
     }
@@ -424,7 +448,7 @@ def _sheet_fits(width, height, sheet, scale, std="GB") -> bool:
 def frame_title(doc, d, created) -> dict:
     ents = _msp(doc)
     handlers = _imported_handles(created)
-    inserts = [e for e in ents if e.dxftype() == "INSERT" and _title_name(e.dxf.name)]
+    inserts = [e for e in ents if _title_insert(e)]
     attribs = _all_attribs(doc, inserts)
     # title texts: modelspace texts on title / frame layers PLUS the template texts inside the
     # title block definitions (4 samples x 16 template texts were previously not in the denominator)
@@ -442,9 +466,23 @@ def frame_title(doc, d, created) -> dict:
     as_note_list, _unmatched = _matched(remaining, notes)
     # the drawing frame itself is ordinary geometry on a title / frame layer: count the edges
     frame_edges = [
-        e for e in ents if importdxf.classify(e)[0] == "edges" and _title_layer(e.dxf.layer)
+        e
+        for e in ents
+        if importdxf.classify(e)[0] == "edges"
+        and _title_layer(e.dxf.layer)
+        and importdxf.edge_has_geometry(e)
     ]
     frame_edges_retained = sum(1 for e in frame_edges if _handle(e) in handlers)
+    absorbed = importdxf._frame_absorbed(doc)
+    frame_edges_absorbed = sum(absorbed.values())
+    frame_raw = [
+        e
+        for e in ents
+        if importdxf.classify(e)[0] == "raw"
+        and _title_layer(e.dxf.layer)
+        and importdxf._visible(doc, e)
+    ]
+    frame_raw_retained = sum(1 for e in frame_raw if _handle(e) in handlers)
     inserts_retained = sum(1 for e in inserts if _handle(e) in handlers)
     attrib_retained = sum(1 for e in attribs if _handle(e) in handlers)  # handle-matched only
     k, _unit = importdxf.unit_factor(doc)
@@ -460,7 +498,12 @@ def frame_title(doc, d, created) -> dict:
     # the final drawing always carries its own template frame (T.frame); the imported frame
     # geometry is duplicated edges, which C4 has to reconcile into "exactly one frame"
     model_frames = sum(1 for el in getattr(d, "_els", {}).values() if el.kind == "frame")
-    single_frame_ok = model_frames == 1 and frame_edges_retained == 0
+    single_frame_ok = (
+        model_frames == 1
+        and frame_edges_retained == 0
+        and frame_edges_absorbed == len(frame_edges)
+        and frame_raw_retained == 0
+    )
     return {
         "sheet_guess": {
             "available": sheet is not None,
@@ -472,6 +515,8 @@ def frame_title(doc, d, created) -> dict:
         "frame_inserts_retained": inserts_retained,
         "frame_edges": len(frame_edges),
         "frame_edges_retained": frame_edges_retained,
+        "frame_edges_absorbed": frame_edges_absorbed,
+        "frame_raw_retained": frame_raw_retained,
         "model_frames": model_frames,
         "single_frame_ok": single_frame_ok,
         "title_attrib_fields": len(attribs),
@@ -482,9 +527,13 @@ def frame_title(doc, d, created) -> dict:
         "title_text_rate": _rate(len(as_text_list), len(title_sources)),
         "title_note_rate": _rate(len(as_note_list), len(title_sources)),
         "note": (
-            "title texts include the title block template texts; as_text is the C2 target reading "
-            "(currently 0), as_note the current leader-note fallback; retained INSERT / ATTRIB "
-            "counts are dxf-handle matches; frame edges are imported plain geometry"
+            "title texts include the title block template texts; as_text is the C2 target reading, "
+            "as_note the leader-note fallback; retained INSERT / ATTRIB counts are dxf-handle matches; "
+            "C4: source frame edges are absorbed into the template frame semantics "
+            "(frame_edges_absorbed); single_frame_ok requires one model frame, zero frame edges "
+            "imported as geometry and every detected source frame edge accounted for. Detection "
+            "uses exact frame/title layer names (shared with the importer), so a frame drawn on "
+            "an unnamed layer is outside the ruler's reach (documented limitation)."
         ),
     }
 
@@ -679,6 +728,7 @@ def _merge(files: list) -> dict:
     model_frames = single_frame_ok = 0
     sheet_available = sheet_fits = 0
     frame_edges = frame_edges_kept = 0
+    frame_edges_absorbed = 0
     edit_ok = inspect_ok = inspect_match = 0
     for f in ok:
         m = f["metrics"]
@@ -707,6 +757,7 @@ def _merge(files: list) -> dict:
         single_frame_ok += 1 if m["frame_title"]["single_frame_ok"] else 0
         frame_edges += m["frame_title"]["frame_edges"]
         frame_edges_kept += m["frame_title"]["frame_edges_retained"]
+        frame_edges_absorbed += m["frame_title"]["frame_edges_absorbed"]
         sheet_available += 1 if m["frame_title"]["sheet_guess"]["available"] else 0
         sheet_fits += 1 if m["frame_title"]["sheet_guess"]["fits"] else 0
         edit_ok += 1 if m["edit_round"]["ok"] else 0
@@ -751,6 +802,7 @@ def _merge(files: list) -> dict:
         "frame_edges": {
             "source": frame_edges,
             "retained": frame_edges_kept,
+            "absorbed": frame_edges_absorbed,
             "rate": _rate(frame_edges_kept, frame_edges),
         },
     }

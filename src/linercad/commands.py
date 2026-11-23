@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .errors import InvalidArgument, LinerError, NotFound
 from .model import check_name
-from .runtime import SRC, TMP_DIR, build
+from .runtime import LOG, SRC, TMP_DIR, build
 
 SELECTION_TTL = 900.0  # seconds a Viewer selection stays actionable (H4); env override for tests
 
@@ -394,17 +394,56 @@ def _skill_files():
     return out
 
 
+def _param_range_text(p):
+    lo, hi = p.get("min"), p.get("max")
+    if lo is not None and hi is not None:
+        return f"（{lo}..{hi}）"
+    if lo is not None:
+        return f"（≥{lo}）"
+    if hi is not None:
+        return f"（≤{hi}）"
+    return ""
+
+
+def _template_section():
+    """Live user-template list appended to the skill (H2): the card wants skill to list them."""
+    from . import usertemplates
+
+    lines = ["", "## 当前用户模板（自动生成；详情 lcad template list）", ""]
+    try:
+        items = usertemplates.list_all()
+    except LinerError:
+        items = []
+    if not items:
+        lines.append(
+            "（暂无用户模板；lcad template save <名> --description … 把当前图纸沉淀成模板）"
+        )
+    else:
+        for t in items:
+            params = "、".join(
+                f"{p.get('name')}={p.get('value')}{_param_range_text(p)}"
+                for p in t.get("params", [])
+            )
+            desc = t.get("description") or "（无描述）"
+            lines.append(f"- `{t['name']}`：{desc}；参数：{params or '—'}")
+        lines.append("")
+        lines.append("匹配即从模板起步：lcad init <目录> --from <名> --set 参数=值 …")
+    return "\n".join(lines)
+
+
 def skill(family=None):
     """SKILL.md, a page (skill/pages/<name>.md) or a part-family card (skill/families/<name>.md)."""
     from .errors import NotFound
 
     files = _skill_files()
+    live = _template_section()
     if family is None:
-        return {"ok": True, "path": "SKILL.md", "text": files["SKILL.md"]}
+        return {"ok": True, "path": "SKILL.md", "text": files["SKILL.md"] + live}
     for sub in ("families", "pages"):
         key = f"{sub}/{family}.md"
         if key in files:
-            return {"ok": True, "path": key, "text": files[key]}
+            text = files[key] + (live if family == "api" else "")
+            return {"ok": True, "path": key, "text": text}
     names = sorted(k.split("/", 1)[1][:-3] for k in files if "/" in k)
     raise NotFound(f"没有分页或零件族卡片 {family!r}", candidates=names + ["install"])
 
@@ -488,3 +527,101 @@ def template_import(dir, file, name):
         "notes": notes,
         "hint": f'Drawing(..., overlay="{name}")；下一次 lcad build -m 会连同图纸源一起提交',
     }
+
+
+# ---- user parameterised templates (H2) -------------------------------------------------------------
+
+
+def _validate_template_dir(staged, manifest=None):
+    """Build the staged template in a *fresh* interpreter (no cached local helpers); raise if bad."""
+    import subprocess
+    import sys
+
+    env = dict(os.environ)
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["LCAD_NO_VIEW"] = "1"
+    try:
+        r = subprocess.run(
+            [sys.executable, "-m", "linercad", "check"],
+            cwd=staged,
+            capture_output=True,
+            env=env,
+            timeout=120,
+        )
+        out = json.loads(r.stdout.decode("utf-8"))
+    except Exception as e:  # noqa: BLE001 - any failure means the template is not self-contained
+        detail = getattr(e, "message", str(e))
+        raise InvalidArgument(
+            f"模板单独构建失败（新进程）：{detail}",
+            hint="模板只打包 drawing.py / model.py / templates/；把本地 helper 一起打包，或去掉依赖",
+        ) from e
+    if not out.get("ok"):
+        raise InvalidArgument(
+            f"模板单独构建失败（新进程）：{(out.get('error') or {}).get('message', '构建失败')}",
+            hint="模板只打包 drawing.py / model.py / templates/；把本地 helper 一起打包，或去掉依赖",
+        )
+    errors = out.get("errors") or 0
+    if errors:
+        packs = out.get("packs") or {}
+        ids = [
+            f.get("id")
+            for pack in packs.values()
+            for f in pack
+            if f.get("severity") == "error" and f.get("id")
+        ][:10]
+        raise InvalidArgument(
+            f"模板只保存构建层，单独构建有 {errors} 个 error，不能作为模板",
+            candidates=ids,
+            hint="修订层补的尺寸 / accept 不随模板保存；先把修订层改动并入 drawing.py 再 save",
+        )
+
+
+def save_template(dir, name, description="", force=False):
+    """Save the current drawing as a reusable user template (requires check 0 error)."""
+    from . import txn, usertemplates
+
+    name = usertemplates.validate_name(name)
+    dir = Path(dir)
+    res = build(dir)
+    errors = [f for f in res.findings if f.get("severity") == "error"]
+    if errors:
+        raise InvalidArgument(
+            f"check 有 {len(errors)} 个 error，不能保存模板",
+            candidates=[f.get("id") for f in errors if f.get("id")][:10],
+            hint="先把 error 修好（lcad check 看详情），只允许带 warning 保存",
+        )
+    warnings = []
+    log = dir / LOG
+    if log.is_file():
+        ops = [ln for ln in log.read_text(encoding="utf-8").splitlines() if ln.strip()]
+        if ops:
+            warnings.append(
+                f"修订层有 {len(ops)} 条操作：模板只保存构建层 drawing.py，修订层不保存；"
+                "需要保留请先把这些修改并入 drawing.py 再 save"
+            )
+    try:
+        dirty = txn.dirty_sources(dir)
+    except LinerError:  # a drawing without git (possible in tests / hand-made dirs) has no diff
+        dirty = []
+    if dirty:
+        warnings.append("有未提交的源文件改动：按当前文件保存")
+    # staged validation runs in a fresh interpreter before any existing template is replaced
+    manifest = usertemplates.save(
+        dir, name, description, force, build_result=res, validate=_validate_template_dir
+    )
+    out = {
+        "ok": True,
+        "template": manifest,
+        "path": str(usertemplates.path(str(name))),
+        "hint": f"lcad init <新目录> --from {manifest['name']} --set 参数=值 一步出图",
+    }
+    if warnings:
+        out["warning"] = "；".join(warnings)
+    return out
+
+
+def template_list():
+    """List the user's saved parametrised templates."""
+    from . import usertemplates
+
+    return {"ok": True, "home": str(usertemplates.home()), "templates": usertemplates.list_all()}

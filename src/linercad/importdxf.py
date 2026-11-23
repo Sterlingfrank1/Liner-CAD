@@ -113,6 +113,112 @@ def dim_kind(e) -> str:
     return DIM_KINDS.get(t) or DIM_UNSUPPORTED.get(t) or f"type{t}"
 
 
+FRAME_LAYER_CN = {"图框", "图框层", "标题", "标题层", "标题栏", "标题栏层"}
+FRAME_LAYER_NAMES = {
+    "FRAME_LAYER",
+    "FRAME_BLOCK",
+    "TITLE_LAYER",
+    "TITLE_BLOCK",
+    "BORDER_LAYER",
+    "SHEET_FRAME",
+    "SHEET_BORDER",
+}
+
+
+def _decoded(name) -> str:
+    try:
+        return decode_dxf_unicode(str(name))
+    except Exception:  # noqa: BLE001 - a raw name is still usable
+        return str(name)
+
+
+def _clean_name(name) -> str:
+    up = _decoded(name).strip().upper()
+    while up and (up[0].isdigit() or up[0] in "_- "):
+        up = up[1:].strip()
+    return up
+
+
+def edge_has_geometry(e) -> bool:
+    """Would _edges() keep this entity as a real segment (zero-length etc. are rejected)?"""
+    t = e.dxftype()
+    if t == "LINE":
+        p, q = e.dxf.start, e.dxf.end
+        return (float(p[0]) - float(q[0])) ** 2 + (float(p[1]) - float(q[1])) ** 2 > 1e-12
+    if t in ("ARC", "CIRCLE"):
+        return float(e.dxf.radius) > 1e-9
+    if t == "LWPOLYLINE":
+        pts = [(float(p[0]), float(p[1])) for p in e.get_points("xy")]
+        return len(pts) >= 2 and any(
+            (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 > 1e-12 for a, b in zip(pts, pts[1:])
+        )
+    if t == "POLYLINE":
+        pts = [(float(v.dxf.location[0]), float(v.dxf.location[1])) for v in e.vertices]
+        return len(pts) >= 2 and any(
+            (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 > 1e-12 for a, b in zip(pts, pts[1:])
+        )
+    return True
+
+
+def is_frame_layer(name) -> bool:
+    """Does this layer belong to the source sheet frame / title block?
+
+    只认完整层名：中文必须是图框/标题栏层名本身；英文走白名单或两段式
+    FRAME_*/TITLE_*/BORDER_*（FRAME_MEMBER、TITLE_BAR 之类普通层不匹配）。
+    """
+    up = _clean_name(name)
+    if not up:
+        return False
+    if up in FRAME_LAYER_CN or up in FRAME_LAYER_NAMES:
+        return True
+    parts = [p for p in up.replace("-", "_").replace(" ", "_").split("_") if p]
+    head = ("FRAME", "TITLE", "BORDER")
+    tail = ("FRAME", "TITLE", "BORDER", "LAYER", "BLOCK", "SHEET", "BORDER")
+    if len(parts) == 1:
+        return False  # bare FRAME / TITLE / BORDER / SHEET are ordinary layer names
+    if len(parts) == 2:
+        return parts[0] in head and parts[1] in tail
+    return False
+
+
+def is_frame_block(name) -> bool:
+    """Title/frame block names only (FRAME_MEMBER / DETAIL_PART / 图框_MEMBER are not)."""
+    up = _clean_name(name)
+    if not up:
+        return False
+    if up in {"图框", "图框块", "标题", "标题块", "标题栏", "标题栏块"}:
+        return True
+    if len(up.replace("-", "_").split("_")) == 1:
+        return False  # bare TITLE / FRAME / MXB blocks are not trusted either
+    parts = [p for p in up.replace("-", "_").replace(" ", "_").split("_") if p]
+    head = {"TITLE", "FRAME", "MXB", "TYDH"}
+    tail = {"BLOCK", "BORDER", "FRAME", "TITLE", "RECORD", "MXB", "SHEET"}
+    return any(p in head for p in parts) and parts[-1] in tail
+
+
+def frame_semantics(doc) -> dict:
+    """Source frame / title-block recognition: layers with frame content, title block INSERTs."""
+    layers = []
+    blocks = []
+    counts = {}
+    for e in doc.modelspace():
+        if is_frame_layer(e.dxf.layer):
+            if e.dxf.layer not in layers:
+                layers.append(e.dxf.layer)
+            if e.dxftype() == "INSERT" and is_frame_block(e.dxf.name) and e.dxf.name not in blocks:
+                blocks.append(e.dxf.name)
+            counts[e.dxftype()] = counts.get(e.dxftype(), 0) + 1
+    for e in doc.modelspace().query("INSERT"):
+        if is_frame_block(e.dxf.name) and e.dxf.name not in blocks:
+            blocks.append(e.dxf.name)
+    return {
+        "layers": [_decoded(n) for n in layers],
+        "raw_layers": layers,
+        "blocks": blocks,
+        "entities": counts,
+    }
+
+
 def classify(e) -> tuple[str, str]:
     """(bucket, label) of a modelspace entity: where it goes and what to count it as."""
     t = e.dxftype()
@@ -473,6 +579,9 @@ class _Ctx:
         self.texts = 0
         self.hatch_skipped = []
         self.hatch_warnings = []
+        self.frame_absorbed = {}
+        self.frame_handles = []
+        self.frame_layers = []
 
     def own(self, el):
         el._refs.append(self.imp.id)
@@ -1172,6 +1281,14 @@ def import_dxf(d, path, view="front"):
                 if not _visible(doc, e):
                     skipped[f"{label}(layer off)"] = skipped.get(f"{label}(layer off)", 0) + 1
                     continue
+                if bucket == "edges" and is_frame_layer(e.dxf.layer) and edge_has_geometry(e):
+                    # C4: the source frame is absorbed into the template frame semantics; it must
+                    # not be imported as a second, overlapping frame.
+                    ctx.frame_absorbed[label] = ctx.frame_absorbed.get(label, 0) + 1
+                    ctx.frame_handles.append(str(e.dxf.handle))
+                    if e.dxf.layer not in ctx.frame_layers:
+                        ctx.frame_layers.append(e.dxf.layer)
+                    continue
                 fn = {
                     "edges": _edges,
                     "raw": _raw,
@@ -1191,6 +1308,7 @@ def import_dxf(d, path, view="front"):
                         skipped[key] = skipped.get(key, 0) + 1
                     continue
                 done(bucket, label, fn(ctx, e))
+    frame_info = frame_semantics(doc)
     imp._intent.update(
         sha256=content_hash(src),
         units=unit,
@@ -1204,6 +1322,14 @@ def import_dxf(d, path, view="front"):
             "hatches": made["hatches"],
             "hatch_skipped": list(ctx.hatch_skipped),
             "hatch_warnings": list(ctx.hatch_warnings),
+            "frame": {
+                "layers": [_decoded(n) for n in ctx.frame_layers],
+                "raw_layers": list(ctx.frame_layers),
+                "blocks": frame_info["blocks"],
+                "entities": frame_info["entities"],
+                "absorbed": dict(sorted(ctx.frame_absorbed.items())),
+                "absorbed_handles": list(ctx.frame_handles),
+            },
             "raw": made["raw"],
             "skipped": dict(sorted(skipped.items())),
             "dims_as_notes": ctx.fallback,
@@ -1272,6 +1398,33 @@ def render_png(doc, out) -> Path:
     return out
 
 
+def _title_attribs(doc, title_blocks) -> list:
+    """Attached ATTRIBs of title/frame blocks plus top-level ATTRIBs on frame layers."""
+    wanted = set(title_blocks)
+    out = []
+    for e in doc.modelspace():
+        if e.dxftype() == "INSERT" and e.dxf.name in wanted:
+            out.extend(getattr(e, "attribs", ()))
+        elif e.dxftype() == "ATTRIB" and is_frame_layer(e.dxf.layer):
+            out.append(e)
+    return out
+
+
+def _frame_absorbed(doc) -> dict:
+    """Visible edge counts that the import will fold into the template frame semantics."""
+    out = {}
+    for e in doc.modelspace():
+        bucket, label = classify(e)
+        if (
+            bucket == "edges"
+            and is_frame_layer(e.dxf.layer)
+            and edge_has_geometry(e)
+            and _visible(doc, e)
+        ):
+            out[label] = out.get(label, 0) + 1
+    return out
+
+
 def inspect(path, tmp_dir=None) -> dict:
     """Survey of a DXF for ``lcad inspect``: layers, entity statistics, extents, where each entity
     type goes on import, and a temporary PNG (``tmp_dir``, else the system temp directory)."""
@@ -1294,7 +1447,19 @@ def inspect(path, tmp_dir=None) -> dict:
         "size": [round(ext[2] - ext[0], 6), round(ext[3] - ext[1], 6)] if ext else None,
         "maps_to": {b: dict(sorted(maps[b].items())) for b in BUCKETS},
         "sheet": None,
+        "frame": None,
+        "title": None,
         "png": None,
+    }
+    frame = frame_semantics(doc)
+    out["frame"] = {
+        "layers": frame["layers"],
+        "entities": dict(sorted(frame["entities"].items())),
+        "absorbed": _frame_absorbed(doc),
+    }
+    out["title"] = {
+        "blocks": frame["blocks"],
+        "attribs": len(_title_attribs(doc, frame["blocks"])),
     }
     if ext:
         sheet, scale = guess_sheet(ext[2] - ext[0], ext[3] - ext[1])
