@@ -27,6 +27,7 @@ REPO = Path(__file__).resolve().parents[1]
 #: rules whose clause number was read from the standard (A4: GB/T 1182-2018 / 17851-2010)
 READ_CLAUSES = {
     "gtol_syntax": ("GB/T 1182-2018", "表1"),
+    "gtol_target": ("GB/T 1182-2018", "表1"),
 }
 
 

@@ -88,6 +88,9 @@ def _annotation_problems():
         "co", "concentricity", 0.02, datums=["B"], ref="D.D"
     )  # undefined datum + axis without a zone
     f.datum("I", ref="D.D")  # discouraged letter (GB/T 17851-2010 6.2 note 2)
+    f.gtol("bad", "circularity", 0.02, ref="D.D")  # axis for a circle characteristic
+    f.gtol("st2", "straightness", 0.05, ref="D.L")  # form value above the orientation value
+    f.gtol("perp2", "perpendicularity", 0.02, datums=["I"], ref="D.L", zone="dia")
     f.rough("r", 3.0, ref="E.front.b.1")  # not a GB/T 1031 preferred value; no rough_default
     d.chain("rest", closing="l2", increase=["D.L"], decrease=["D.l1"], require=(-0.1, 0.1))
     top = d.view("top")

@@ -448,46 +448,445 @@ def dev_order(d):
     return out, len(dims)
 
 
-def gtol_syntax(d):
-    out = []
-    gtols = _els(d, "gtol")
-    defined = sorted(e._intent["letter"] for e in _els(d, "datum"))
-    for e in gtols:
-        i = e._intent
-        if (
-            i["char"] in ("concentricity", "position")
-            and i["target"] == "axis"
-            and i["zone"] is None
-        ):
-            out.append(
-                _f(
-                    "gtol_syntax",
-                    e.id,
-                    f"{e.id}：被测要素是轴线时公差带为圆柱，公差值前应加 Φ（zone='dia'）",
-                    measured={"target": i["target"], "zone": i["zone"]},
-                    expected={"zone": "dia"},
-                    candidates=["zone='dia'"],
-                )
-            )
-        missing_ = [r for r in i.get("datum_refs", []) if r not in d._els]
-        if missing_:
-            out.append(
-                _f(
-                    "gtol_syntax",
-                    e.id,
-                    f"{e.id} 引用的基准 {missing_} 没有定义（v.datum）",
-                    "error",
-                    measured={"referenced": list(i.get("datum_refs", [])), "defined": defined},
-                    expected={"referenced": "全部已定义"},
-                    candidates=missing_,
-                )
-            )
-    n = len(gtols)  # every gtol: are its datum references defined?
-    n += sum(  # the additional zone assertion only applies to an axis with a cylindrical zone
-        1
-        for e in gtols
-        if e._intent["char"] in ("concentricity", "position") and e._intent["target"] == "axis"
+# ---- geometric tolerances (E4): T.syntax / T.target / T.hier read res/gtol.toml ------
+
+
+def _gtol_data(char):
+    from . import res
+
+    try:
+        return res.gtol(char)
+    except Exception:  # noqa: BLE001 - an unknown characteristic is a syntax finding, not a crash
+        return None
+
+
+def _gtol_clause(data, row=None) -> str:
+    if row is not None and row.get("clause"):
+        return f"GB/T 1182-2018 {row['clause']}；表1"
+    refs = "、".join(str(c) for c in data.get("clauses", ())) or "表1"
+    return f"GB/T 1182-2018 表1；{refs}"
+
+
+_FORM_TARGETS = {
+    "circularity": ("circle", "integral"),
+    "cylindricity": ("cylindrical_surface", "integral"),
+    "flatness": ("surface", "integral"),
+    "straightness": ("line", "integral"),
+    "profile_line": ("line", "integral"),
+    "profile_surface": ("surface", "integral"),
+}
+
+
+def _target_row(data, target_kind, ref_shape, has_datums=False, direction_only=False):
+    """(row, target, nature): the table-1 row and measured-element signature for this callout."""
+    char = data["char"]
+    rows = list(data["rows"])
+    if char.startswith("profile_"):
+        if has_datums:
+            # rows are ordered form, orientation, location: >< marks the direction-only case,
+            # otherwise a datum-constrained profile is a location specification
+            rows = [r for r in rows if r["datum"] != "no"] or rows
+            rows = [rows[0] if direction_only else rows[-1]]
+        else:
+            rows = [r for r in rows if r["datum"] == "no"] or rows
+    if char == "circular_runout":
+        wanted = [("circle", "integral")]
+    elif char == "total_runout":
+        wanted = [("surface", "integral")]
+    elif char in _FORM_TARGETS:
+        wanted = [_FORM_TARGETS[char]]
+    elif target_kind == "axis":
+        wanted = [
+            ("derived_line", "derived"),
+            ("line", "derived"),
+            ("plane", "derived"),
+            ("point", "derived"),
+            ("derived_point", "derived"),
+        ]
+    else:
+        wanted = [
+            ("surface", "integral"),
+            ("circle", "integral"),
+            ("line", "integral"),
+            ("cylindrical_surface", "integral"),
+        ]
+    for target, nature in wanted:  # prefer the most specific declared target
+        for row in rows:
+            if target in row["targets"] and nature in row["target_natures"]:
+                return row, target, nature
+    return None, None, None
+
+
+def _condition_holds(when, target_kind, ref_shape) -> bool:
+    """Can the declared intent establish the modifier_conditions 'when' clause?"""
+    if when == "integral":
+        return target_kind == "surface"
+    if when == "integral_plane":
+        return target_kind == "surface" and ref_shape == "line"
+    if when == "derived_line":
+        return target_kind == "axis" or ref_shape == "line"
+    if when == "nominal_line_point_set":
+        return target_kind in ("axis", "point") or ref_shape == "line"
+    return False  # profile / profile_angle / direction_only need TEF/angle state not in the intent
+
+
+def _runout_ref_ok(d, e, data, ref):
+    if ref is None:
+        return True
+    if ref.kind == "dim":
+        # only a diameter / radius dimension resolves to circular elements or an axis;
+        # a linear dimension measures two parallel planes and is not a runout target
+        return ref._intent.get("type") in ("dia", "rad")
+    if ref.kind == "feature":
+        return ref._intent.get("type") in ("turned", "cylinder", "revolved", "shaft")
+    if ref._intent.get("shape") in ("circle", "arc"):
+        return True
+    feat = d._els.get(ref._intent.get("feature"))
+    return feat is not None and feat._intent.get("type") in (
+        "turned",
+        "cylinder",
+        "revolved",
+        "shaft",
     )
+
+
+def gtol_syntax(d):
+    """T.syntax: table-1 semantics read from res/gtol.toml (datum rule, zone shape, modifiers,
+    the Phi rule for a cylindrical zone on an axis, datum references defined)."""
+    out = []
+    defined = {e.id for e in _els(d, "datum")}
+    n = 0
+    for e in _els(d, "gtol"):
+        i = e._intent
+        data = _gtol_data(i.get("char"))
+        n += 1
+        if data is None:
+            out.append(
+                _f(
+                    "gtol_syntax",
+                    e.id,
+                    f"{e.id}：特征项目 {i.get('char')!r} 不在 GB/T 1182-2018 表1 的数据中",
+                    "error",
+                    measured={"char": i.get("char")},
+                    expected={"char": "GB/T 1182-2018 表1 的 14 个特征符号之一"},
+                    std="GB/T 1182-2018",
+                    clause="GB/T 1182-2018 表1",
+                )
+            )
+            continue
+        ref = d._els.get(i.get("ref"))
+        shape = ref._intent.get("shape") if ref is not None else None
+        refs = list(i.get("datum_refs") or ())
+        row, _target, _nature = _target_row(
+            data, i.get("target"), shape, bool(refs), "><" in (i.get("modifiers") or ())
+        )
+        row = row or data["rows"][0]
+        std = data.get("std", "GB/T 1182-2018")
+        clause = _gtol_clause(data, row)
+        # 1. datum rule of the selected table-1 row
+        if row["datum"] == "no" and refs:
+            out.append(
+                _f(
+                    "gtol_syntax",
+                    e.id,
+                    f"{e.id}：{row['id']} 是形状公差行，不能带基准（{clause}）",
+                    "error",
+                    measured={"datums": [x.get("letter") for x in i.get("datums", ())]},
+                    expected={"datum": "无"},
+                    candidates=["去掉基准"],
+                    std=std,
+                    clause=clause,
+                )
+            )
+        elif row["datum"] == "yes" and not refs:
+            out.append(
+                _f(
+                    "gtol_syntax",
+                    e.id,
+                    f"{e.id}：{row['id']} 必须有基准（{clause}）",
+                    "error",
+                    measured={"datums": []},
+                    expected={"datum": "至少一个已定义基准"},
+                    candidates=["datums=['A']"],
+                    std=std,
+                    clause=clause,
+                )
+            )
+        # 2. explicit tolerance-zone shape must be a shape of the selected row
+        zone = i.get("zone")
+        if zone is not None:
+            n += 1
+            shape_name = {"dia": "cylinder", "sphere": "sphere"}.get(zone, zone)
+            if shape_name not in row["zone_shapes"]:
+                out.append(
+                    _f(
+                        "gtol_syntax",
+                        e.id,
+                        f"{e.id}：{row['id']} 的公差带不能是 {zone!r}（行数据允许 {row['zone_shapes']}）",
+                        measured={"zone": zone, "shape": shape_name},
+                        expected={"zone_shapes": row["zone_shapes"]},
+                        candidates=list(row["zone_shapes"]),
+                        std=std,
+                        clause=clause,
+                    )
+                )
+        # 3. modifiers: unconditional row symbols, or conditional symbols whose 'when' holds
+        mods = list(i.get("modifiers") or ())
+        if mods:
+            n += len(mods)
+            allowed = set(row["modifiers"])
+            cond_allowed = {}
+            for c in row.get("modifier_conditions", ()):
+                cond_allowed[c["symbol"]] = c
+            unverified = set(data.get("modifiers_unverified", ()))
+            for m in mods:
+                if m in allowed:
+                    continue
+                cond = cond_allowed.get(m)
+                if cond is not None and _condition_holds(cond["when"], i.get("target"), shape):
+                    continue
+                if cond is not None:
+                    why = f"仅在 {cond['when']} 条件下可用（{cond['clause']}），当前意图无法建立该条件"
+                elif m in unverified:
+                    why = f"{m} 属于未读的 GB/T 16671-2018 / ISO 10579 数据"
+                else:
+                    why = f"不在 {row['id']} 的允许修饰符中"
+                out.append(
+                    _f(
+                        "gtol_syntax",
+                        e.id,
+                        f"{e.id}：修饰符 {m} 不被 {row['id']} 接受（{why}）",
+                        measured={"modifier": m, "allowed": sorted(allowed), "when": cond},
+                        expected={"modifier": f"来自 {row['id']} 的修饰符数据"},
+                        candidates=sorted(allowed | set(cond_allowed)),
+                        std=std,
+                        clause=cond["clause"] if cond else clause,
+                    )
+                )
+        # 4. 7.4: a cylindrical zone on an axis is written with Phi.  Only require it when the
+        # selected row's possible zones are all cylindrical (concentricity/coaxiality); an
+        # omitted zone on straightness/position may legitimately mean parallel planes/lines.
+        if i.get("target") == "axis":
+            zones = set(row["zone_shapes"])
+            cylindrical_only = zones and zones <= {
+                "circle",
+                "cylinder",
+                "two_concentric_circles",
+                "two_coaxial_cylinders",
+            }
+            measurable_axis = bool(set(row["targets"]) & {"line", "derived_line"})
+            if zone == "dia":
+                pass
+            elif zone is None and cylindrical_only and measurable_axis:
+                n += 1
+                out.append(
+                    _f(
+                        "gtol_syntax",
+                        e.id,
+                        f"{e.id}：{row['id']} 的被测要素是轴线、公差带为圆柱，公差值前应加 Φ（zone='dia'）",
+                        measured={"target": "axis", "zone": None},
+                        expected={"zone": "dia"},
+                        candidates=["zone='dia'"],
+                        std=std,
+                        clause=clause,
+                    )
+                )
+        # 5. every referenced datum must be defined
+        missing = [r for r in refs if r not in defined]
+        n += len(refs)
+        for r in missing:
+            out.append(
+                _f(
+                    "gtol_syntax",
+                    e.id,
+                    f"{e.id} 引用的基准 {r} 没有定义（v.datum）",
+                    "error",
+                    measured={"referenced": refs, "defined": sorted(defined)},
+                    expected={"referenced": "全部已定义"},
+                    candidates=[r],
+                    std=std,
+                    clause=clause,
+                )
+            )
+    return out, n
+
+
+def gtol_target(d):
+    """T.target: the measured element the callout points at must be a target of that
+    characteristic in table 1, and datum callouts must carry a matching datum nature."""
+    out = []
+    n = 0
+    for e in _els(d, "gtol"):
+        i = e._intent
+        data = _gtol_data(i.get("char"))
+        if data is None:
+            continue
+        n += 1
+        ref = d._els.get(i.get("ref"))
+        shape = ref._intent.get("shape") if ref is not None else None
+        refs = list(i.get("datum_refs") or ())
+        row, target, nature = _target_row(
+            data, i.get("target"), shape, bool(refs), "><" in (i.get("modifiers") or ())
+        )
+        if row is not None and data["char"] in _FORM_TARGETS:
+            want = _FORM_TARGETS[data["char"]][0]
+            if want in ("surface", "circle", "cylindrical_surface") and i.get("target") == "axis":
+                row = None
+            elif want in ("circle", "cylindrical_surface"):
+                if shape not in ("circle", "arc"):
+                    row = None
+            elif want == "line":
+                if ref is not None and ref.kind == "edge" and shape != "line":
+                    row = None
+            elif want == "surface":
+                if ref is not None and ref.kind == "edge" and shape not in ("line",):
+                    row = None
+        if row is not None and data["char"] in ("circular_runout", "total_runout"):
+            if not _runout_ref_ok(d, e, data, ref):
+                row = None
+        std = data.get("std", "GB/T 1182-2018")
+        clause = _gtol_clause(data, row)
+        if row is None:
+            out.append(
+                _f(
+                    "gtol_target",
+                    e.id,
+                    f"{e.id}：{data['char']} 的被测要素（{i.get('target')}，引用 {i.get('ref')}）"
+                    "不是该特征在表1 允许的要素种类/性质",
+                    "error",
+                    measured={"char": data["char"], "target": i.get("target"), "ref": i.get("ref")},
+                    expected={"targets": data["targets"], "target_natures": data["target_natures"]},
+                    candidates=list(data["targets"]),
+                    std=std,
+                    clause=clause,
+                )
+            )
+        for r in refs:
+            dt = d._els.get(r)
+            if dt is None:
+                continue
+            n += 1
+            dt_target = dt._intent.get("target")
+            dref = d._els.get(dt._intent.get("ref"))
+            bad = None
+            if dt_target == "axis" and (dref is None or dref.kind != "dim"):
+                bad = "axis datum must reference a feature of size (dimension)"
+            elif dt_target == "surface" and (dref is None or dref.kind not in ("edge", "feature")):
+                bad = "surface datum must reference an edge / face"
+            if bad:
+                out.append(
+                    _f(
+                        "gtol_target",
+                        dt.id,
+                        f"{dt.id}：基准 {dt._intent.get('letter')} 的 target={dt_target!r} 与引用几何不符（{bad}）",
+                        "error",
+                        measured={"target": dt_target, "ref": dt._intent.get("ref")},
+                        expected={"target": "axis → 尺寸；surface → 边/面"},
+                        std="GB/T 1182-2018 表1",
+                        clause="GB/T 1182-2018 表1",
+                    )
+                )
+    return out, n
+
+
+_RANK = {"form": 0, "orientation": 1, "location": 2}
+
+
+def _gtol_feature_key(d, ref):
+    el = d._els.get(ref)
+    if el is None:
+        return ("ref", ref)
+    if el.kind == "feature":
+        return ("feature", ref)
+    if el.kind == "edge":
+        return ("feature", el._intent.get("feature") or ref)
+    if el.kind == "dim":
+        keys = set()
+        for rid in getattr(el, "_refs", ()):
+            o = d._els.get(rid)
+            if o is None:
+                continue
+            if o.kind == "edge":
+                keys.add(("feature", o._intent.get("feature") or rid))
+            elif o.kind == "feature":
+                keys.add(("feature", rid))
+        if len(keys) == 1:
+            return keys.pop()
+    return ("ref", ref)
+
+
+def _gtol_category(d, e, data):
+    i = e._intent
+    refs = bool(i.get("datum_refs"))
+    char = data["char"]
+    if char.startswith("profile_"):
+        # TEF constrained by datums = orientation/location; '><' marks the direction-only case
+        if refs:
+            return "orientation" if "><" in (i.get("modifiers") or ()) else "location"
+        return "form"
+    row, _t, _n = _target_row(data, i.get("target"), None, refs, "><" in (i.get("modifiers") or ()))
+    return row["category"] if row is not None else data["categories"][0]
+
+
+def gtol_hier(d):
+    """T.hier: same feature form <= orientation <= location; runout must not be tighter than
+    the corresponding form/location tolerance.  Size-tolerance comparisons are not judged:
+    the evidence (gtol-clauses.md §5) records that GB/T 4249 was not read for that relation."""
+    out = []
+    n = 0
+    groups = {}
+    for e in _els(d, "gtol"):
+        i = e._intent
+        data = _gtol_data(i.get("char"))
+        if data is None:
+            continue
+        key = _gtol_feature_key(d, i.get("ref"))
+        groups.setdefault(key, []).append((e, data, _gtol_category(d, e, data)))
+    for entries in groups.values():
+        for k, (a, _da, ca) in enumerate(entries):
+            for b, _db, cb in entries[k + 1 :]:
+                # runout vs form/location: t_runout must be >= the covered form/location value
+                if ca == "run-out" or cb == "run-out":
+                    ro, other = ((a, ca), (b, cb)) if ca == "run-out" else ((b, cb), (a, ca))
+                    allowed_other = (
+                        {"circularity"}
+                        if ro[0]._intent["char"] == "circular_runout"
+                        else {"concentricity", "coaxiality"}
+                    )
+                    if other[0]._intent["char"] in allowed_other:
+                        n += 1
+                        if ro[0]._intent["value"] < other[0]._intent["value"] - 1e-9:
+                            out.append(
+                                _f(
+                                    "gtol_hier",
+                                    ro[0].id,
+                                    f"{ro[0].id}（{ro[0]._intent['char']} {ro[0]._intent['value']:g}）"
+                                    f" 小于 {other[0].id}（{other[0]._intent['char']} "
+                                    f"{other[0]._intent['value']:g}）：跳动应不小于对应的形状/位置公差",
+                                    measured={"value": ro[0]._intent["value"], "with": other[0].id},
+                                    expected={"value": f">= {other[0]._intent['value']:g}"},
+                                    std="GB/T 4249-2018",
+                                )
+                            )
+                    continue
+                ra, rb = _RANK.get(ca), _RANK.get(cb)
+                if ra is None or rb is None or ra == rb:
+                    continue
+                n += 1
+                lo, hi = (a, b) if ra < rb else (b, a)
+                if lo._intent["value"] > hi._intent["value"]:
+                    out.append(
+                        _f(
+                            "gtol_hier",
+                            lo.id,
+                            f"{lo.id}（{lo._intent['char']} {lo._intent['value']:g}）"
+                            f" 大于 {hi.id}（{hi._intent['char']} {hi._intent['value']:g}）："
+                            "形状/方向/位置的公差值应逐级不减",
+                            measured={"value": lo._intent["value"], "with": hi.id},
+                            expected={"value": f"<= {hi._intent['value']:g}"},
+                            std="GB/T 4249-2018",
+                        )
+                    )
     return out, n
 
 
@@ -694,7 +1093,9 @@ CLAUSES = {
     "missing": "回转体的每个轴向台阶都应有尺寸与其余台阶相连",
     "param_cover": "每个参数都应由尺寸、技术要求或明确的放行覆盖",
     "dev_order": "尺寸的上偏差不应小于下偏差",
-    "gtol_syntax": "轴线为被测要素且公差带为圆柱时公差值前加 Φ；引用的基准应已定义",
+    "gtol_syntax": "按 GB/T 1182-2018 表1 判基准有无、公差带形状、修饰符与轴线圆柱带的 Φ；引用基准应已定义",
+    "gtol_target": "被测要素的种类/性质应与 GB/T 1182-2018 表1 的特征项目匹配",
+    "gtol_hier": "同一要素形状 ≤ 方向 ≤ 位置；跳动 ≥ 对应的圆度/同轴度；尺寸公差关系未判（GB/T 4249-2018 原文未读）",
     "datum_letter": "基准字母不应选用标准建议不用的字母",
     "general_tol": "有未注公差的尺寸时应注明未注公差等级",
     "chain_limit": "封闭环的极限尺寸应在设计要求范围内",
@@ -707,6 +1108,14 @@ CLAUSES = {
 PACKS = {
     "drafting": (line_width, text_height, scale, sheet, conv_dim, section_ref, center_mark),
     "dimensioning": (duplicate, closed_loop, missing, param_cover),
-    "tolerancing": (dev_order, gtol_syntax, datum_letter, general_tol, chain_limit),
+    "tolerancing": (
+        dev_order,
+        gtol_syntax,
+        gtol_target,
+        gtol_hier,
+        datum_letter,
+        general_tol,
+        chain_limit,
+    ),
     "surface": (rough_syntax, rough_default, rough_fit),
 }

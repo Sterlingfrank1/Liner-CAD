@@ -117,6 +117,21 @@ def _fx_chain():
     return d
 
 
+def _fx_gtol_hier():
+    from linercad import Drawing
+
+    d = Drawing(sheet="A3")
+    f = d.view("front")
+    f.rect((0, -10), 40, 20, name="body")
+    dim = f.dim.linear("D", (0, -10), (40, -10), dir="h", value=40.0, side="bottom")
+    d[dim.id]._intent["tolerance"] = {"kind": "dev", "upper": 0.1, "lower": -0.1}
+    f.datum("A", ref=dim.id)
+    f.gtol("st", "straightness", 0.01, ref=dim.id)
+    f.gtol("perp", "perpendicularity", 0.02, datums=["A"], ref=dim.id, zone="dia")
+    layout(d)
+    return d
+
+
 def _inject_balloons(d, specs):
     from linercad.assembly import Balloon
 
@@ -208,6 +223,7 @@ FIXTURES = {
     "place_balloon_align": _fx_balloons,
     "place_balloon_cross": _fx_balloons,
     "place_balloon_spacing": _fx_balloons,
+    "gtol_hier": _fx_gtol_hier,
 }
 
 #: rules whose mutation base is a specific reference case (D1 review: gear_blank Φ92 is the
@@ -389,6 +405,37 @@ def m_gtol_syntax(d):
             e._intent["datum_refs"] = ["ZZ"]
             return e.id
     raise AssertionError("no gtol")
+
+
+def m_gtol_target(d):
+    for e in d._els.values():
+        if e.kind == "gtol":
+            e._intent["char"] = "circularity"
+            e._intent["target"] = "axis"
+            e._intent["zone"] = None
+            e._intent["datums"] = []
+            e._intent["datum_refs"] = []
+            return e.id
+    raise AssertionError("no gtol")
+
+
+def m_gtol_hier(d):
+    form = None
+    other = None
+    for e in d._els.values():
+        if e.kind != "gtol":
+            continue
+        from linercad.rules import _gtol_data
+
+        data = _gtol_data(e._intent["char"])
+        if data and data["categories"][0] == "form":
+            form = e
+        elif data:
+            other = e
+    if form is None or other is None:
+        raise AssertionError("no form/orientation gtol pair")
+    form._intent["value"] = other._intent["value"] * 2.0
+    return form.id
 
 
 def m_datum_letter(d):
@@ -795,6 +842,8 @@ MUTATORS = {
     "param_cover": m_param_cover,
     "dev_order": m_dev_order,
     "gtol_syntax": m_gtol_syntax,
+    "gtol_target": m_gtol_target,
+    "gtol_hier": m_gtol_hier,
     "datum_letter": m_datum_letter,
     "general_tol": m_general_tol,
     "chain_limit": m_chain_limit,
@@ -1000,7 +1049,7 @@ def run_report(cases=None) -> dict:
 E5_BASELINE = {
     "G": {"score": 1.0, "opportunities": 4417, "violations": 0},
     "D": {"score": 0.972252, "opportunities": 2775, "violations": 77},
-    "T": {"score": 1.0, "opportunities": 247, "violations": 0},
+    "T": {"score": 1.0, "opportunities": 321, "violations": 0},
 }
 
 
@@ -1018,12 +1067,12 @@ def _baseline_table() -> list[str]:
         cur = new.get(fam, {})
         d_opp = (cur.get("opportunities") or 0) - old["opportunities"]
         d_viol = (cur.get("violations") or 0) - old["violations"]
-        why = (
-            "新增 place_leader_cross 的 20 条（与 place_dim_cross 在同一批径向引线物理交叉上"
-            "重叠计账，族分数计双次；已知设计重叠）"
-            if fam == "D"
-            else "不变"
-        )
+        why = {
+            "G": "E3 expect_view +52",
+            "D": "E3 expect_dim +72；违规 97→38 来自 D2/D3 排布修复，不是新规则放宽",
+            "T": "E3 expect +74；E4 T.syntax/T.target/T.hier +83",
+            "A": "不变",
+        }.get(fam, "不变")
         out.append(
             f"| {fam} | {old['score']} ({old['opportunities']}/{old['violations']}) | "
             f"{cur.get('score')} ({cur.get('opportunities')}/{cur.get('violations')}) | "
