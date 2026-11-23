@@ -52,7 +52,7 @@ def test_syntax_is_data_driven_for_zones_and_datums(shaft):
     d["G.co"].set(zone="dia")
     assert not [x for x in by_rule(run(d), "gtol_syntax") if x["id"] == "G.co"]
     # circularity on an axis is a T.target problem, not a syntax problem
-    f.gtol("cir", "circularity", 0.02, zone="dia", ref=dim)
+    f.gtol("cir", "circularity", 0.02, ref=dim)
     assert not [x for x in by_rule(run(d), "gtol_syntax") if x["id"] == "G.cir"]
     # a required datum may not be silently dropped (mutate the intent, as a broken front-end would)
     f.gtol("perp", "perpendicularity", 0.02, datums=["A"], ref=circle)
@@ -92,7 +92,7 @@ def test_target_nature_matches_the_characteristic(shaft):
 def test_target_datums_follow_the_datum_field(shaft):
     d, _P, f = shaft
     dim, circle, _line = _ids(d)
-    f.datum("A", ref=dim)
+    f.datum("A", ref=circle)
     f.gtol("per", "perpendicularity", 0.02, datums=["A"], ref=circle)
     assert not by_rule(run(d), "gtol_target")
     d["DT.A"]._intent["target"] = "axis"  # axis datum must point at a feature of size
@@ -116,7 +116,9 @@ def test_hierarchy_against_a_size_tolerance(shaft):
     d, _P, f = shaft
     dim, _circle, _line = _ids(d)
     d[dim]._intent["tolerance"] = {
-        "kind": "dev", "upper": 0.05, "lower": -0.05,
+        "kind": "dev",
+        "upper": 0.05,
+        "lower": -0.05,
     }
     f.gtol("st", "straightness", 0.2, ref=dim)  # form tolerance wider than the size tolerance
     bad = by_rule(run(d), "gtol_hier")

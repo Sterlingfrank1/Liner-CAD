@@ -117,6 +117,21 @@ def _fx_chain():
     return d
 
 
+def _fx_gtol_hier():
+    from linercad import Drawing
+
+    d = Drawing(sheet="A3")
+    f = d.view("front")
+    f.rect((0, -10), 40, 20, name="body")
+    dim = f.dim.linear("D", (0, -10), (40, -10), dir="h", value=40.0, side="bottom")
+    d[dim.id]._intent["tolerance"] = {"kind": "dev", "upper": 0.1, "lower": -0.1}
+    f.datum("A", ref=dim.id)
+    f.gtol("st", "straightness", 0.01, ref=dim.id)
+    f.gtol("perp", "perpendicularity", 0.02, datums=["A"], ref=dim.id, zone="dia")
+    layout(d)
+    return d
+
+
 def _inject_balloons(d, specs):
     from linercad.assembly import Balloon
 
@@ -208,6 +223,7 @@ FIXTURES = {
     "place_balloon_align": _fx_balloons,
     "place_balloon_cross": _fx_balloons,
     "place_balloon_spacing": _fx_balloons,
+    "gtol_hier": _fx_gtol_hier,
 }
 
 #: rules whose mutation base is a specific reference case (D1 review: gear_blank Φ92 is the
@@ -389,6 +405,37 @@ def m_gtol_syntax(d):
             e._intent["datum_refs"] = ["ZZ"]
             return e.id
     raise AssertionError("no gtol")
+
+
+def m_gtol_target(d):
+    for e in d._els.values():
+        if e.kind == "gtol":
+            e._intent["char"] = "circularity"
+            e._intent["target"] = "axis"
+            e._intent["zone"] = None
+            e._intent["datums"] = []
+            e._intent["datum_refs"] = []
+            return e.id
+    raise AssertionError("no gtol")
+
+
+def m_gtol_hier(d):
+    form = None
+    other = None
+    for e in d._els.values():
+        if e.kind != "gtol":
+            continue
+        from linercad.rules import _gtol_data
+
+        data = _gtol_data(e._intent["char"])
+        if data and data["categories"][0] == "form":
+            form = e
+        elif data:
+            other = e
+    if form is None or other is None:
+        raise AssertionError("no form/orientation gtol pair")
+    form._intent["value"] = other._intent["value"] * 2.0
+    return form.id
 
 
 def m_datum_letter(d):
@@ -795,6 +842,8 @@ MUTATORS = {
     "param_cover": m_param_cover,
     "dev_order": m_dev_order,
     "gtol_syntax": m_gtol_syntax,
+    "gtol_target": m_gtol_target,
+    "gtol_hier": m_gtol_hier,
     "datum_letter": m_datum_letter,
     "general_tol": m_general_tol,
     "chain_limit": m_chain_limit,
