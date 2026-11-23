@@ -144,15 +144,30 @@ def test_handover_pairs_every_card_with_a_pr_reference():
             assert re.fullmatch(r"#\d+", cells[2]), (card, cells[2])
 
 
-def test_release_notes_quote_the_d2_d5_final_placement_numbers():
+def test_release_notes_quote_the_final_placement_numbers_with_evidence():
     rel = read("docs/releases/v0.1.1.md")
     handover = read("docs/milestones/v0.1.1/HANDOVER.md")
-    d2 = read("docs/milestones/v0.1.1/evidence/d2-multi-layer.md")
-    d5 = read("docs/milestones/v0.1.1/evidence/d5-parts-list.md")
-    for needle in ("0.9756", "0/45", "0/82"):
-        assert needle in rel, needle
-        assert needle in d2, needle
-    assert "0.9583" in rel and "0.9583" in d5
+    evidence = {
+        name: read(f"docs/milestones/v0.1.1/evidence/{name}")
+        for name in ("d2-multi-layer.md", "d3-balloon-sequences.md", "d5-parts-list.md")
+    }
+    # Every value printed in the release notes / HANDOVER must be traceable to a card evidence file
+    # (D2 for flange / pulley / gear_cover / jack D; D3 or D5 for the assembly A.place values).
+    numbers = {
+        "flange D": ("0/45", "d2-multi-layer.md"),
+        "pulley D": ("0.9756", "d2-multi-layer.md"),
+        "pulley D violations": ("2/82", "d2-multi-layer.md"),
+        "gear_cover D": ("0/82", "d2-multi-layer.md"),
+        "jack D": ("0/30", "d2-multi-layer.md"),
+        "jack A": ("0/25", "d3-balloon-sequences.md"),
+        "vise D": ("0.9583", "d5-parts-list.md"),
+        "vise D violations": ("1/24", "d5-parts-list.md"),
+        "vise A": ("0/59", "d5-parts-list.md"),
+    }
+    for label, (number, source) in numbers.items():
+        assert number in rel, (label, number)
+        assert number in handover, (label, number)
+        assert number in evidence[source], (label, number, source)
     for doc in (rel, handover):
         assert "d2-multi-layer.md" in doc
         assert "d5-parts-list.md" in doc
