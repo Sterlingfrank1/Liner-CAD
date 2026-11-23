@@ -28,10 +28,11 @@ TOL = 0.01
 class Target:
     """A geometry signature: cylinder by diameter, named face, or any."""
 
-    def __init__(self, kind="any", value=None, name=None):
+    def __init__(self, kind="any", value=None, name=None, side=None):
         self.kind = kind
         self.value = value
         self.name = name
+        self.side = side
 
 
 class Constraint:
@@ -57,22 +58,27 @@ class Expect:
     def __init__(self):
         self.constraints = []
 
-    def feature(self, cyl=None, name=None):
-        return Target("cyl", float(cyl) if cyl is not None else None, name)
+    def feature(self, cyl=None, name=None, where=None):
+        return Target("cyl", float(cyl) if cyl is not None else None, name, where)
 
     def face(self, name):
-        return Target("face", name=name)
+        return Target("face", name=name, side=_face_side(name))
 
     def dim(self, target=None, value=None, fit=None, kind=None, must=True):
         target = target if isinstance(target, Target) else Target("any")
-        if value is not None:
-            target = Target("value", float(value))
+        want_value = float(value) if value is not None else None
+        if want_value is not None and target.kind == "any":
+            target = Target("value", want_value)
 
         def check(obs):
             for dim in obs["dims"]:
                 if kind and dim["type"] not in _kind_set(kind):
                     continue
-                if not _target_matches_dim(target, dim):
+                if not _target_matches_dim(target, dim, obs):
+                    continue
+                if want_value is not None and not any(
+                    abs(v - want_value) <= TOL for v in _dim_values_here(dim)
+                ):
                     continue
                 if fit and not _dim_has_fit(dim, fit):
                     continue
@@ -104,6 +110,9 @@ class Expect:
                 if on.kind == "cyl":
                     refv = vals.get(dt.get("ref"))
                     if refv is None or not any(abs(v - on.value) <= TOL for v in refv):
+                        continue
+                elif on.kind == "face":
+                    if not _ref_matches_side(obs, dt.get("ref"), on.side, dt.get("view")):
                         continue
                 return True, dt["id"]
             return False, None
@@ -137,6 +146,9 @@ class Expect:
                     refv = vals.get(g.get("ref"))
                     if refv is None or not any(abs(v - on.value) <= TOL for v in refv):
                         continue
+                elif on.kind == "face":
+                    if not _ref_matches_side(obs, g.get("ref"), on.side, g.get("view")):
+                        continue
                 return True, g["id"]
             return False, None
 
@@ -164,6 +176,9 @@ class Expect:
                 if target.kind == "cyl":
                     refv = vals.get(r.get("ref"))
                     if refv is None or not any(abs(v - target.value) <= TOL for v in refv):
+                        continue
+                elif target.kind == "face":
+                    if not _ref_matches_side(obs, r.get("ref"), target.side, r.get("view")):
                         continue
                 return True, r["id"]
             return False, None
@@ -199,9 +214,17 @@ class Expect:
 
     def view(self, name, section=None, must=True):
         def check(obs):
+            allowed = section
+            if isinstance(allowed, str):
+                allowed = (allowed,)
             for v in obs["views"]:
-                if v["name"] == name:
-                    return True, v["id"]
+                if v["name"] != name:
+                    continue
+                if allowed:
+                    kinds = [s["kind"] for s in obs["sections"] if s["view"] == name]
+                    if not any(k in allowed for k in kinds):
+                        continue
+                return True, v["id"]
             return False, None
 
         self.constraints.append(
@@ -279,13 +302,35 @@ def _dim_values(obs):
     return {dim["id"]: _dim_values_here(dim) for dim in obs["dims"]}
 
 
-def _target_matches_dim(target, dim):
+def _dim_side(dim, obs):
+    if not dim.get("p1") or not dim.get("p2"):
+        return None
+    anchors = [d for d in obs["dims"] if d.get("p1") and d.get("p2")]
+    if not anchors:
+        return None
+    xs = [d["p1"][0] for d in anchors] + [d["p2"][0] for d in anchors]
+    ys = [d["p1"][1] for d in anchors] + [d["p2"][1] for d in anchors]
+    ref = (min(xs), min(ys), max(xs), max(ys))
+    box = (
+        min(dim["p1"][0], dim["p2"][0]),
+        min(dim["p1"][1], dim["p2"][1]),
+        max(dim["p1"][0], dim["p2"][0]),
+        max(dim["p1"][1], dim["p2"][1]),
+    )
+    return _side_of_box(box, ref)
+
+
+def _target_matches_dim(target, dim, obs):
     if target.kind == "cyl":
-        return _diameterish(dim) and any(
-            abs(v - target.value) <= TOL for v in _dim_values_here(dim)
+        return (
+            _diameterish(dim)
+            and any(abs(v - target.value) <= TOL for v in _dim_values_here(dim))
+            and (target.side is None or _dim_side(dim, obs) == target.side)
         )
     if target.kind == "value":
-        return any(abs(v - target.value) <= TOL for v in _dim_values_here(dim))
+        return any(abs(v - target.value) <= TOL for v in _dim_values_here(dim)) and (
+            target.side is None or _dim_side(dim, obs) == target.side
+        )
     return True
 
 
@@ -299,9 +344,56 @@ def _dim_has_fit(dim, fit):
     return fit in (str(dim.get("text") or "") + str(dim.get("suffix") or "")).upper()
 
 
+def _face_side(name):
+    low = str(name).lower()
+    for side in ("left", "right", "top", "bottom", "front", "back"):
+        if side in low:
+            return side
+    return low
+
+
+def _side_of_box(box, ref):
+    cx, cy = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
+    midx, midy = (ref[0] + ref[2]) / 2, (ref[1] + ref[3]) / 2
+    if abs(cx - midx) >= abs(cy - midy):
+        return "left" if cx < midx else "right"
+    return "bottom" if cy < midy else "top"
+
+
+def _prim_bbox(prims):
+    from .layout import prims_bbox
+
+    try:
+        return prims_bbox(list(prims))
+    except Exception:  # noqa: BLE001 - unmeasurable prims simply do not bind a face
+        return None
+
+
+def _ref_matches_side(obs, ref, side, view=None):
+    """A PMI target matches a named face when its referenced geometry sits on that side."""
+    if not ref or side in (None, "any", "surface"):
+        return True
+    d = obs.get("_d")
+    if d is None or ref not in d._els:
+        return False
+    el = d._els[ref]
+    box = _prim_bbox(getattr(el, "_prims", ()))
+    if box is None:
+        return False
+    view_els = [
+        e
+        for e in d._els.values()
+        if e.kind in ("edge", "feature") and (view is None or e._intent.get("view") == view)
+    ]
+    ebox = _prim_bbox([pr for e in view_els for pr in getattr(e, "_prims", ())])
+    if ebox is None:
+        return False
+    return _side_of_box(tuple(box), tuple(ebox)) == side
+
+
 def observed(d):
     """The semantic facts of a built drawing that expect.py may match against."""
-    dims, datums, gtols, roughs, texts, views = [], [], [], [], [], []
+    dims, datums, gtols, roughs, texts, views, sections = [], [], [], [], [], [], []
     for e in d._els.values():
         i = e._intent
         if e.kind == "dim":
@@ -317,6 +409,9 @@ def observed(d):
                     "tol": i.get("tol"),
                     "tolerance": i.get("tolerance"),
                     "designation": i.get("designation"),
+                    "p1": i.get("p1"),
+                    "p2": i.get("p2"),
+                    "view": i.get("view"),
                 }
             )
         elif e.kind == "datum":
@@ -360,6 +455,8 @@ def observed(d):
             texts.append(str(i.get("text") or ""))
         elif e.kind == "view":
             views.append({"id": e.id, "name": i.get("name")})
+        elif e.kind == "section":
+            sections.append({"id": e.id, "view": i.get("view"), "kind": i.get("kind")})
     return {
         "dims": dims,
         "datums": datums,
@@ -367,6 +464,8 @@ def observed(d):
         "roughs": roughs,
         "texts": texts,
         "views": views,
+        "sections": sections,
+        "_d": d,
     }
 
 

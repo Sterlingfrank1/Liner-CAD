@@ -51,8 +51,9 @@
  "completeness_cases": 5,
  "expect": {
   "cases": 20,
-  "checks": 188,
+  "checks": 198,
   "violations": 0,
+  "warnings": 0,
   "pass_rate": 1.0
  },
  "families": {
@@ -62,13 +63,13 @@
    "violations": 0
   },
   "D": {
-   "score": 0.986878,
-   "opportunities": 2896,
+   "score": 0.986906,
+   "opportunities": 2902,
    "violations": 38
   },
   "T": {
    "score": 1.0,
-   "opportunities": 317,
+   "opportunities": 321,
    "violations": 0
   },
   "A": {

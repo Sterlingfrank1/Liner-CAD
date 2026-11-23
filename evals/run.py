@@ -325,6 +325,7 @@ def summary(results):
             "cases": len(exp),
             "checks": sum(r["expect"]["checks"] for r in exp),
             "violations": sum(r["expect"]["violations"] for r in exp),
+            "warnings": sum(r["expect"]["warnings"] for r in exp),
             "pass_rate": (
                 round(sum(1 for r in exp if r["expect"]["pass"]) / len(exp), 4) if exp else None
             ),
@@ -370,6 +371,7 @@ def baseline_vector(report):
             "cases": s["expect"]["cases"],
             "checks": s["expect"]["checks"],
             "violations": s["expect"]["violations"],
+            "warnings": s["expect"]["warnings"],
             "pass_rate": s["expect"]["pass_rate"],
         },
         "families": {
@@ -570,6 +572,10 @@ def compare_baseline(report, base):
         if isinstance(before, (int, float)) and math.isfinite(before):
             if now is None or now < before - 1e-9:
                 out.append(f"expect: pass_rate {now} < baseline {before:g}")
+        wbase = exp_base.get("warnings")
+        wnow = exp_now.get("warnings")
+        if isinstance(wbase, int) and isinstance(wnow, int) and wnow > wbase:
+            out.append(f"expect: should warnings {wnow} > baseline {wbase}")
     cases = s["cases"]
     if isinstance(base.get("cases"), int) and cases < base["cases"]:
         out.append(f"cases: {cases} < baseline {base['cases']}")

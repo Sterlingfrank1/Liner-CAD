@@ -179,7 +179,7 @@ def markdown(report):
         f"- 参考图 expect 通过：{report['reference_pass']}/{report['cases']}",
         f"- 变异检出：{report['detected']}/{report['mutations']}（{report['detection_rate']:.0%}）",
         "",
-        "变异算子：删一个被 expect 引用的必需尺寸；把一个配合代号改错（默认 H7→H8）。",
+        "变异算子：删除一个必需尺寸的全部覆盖（同一值的所有尺寸）；把配合代号改错（整图 fit 统一改成不同的代号）。",
     ]
     return "\n".join(lines) + "\n"
 
