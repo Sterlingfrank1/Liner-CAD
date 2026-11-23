@@ -78,4 +78,4 @@
 
 ## 门禁（最终数字见 PR/CI）
 
-- 全量 pytest / ruff check / format --check src tests；40 例评测、`--baseline`、L3 不变；CI 四项。
+- 全量 `uv run pytest -q`（merge E7 + R1 修正后）：**1515 passed / 1 skipped（11m57s）**；`ruff check .` / `format --check src tests` 绿；40 例评测 **40/40、geometry 1.0**、`--baseline` **regressions: []**（D 0.986906）、L3 不变（G1.0/D0.99 既有 1 条/A1.0 0/116）；CI 四项待跑/绿。
