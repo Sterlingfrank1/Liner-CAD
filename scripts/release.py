@@ -27,8 +27,10 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-TAG_PATTERN = re.compile(r"^v(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)"
-                         r"(?:-(?P<pre>rc|beta|alpha)\.?(?P<pre_num>\d+))?$")
+TAG_PATTERN = re.compile(
+    r"^v(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)"
+    r"(?:-(?P<pre>rc|beta|alpha)\.?(?P<pre_num>\d+))?$"
+)
 VERSION_PATTERN = re.compile(r'^version\s*=\s*"([^"]+)"', re.MULTILINE)
 
 
@@ -65,7 +67,10 @@ def release_notes_path(tag: str, root: Path = REPO_ROOT) -> Path:
 def run(cmd: list[str], *, cwd: Path = REPO_ROOT, capture: bool = False) -> str:
     """跑一条命令；非零退出直接抛错。"""
     result = subprocess.run(
-        cmd, cwd=cwd, text=True, encoding="utf-8",
+        cmd,
+        cwd=cwd,
+        text=True,
+        encoding="utf-8",
         stdout=subprocess.PIPE if capture else None,
         stderr=subprocess.PIPE if capture else None,
     )
@@ -109,8 +114,12 @@ def check_notes(tag: str) -> Path:
 
 def check_tag_free(tag: str) -> None:
     """本地和远端都不能已有同名 tag。"""
-    local = subprocess.run(["git", "rev-parse", "-q", "--verify", f"refs/tags/{tag}"],
-                           cwd=REPO_ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    local = subprocess.run(
+        ["git", "rev-parse", "-q", "--verify", f"refs/tags/{tag}"],
+        cwd=REPO_ROOT,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
     if local.returncode == 0:
         raise ReleaseError(f"本地已存在 tag {tag}")
     remote = run(["git", "ls-remote", "--tags", "origin", f"refs/tags/{tag}"], capture=True)
@@ -120,9 +129,24 @@ def check_tag_free(tag: str) -> None:
 
 def check_ci(head: str) -> None:
     """main 最新一次 CI 必须成功，且就是当前 commit。"""
-    raw = run(["gh", "run", "list", "--branch", "main", "--workflow", "CI", "--limit", "1",
-               "--json", "headSha,status,conclusion"], capture=True)
+    raw = run(
+        [
+            "gh",
+            "run",
+            "list",
+            "--branch",
+            "main",
+            "--workflow",
+            "CI",
+            "--limit",
+            "1",
+            "--json",
+            "headSha,status,conclusion",
+        ],
+        capture=True,
+    )
     import json
+
     runs = json.loads(raw or "[]")
     if not runs:
         raise ReleaseError("查不到 main 的 CI 记录")
@@ -138,10 +162,17 @@ def check_ci(head: str) -> None:
 
 
 def release_command(tag: str, notes: Path) -> list[str]:
-    cmd = ["gh", "release", "create", tag,
-           "--title", f"Liner-CAD {tag}",
-           "--notes-file", str(notes),
-           "--verify-tag"]
+    cmd = [
+        "gh",
+        "release",
+        "create",
+        tag,
+        "--title",
+        f"Liner-CAD {tag}",
+        "--notes-file",
+        str(notes),
+        "--verify-tag",
+    ]
     if is_prerelease(tag):
         cmd.append("--prerelease")
     return cmd
@@ -170,7 +201,9 @@ def main(argv: list[str] | None = None) -> int:
         print("> 计划")
         print(f"  commit  : {head}")
         print(f"  notes   : docs/releases/{tag}.md")
-        print(f"  commands: git tag -a {tag} -m '{message}'; git push origin {tag}; {' '.join(cmd)}")
+        print(
+            f"  commands: git tag -a {tag} -m '{message}'; git push origin {tag}; {' '.join(cmd)}"
+        )
 
         if args.dry_run:
             print("\nDryRun：未做任何改动。")
