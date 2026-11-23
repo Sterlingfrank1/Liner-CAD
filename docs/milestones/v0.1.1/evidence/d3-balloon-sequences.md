@@ -111,7 +111,7 @@ issue 原文的「顺时针或逆时针连续」在本卡**不能按直线引线
 
 ## 交接
 
-- `uv run pytest` 全绿（1334 passed / 1 skipped，14m04s）；`ruff check` 绿；`ruff format --check src tests` 绿
+- `uv run pytest` 全绿（merge origin/main 后 1384 passed / 1 skipped，10m27s）；`ruff check` 绿；`ruff format --check src tests` 绿（95 files）
   （`scripts/release.py` 的格式问题为 main 既有，不属本卡，CI lint 只跑 ruff check）。
 - `evals/run.py --baseline` `regressions: []`；L3 A 族 1.0、D 0.98→0.99；默认 D 0.986572 不变。
 - 合并门禁以 lead 终验为准；本卡非核心，无 glm 二道。
