@@ -2,7 +2,7 @@
 
 卡 B3（issue #96，W3 核心卡）· 2026-11-21 · 依赖 E1（finding 的 clause / measured / expected / candidates）
 
-## 1. 验收场景（lead 2026-11-21 裁定；main 合入 D1 后重钉）
+## 1. 验收场景（lead 2026-11-21 裁定；随 main 演进重钉：D1、D2）
 
 v0.1.0 review 第 3 条的复现写作「flange 把 dh 拖到违规值」，但 **E1 后的 dh 场景不可复现**：flange 的参数规则只挂在 Dh / d0 / L / pcd 上，dh 无规则；dh∈[6, 20] 内 `Dh < pcd − dh` 与 `pcd + dh < D` 恒成立，预览既不报 ParamError 也不产生任何 check finding（实测扫过 dh=6..20 全部 0.5 步长，并把其它参数推到极值核对规则语义）。lead 裁定改用真实可触发的预览违规。
 
