@@ -15,14 +15,14 @@
 
 | # | 任务 | 说明 | 结果 |
 |---|---|---|---|
-| 1 | 多轮修改任务 | dsh 路一：法兰变体 3 轮（init → 构建层变体 → 按检查器 candidates 修 → 修订层 dry-run + 真实 edit）；Codex 路：牛鼻立铣刀 fresh 首图 + conversation 修改轮 | 完成：dsh 3 轮 `e0→e3` 四提交、check 0/0；Codex 首图 386.5 s、修改轮 86.0 s、两轮 check 0/0；见 §3/§4 |
+| 1 | 多轮修改任务 | dsh 路一：法兰变体 3 轮（init → 构建层变体 → 按检查器 candidates 修 → 修订层 dry-run + 真实 edit）；Codex 路：牛鼻立铣刀 fresh 首图 + conversation 修改轮 | 完成：dsh 3 轮 `e0→e3` 四提交（e1 变体被检查器抓 1 条 place_nesting、e2 归零，**e3 最终 check 0/0**）；Codex 首图 386.5 s、修改轮 86.0 s、两轮 check 0/0；见 §3/§4 |
 | 2 | 磨头 PDF 回转体零件 | 只参照用户提供的磨头参考图（`YH-0000-RJ-26041-AiN-A-磨头`，已渲染 PNG；PDF / PNG 不入库）新画一张回转体零件图，并用 `lcad check` 自检；含 dry-run 修改轮（v1-dsh-agent-2 全新子代理） | 完成：两轮 `e0→e2`、check 0/0、dry-run 5 ops 与真实提交一致；见 §3b |
 
 ## 3. 独立 Agent ①：dsh 全新子代理（法兰变体，多轮修改）
 
 - 环境与命令：全新子代理，只读 lcad skill 文档；图纸仓库 `%TEMP%\v1dsh`；CLI 侧两轮 < 20 s，全程含看图约 30 min。
 - 轮次：3 轮 —— `e0 init` → `e1` 构建层变体（检查器抓到 1 条 `place_nesting`）→ 按 finding 的 candidates 修 `e2` 归零 → 修订层 `--dry-run` 预览 + 真实 `e3`（凸台止口 h8、安装面粗糙度引线移到实体端面、新增止口对基准 A 圆跳动 0.04）；工作区干净。
-- 每轮 `lcad check`：**0 error / 0 warning**（e3 原始输出见 `v1-g5-dsh-check-e3.json`）。
+- `lcad check`：e1 变体按设计被检查器抓到 **1 条 `place_nesting`**（非回归，用来验证 finding → candidates → 修复闭环），e2 归零；**e3 最终 0 error / 0 warning**（原始输出见 `v1-g5-dsh-check-e3.json`）。
 - dry-run 一致性：`--dry-run` 预览图与最终 `render` 的 SHA256 相同 = `FCA2B9DC6037D7DA462B7EAD1ADDA61501C2BF54ACCDDA72CD2922107940BA30`（两文件各 67,083 B，supervisor 复算）。
 - 提交记录：`v1-g5-dsh-log.json`（e0 4ec44a1 / e1 29d1fbd / e2 2c2ef79 / e3 606afeb）。
 - 发现的问题（§5 评审结论已定级）：① 内置 flange 范例全剖端面线横穿 Φ30 通孔开口（v0.1.0 既有，评审证实 → issue #145）；② PMI 元素 ID 无法从 `context` / 文档直接发现（#147）；③ `render --focus` 有 stderr 噪声（#147）；④ `--version` 报 0.1.0（本 V1 已 bump 到 0.1.1）；⑤ 图框边偏挤（#147）。
@@ -42,7 +42,7 @@
 
 - 环境与命令：`evals/cross_agent.py` conversation 模式，`task=tool`（牛鼻立铣刀）；工作目录 `%TEMP%\v1-cross`；session `01a20737-c652-7981-9c8c-f60789d2bdec`；报告 `v1-g5-codex-report.json`。
 - 轮次 / 每轮耗时 / 新处理 token / 模型步数：
-  - 首图 fresh 轮：**386.5 s** / 78 步 / 新 token ≈ 2.99 M（input 1,523,347 + output 26,645；cache_read 1,442,048 不计）；check **0 error / 0 warning**。
+  - 首图 fresh 轮：**386.5 s** / 78 步 / 新 token **1,549,992**（input 1,523,347 + output 26,645；cache_read 1,442,048 不计，报告里的 `tokens_total` 2,992,040 含 cache_read，不作新 token 口径）；check **0 error / 0 warning**。
   - 修改轮 conversation：**86.0 s** / 14 步（D8→10 联动 6 个参数：D1/R/L1/L2/d/L，title 图号同步）；check **0 error / 0 warning**。
   - 两轮 session 相同 → **约 4.5× 提速**；P conversation：`first_pass_rate = 1.0`、`mean_rounds = 0.0`、`mean_seconds = 236.2`、`mean_steps = 46.0`。
 - 独立解决问题：本地没有样例 `./template/牛鼻铣刀.dxf` 时，按 A3 / GB 标准样式自建图面（尺寸参数表、标题栏、技术要求齐全）。

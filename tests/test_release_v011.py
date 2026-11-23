@@ -3,6 +3,8 @@
 G2: this file is committed before the version bump / docs and is expected to fail on main.
 """
 
+import hashlib
+import json
 import re
 import tomllib
 from pathlib import Path
@@ -209,6 +211,48 @@ def test_pending_verification_numbers_use_the_agreed_markers():
     ):
         for token in re.findall(r"TBD-[A-Za-z0-9-]+", read(rel)):
             assert token.startswith("TBD-V1-"), (rel, token)
+
+
+def test_g5_evidence_artifacts_match_the_recorded_numbers():
+    ev = "docs/milestones/v0.1.1/evidence/"
+    report = json.loads(read(ev + "v1-g5-codex-report.json"))
+    rounds = report["codex/tool"]["rounds"]
+    assert [(r["round"], r["mode"], r["seconds"], r["steps"]) for r in rounds] == [
+        (0, "conversation", 386.5, 78),
+        (1, "conversation", 86.0, 14),
+    ]
+    for row in rounds:
+        assert row["check"] == {"errors": 0, "warnings": 0}
+    p = report["P"]["modes"]["conversation"]
+    assert (p["first_pass_rate"], p["mean_seconds"], p["mean_steps"]) == (1.0, 236.2, 46.0)
+
+    check = json.loads(read(ev + "v1-g5-dsh-check-e3.json"))
+    assert check["ok"] is True and check["errors"] == 0 and check["warnings"] == 0
+    log = json.loads(read(ev + "v1-g5-dsh-log.json"))
+    assert [row["edit"] for row in log["log"]] == ["e3", "e2", "e1", "e0"]
+    render = (ROOT / ev / "v1-g5-dsh-final-render-e3.png").read_bytes()
+    assert (
+        hashlib.sha256(render).hexdigest().upper()
+        == "FCA2B9DC6037D7DA462B7EAD1ADDA61501C2BF54ACCDDA72CD2922107940BA30"
+    )
+    for name in (
+        "v1-g5-dsh-final-render-e3.png",
+        "v1-g5-mo-tou-final-render.png",
+        "v1-g5-mo-tou-compare-stack.png",
+    ):
+        assert (ROOT / ev / name).is_file(), name
+
+    text = read(ev + "v1-g5-cross-agent.md")
+    for needle in (
+        "PASS WITH NOTES",
+        "#145",
+        "#146",
+        "#147",
+        "1,549,992",
+        "1 条 `place_nesting`",
+        "④ 整体可读 **4**",
+    ):
+        assert needle in text, needle
 
 
 def test_cross_agent_evidence_file_covers_the_card_contract():

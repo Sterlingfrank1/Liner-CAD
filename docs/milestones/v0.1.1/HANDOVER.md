@@ -97,8 +97,8 @@ uv run python evals/dxf_only.py --sample-dir "<sample 目录>" --m3 tests/data/d
 | 排布分数 | flange 1.0（0/45）、pulley 0.9756（2/82）、gear_cover 1.0（0/82）、jack 1.0 / A 1.0（0/30 / 0/25）、vise 0.9583（1/24）/ A 1.0（0/59）；E5 起点见 placement-scores | 最终值：`evidence/d2-multi-layer.md`、`evidence/d5-parts-list.md`；E5 起点：`evidence/placement-scores.md`；`evals/place_scores.py --eval40` |
 | DXF 导入 4 样例 | entity 256/325、text 67/67、hatch 4/4、single_frame_ok 4/4、inspect 4/4、edit_round 4/4 | `evidence/dxf-import.md` |
 | 仅 DXF 模式 | G 1.0（0/296）、D 0.97619（1/42）、T/A/P 不可判明示 | `evidence/dxf-only-metrics.md` |
-| 迭代速度 | fresh 4 场景均值 487.4 s / 108,462 token / 82.5 步；Codex 首图 523.8 s → 修改轮 114.2 s（约 4.6×） | `evidence/e7-iteration-metrics.md` |
-| 独立 Agent（dsh + Codex）多轮修改与出图评审 | dsh 两路：法兰变体 3 轮（e0→e3、check 0/0、dry-run 预览与最终渲染 SHA256 一致）+ 磨头参考图回转体 2 轮（e0→e2、check 0/0、dry-run 5 ops 与真实提交一致、几何实测 69.9 / 20.0 / Ø16.1 / Ø14.0 @2:1）。Codex 路：fresh 386.5 s → conversation 86.0 s（约 4.5×、两轮 0/0）。独立图像评审 PASS WITH NOTES（4 / 3 / 4 / 4 / 3，5 分制），证实 v0.1.0 既有问题 #145、#146，并汇总 #147；记 v0.2、不阻塞本版。 | `evidence/v1-g5-cross-agent.md`（含 6 个小证据文件） |
+| 迭代速度 | fresh 4 场景历史基线（H2 run_demo：Claude ×2 + dsh ×2）均值 487.4 s / 108,462 token / 82.5 步；PLAN 偏离 7 后 dsh + Codex 复测：Codex 现场 fresh 2 场景均值 412.6 s、first_pass 1.0，tool 首图 523.8 s → 修改轮 114.2 s（约 4.6×）；G5 Codex conversation 386.5 s → 86.0 s（P mean 236.2 s）；dsh conversation 402 缺测 | `evidence/e7-iteration-metrics.md`、`evidence/v1-g5-cross-agent.md` |
+| 独立 Agent（dsh + Codex）多轮修改与出图评审 | dsh 两路：法兰变体 3 轮（e0→e3；e1 变体触发 1 条 place_nesting、e2 归零，e3 最终 check 0/0；dry-run 预览与最终渲染 SHA256 一致）+ 磨头参考图回转体 2 轮（e0→e2、check 0/0、dry-run 5 ops 与真实提交一致、几何实测 69.9 / 20.0 / Ø16.1 / Ø14.0 @2:1）。Codex 路：fresh 386.5 s → conversation 86.0 s（约 4.5×、两轮 0/0）。独立图像评审 PASS WITH NOTES（4 / 3 / 4 / 4 / 3，5 分制），证实 v0.1.0 既有问题 #145、#146，并汇总 #147；记 v0.2、不阻塞本版。 | `evidence/v1-g5-cross-agent.md`（含 6 个小证据文件） |
 | CI 四项（lint / ubuntu 3.11 / windows 3.13 / test-3d） | PR 上全绿（run 记录与最终 commit 见 PR 的 GitHub Actions；supervisor 合并前复核） | GitHub Actions |
 | 版本号 / 发布说明 / HANDOVER | 0.1.1；两份文档随本 PR 合并 | 本文件、`docs/releases/v0.1.1.md` |
 
@@ -114,6 +114,8 @@ F1 已把四条偏离写进 [PLAN §9](PLAN.md)（#137），原文不在此重�
 | 偏离 16 | D3 / #85 | D3 序号顺序口径：issue 的“顺 / 逆时针连续”用直线引线在 vise / bearing 上穷举 2,030,000 个配置 / 94 s 零交叉解，lead 裁定落为“同侧沿旋转方向单调 + 对齐 + 间距 ≥ δ + 交叉 0”（GB/T 4458.2 行 / 列形态）；严格全局连续留 v0.2。 | `evidence/d3-balloon-sequences.md` + `evidence/d3-order-search.py` |
 
 其余偏离（1–12）见 PLAN §9，本版不改。
+
+另：**H3 验收范围收窄**（lead 2026-11-21 裁定，未写入 PLAN §9）：PLAN H3 的 Goal 写“Claude Code 与 dsh 各出一张图”，实际只做 dsh 侧——开发主平台已切到 DeepSeek Harness，Claude Code 不在本版验收范围；证据见 `evidence/h3-auto-viewer.md`。本 HANDOVER 补记，避免把未跑的 Claude Code 半句当作已完成验收；PLAN 措辞更正留给下次维护。
 
 ## 6. 遗留事项与已知缺口
 
