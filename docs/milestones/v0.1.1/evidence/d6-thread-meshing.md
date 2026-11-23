@@ -73,7 +73,7 @@ v.thread_mesh("joint", "M10", screw=(0, 50), hole=(20, 70), outer=12,
 - 40 例评测 **40/40、geometry 1.0**，20 条 expect 198 checks 全过；默认 D 族 0.986906（E3 后 baseline 同值），
   `--baseline` **regressions: []**。
 - L3 三装配零 error：G 1.0、D 0.99（既有 1 条 ext_line）、A 1.0（0/116），与 main 一致（L3 没改）。
-- 全量 `uv run pytest -q`：**1481 passed / 1 skipped（11m37s）**；`uv run ruff check .` 绿；`ruff format --check src tests` 绿；CI 四项待跑/绿。
+- 全量 `uv run pytest -q`（merge E4 后）：**1495 passed / 1 skipped（11m51s）**；`uv run ruff check .` 绿；`ruff format --check src tests` 绿；CI 四项待跑/绿。
 
 ## 残余
 
