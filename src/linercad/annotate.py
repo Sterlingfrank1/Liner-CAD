@@ -785,7 +785,7 @@ class DimNS:
     @mutator("dim.thread")
     def thread(self, name=None, feature=None, side=None, row=None, offset=None, at=None):
         """Thread designation on the major diameter: M20×1.5-6g (coarse pitch not written)."""
-        f = self._conv(feature, ("thread",))
+        f = self._conv(feature, ("thread", "thread_mesh"))
         i = f._intent
         des = (
             f"M{fmt_num(i['d'])}"

@@ -352,6 +352,57 @@ def _part_key(c):
     )
 
 
+def thread_engagement(screw, hole):
+    """GB/T 4459.1: the engaged length of a screwed connection is the axial overlap between the
+    external thread extent screw=(x0, x1) and the tapped hole extent hole=(x0, x1).  Returns the
+    overlap interval or raises with the two ranges as candidates."""
+    try:
+        s0, s1 = (num(v, "screw") for v in screw)
+        h0, h1 = (num(v, "hole") for v in hole)
+    except (TypeError, ValueError):
+        raise InvalidArgument(
+            "screw / hole 应为 (x0, x1) 两元组",
+            values={"screw": repr(screw), "hole": repr(hole)},
+        )
+    s0, s1 = sorted((s0, s1))
+    h0, h1 = sorted((h0, h1))
+    lo, hi = max(s0, h0), min(s1, h1)
+    if hi - lo <= 1e-9:
+        raise InvalidArgument(
+            "内外螺纹没有旋合：外螺纹区间与螺孔区间不重叠",
+            values={"screw": [s0, s1], "hole": [h0, h1]},
+            candidates=[
+                "让 screw 与 hole 至少重叠一段（旋合长度 = 区间交集）",
+                "检查螺纹长度与螺孔深度/起点",
+            ],
+        )
+    return lo, hi
+
+
+def thread_hatch_loops(spec, screw, hole, outer, axis=0.0):
+    """Section hatch for the connected part around a threaded connection (GB/T 4459.1): the
+    material reaches inward to the external thread crest (major diameter), not to the internal
+    thread minor diameter.  Returns two view-local polygons (above / below the axis) for
+    view.hatch(...); the caller draws the part outline separately."""
+    from . import res
+
+    t = res.thread(spec)
+    axis = num(axis, "axis")
+    outer = num(outer, "outer")
+    r = t["d"] / 2
+    if outer <= r + 1e-9:
+        raise InvalidArgument("outer 必须大于螺纹大径半径", values={"outer": outer, "d/2": r})
+    try:
+        h0, h1 = (num(v, "hole") for v in hole)
+    except (TypeError, ValueError):
+        raise InvalidArgument("hole 应为 (x0, x1) 两元组", values={"hole": repr(hole)})
+    h0, h1 = sorted((h0, h1))
+    thread_engagement(screw, (h0, h1))
+    top = [[h0, axis + r], [h1, axis + r], [h1, axis + outer], [h0, axis + outer]]
+    bottom = [[h0, axis - outer], [h1, axis - outer], [h1, axis - r], [h0, axis - r]]
+    return [top, bottom]
+
+
 def bom_rows(d):
     """Parts list rows (GB/T 10609.2): identical parts / standard parts share one row and their
     quantities add up, in first-occurrence order."""

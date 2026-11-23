@@ -482,6 +482,96 @@ def spline_end(view, name, c, spec):
     return _feat(view, name, "spline", intent, edges)
 
 
+def thread_mesh(view, name, spec, screw, hole, axis=0, outer=None, cls_ext=None, cls_int=None):
+    """GB/T 4459.1 screwed connection in an assembly section (a screw threaded into a tapped
+    hole).  screw=(x0, x1) is the external-thread extent, hole=(x0, x1) the tapped-hole extent;
+    the engaged length is their axial overlap (also exposed by assembly.thread_engagement).
+
+    Engaged portion: drawn as the external thread (major diameter thick, minor thin); the
+    internal thread lines are not repeated there.  Unengaged portions keep their own drawing
+    (internal: minor thick, major thin).  The hole end face line stops at the thread minor
+    diameter (outer is the connected part's outer radius).  All conventional lines carry the
+    conv tag; assembly.thread_hatch_loops() gives the matching section hatch boundary at the
+    external thread crest."""
+    from .assembly import thread_engagement
+
+    t = res.thread(spec)
+    cls_ext = cls_ext or "6g"
+    cls_int = cls_int or "6H"
+    res.thread(spec, cls=cls_ext)  # validates the class with candidates
+    res.thread(spec, cls=cls_int)
+
+    def pair(v, what):
+        try:
+            vals = [num(c, what) for c in v]
+        except TypeError:
+            raise InvalidArgument(f"{what} 应为 (x0, x1) 两元组", values={what: repr(v)})
+        if len(vals) != 2:
+            raise InvalidArgument(f"{what} 应为 (x0, x1) 两元组", values={what: repr(v)})
+        return sorted(vals)
+
+    a, b = pair(screw, "screw")
+    c, e = pair(hole, "hole")
+    ax = num(axis, "axis")
+    eng0, eng1 = thread_engagement((a, b), (c, e))
+    angle = view.scale
+    d, d1 = t["d"], t["d1"]
+    rmaj = d / 2
+    rmin = min(d1 / 2, rmaj - GAP / angle)
+    rcrest = d1 / 2  # internal thread crest (minor), thick in the unengaged internal part
+    rroot = max(rmaj, rcrest + GAP / angle)  # internal thread root (major), thin
+    outer = num(outer, "outer") if outer is not None else None
+    if outer is not None and outer <= rcrest + 1e-9:
+        raise InvalidArgument("outer 必须大于螺纹小径半径", values={"outer": outer, "d1/2": rcrest})
+
+    edges = []
+
+    def bands(x0, x1, r, role):
+        for sg in (1, -1):
+            edges.append(_line((x0, ax + sg * r), (x1, ax + sg * r), role, True))
+
+    # the external thread runs over its whole extent; in the engaged interval it is also the
+    # representation of the connection (no internal crest/root lines are added there)
+    bands(a, b, rmaj, "thick")
+    bands(a, b, rmin, "thin")
+    edges.append(_line((b, ax - rmaj), (b, ax + rmaj), "thick", True))  # thread termination
+
+    # unengaged internal thread keeps its own representation
+    for u, v in ((c, eng0), (eng1, e)):
+        if v - u > 1e-9:
+            bands(u, v, rcrest, "thick")
+            bands(u, v, rroot, "thin")
+    edges.append(_line((e, ax - rroot), (e, ax + rroot), "thick", True))
+
+    # the connected part's end face line at the tapped-hole mouth: only down to the minor dia.
+    if outer is not None:
+        for sg in (1, -1):
+            edges.append(_line((c, ax + sg * rcrest), (c, ax + sg * outer), "thick", True))
+
+    intent = {
+        "spec": spec,
+        "kind": "thread_mesh",
+        "d": d,
+        "P": t["P"],
+        "d1": d1,
+        "d2": t["d2"],
+        "coarse": t.get("coarse", True),
+        "std": t.get("std"),
+        "x0": a,
+        "x1": b,
+        "axis": ax,
+        "screw": [a, b],
+        "hole": [c, e],
+        "engaged": [eng0, eng1],
+        "outer": outer,
+        "cls": cls_ext,
+        "cls_ext": cls_ext,
+        "cls_int": cls_int,
+        "mask": None,
+    }
+    return _feat(view, name, "thread_mesh", intent, edges)
+
+
 def install():
     """Attach the tools to View (kept here so geometry.py stays about plain geometry)."""
     from .record import mutator
@@ -494,6 +584,7 @@ def install():
         return mutator(op)(method)
 
     for op, fn in (
+        ("thread_mesh", thread_mesh),
         ("thread", thread),
         ("thread_end", thread_end),
         ("tapped_hole", tapped_hole),
