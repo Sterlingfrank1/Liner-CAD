@@ -78,6 +78,13 @@ def test_ids_do_not_depend_on_projection_order(tmp_path, monkeypatch):
     d2 = make(tmp_path).d
     second = {_geom(e): e.id for e in _edges(d2)}
     assert second == first
+    full1 = {e.id: json.dumps(e._intent, sort_keys=True) for e in _edges(d1)}
+    full2 = {e.id: json.dumps(e._intent, sort_keys=True) for e in _edges(d2)}
+    assert full2 == full1
+    from linercad.versions import compare, snapshot
+
+    cmp = compare(snapshot(d1), snapshot(d2))
+    assert not [i for i in cmp["intent_changed"] + cmp["layout_changed"] if i.startswith("E.")]
 
 
 def test_repeated_projection_keeps_the_same_ids(tmp_path):
@@ -96,7 +103,9 @@ def test_projected_edges_have_topological_names_and_candidates_for_old_ids(tmp_p
     with pytest.raises(NotFound) as ei:
         d["E.front.model.1"]  # M3 sequential child id is gone
     assert ei.value.candidates
-    assert any(c.startswith("E.front.model.") for c in ei.value.candidates)
+    assert all(c in d and c.startswith("E.front.model.") for c in ei.value.candidates), (
+        ei.value.candidates
+    )
 
 
 def test_gear_cover_parameter_change_only_touches_actually_changed_edges(tmp_path):
@@ -113,12 +122,15 @@ def test_gear_cover_parameter_change_only_touches_actually_changed_edges(tmp_pat
     r2 = runtime.build(g)
 
     def by_geom(res):
-        return {_geom(e): e.id for e in res.d._els.values() if e.kind == "edge"}
+        return {(e.view, _geom(e)): e.id for e in res.d._els.values() if e.kind == "edge"}
 
     a, b = by_geom(r1), by_geom(r2)
     unchanged = {a[g] for g in set(a) & set(b) if a[g] == b[g]}
+    # 63 edges keep their projected geometry under L: their IDs must stay and diff must not report them
+    assert len(unchanged) == 72, len(unchanged)
     cmp = compare(snapshot(r1.d), snapshot(r2.d))
     reported = {i for i in cmp["intent_changed"] + cmp["layout_changed"] if i.startswith("E.")}
+    assert len(reported) == 24, sorted(reported)
     assert not (reported & unchanged), sorted(reported & unchanged)
     added_removed = {i for i in cmp["added"] + cmp["removed"] if i.startswith("E.")}
-    assert not (added_removed & unchanged), sorted(added_removed & unchanged)
+    assert added_removed == set(), sorted(added_removed)

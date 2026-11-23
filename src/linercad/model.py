@@ -501,8 +501,16 @@ class Drawing:
 
     def _close_ids(self, id, n=6):
         ids = list(self._els)
-        close = difflib.get_close_matches(str(id), ids, n=n, cutoff=0.5)
-        prefix = str(id).rsplit(".", 1)[0]
+        s = str(id)
+        if s.startswith("E."):  # an old/renamed projected edge: stay within its feature scope
+            scope = s.rsplit(".", 1)[0]
+            edges = [i for i in ids if self._els[i].kind == "edge" and i.startswith(scope + ".")]
+            if edges:
+                matcher = difflib.SequenceMatcher(None, s)
+                edges.sort(key=lambda i: matcher.set_seq2(i) or matcher.ratio(), reverse=True)
+                return edges[:n]
+        close = difflib.get_close_matches(s, ids, n=n, cutoff=0.5)
+        prefix = s.rsplit(".", 1)[0]
         for i in ids:
             if len(close) >= n:
                 break

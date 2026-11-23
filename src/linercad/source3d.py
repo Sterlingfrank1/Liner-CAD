@@ -379,6 +379,11 @@ def _name_projection_edges(edges):
     Siblings that share one source edge (an arc split by HLR, an outline class with several
     curves) get a deterministic suffix after sorting by projected geometry, so the result does
     not depend on the order the hidden-line algorithm returns its edges in."""
+    for (
+        ei
+    ) in edges:  # line direction carries no meaning; keep the visible diff canonically oriented
+        if ei.get("shape") == "line":
+            ei["p1"], ei["p2"] = sorted([ei.get("p1"), ei.get("p2")])
     ordered = sorted(edges, key=lambda ei: (_projection_edge_base(ei), _edge_geometry_key(ei)))
     counts = {}
     for ei in ordered:

@@ -37,8 +37,11 @@
 - `test_ids_do_not_depend_on_projection_order`（**G2 失败项**）：把 `hlr.project_classes` 返回列表整体反转、清投影缓存后重建；断言「规范化投影几何 → 边 ID」映射与正常顺序完全一致。
 - `test_repeated_projection_keeps_the_same_ids`：同模型清缓存重复投影 ID 不变。
 - `test_gear_cover_parameter_change_only_touches_actually_changed_edges`：改 L，断言投影几何未变的边 ID 不变、且不出现在 diff 的 E.* intent/layout/added/removed 中。
-- `test_projected_edges_have_topological_names_and_candidates_for_old_ids`：拓扑名存在；旧顺序 ID 触发 NotFound 且 candidates 非空、指向同 feature 当前边。
+- `test_projected_edges_have_topological_names_and_candidates_for_old_ids`：拓扑名存在；旧顺序 ID 触发 NotFound，candidates 全部是当前存在、同 feature 的 edge ID（`_close_ids` 对 E.* 已限定到 edge scope）。
+- `tests/test_source3d_naming_unit.py`（新，无需 3D，普通 CI job 会跑）：线方向规范化、同拓扑拆分后缀与输入顺序无关、组件前缀。
 - 既有 `tests/test_source3d.py`（provenance/剖切/参数重投影等 12 条）全部通过。
+
+Codex R1 后续（无 blocker）：① 最终保留的 line intent 统一规范化为 `p1<=p2`（方向无几何意义），并把顺序反转测试加强为完整 intent / `compare()` 无 E.* 变化；② gear_cover 回归改为断言 72 条未变几何边全部保留且不被 diff 上报、24 条上报均为实际变化、added/removed=0；③ 旧 ID 候选限定同 feature 的 edge；④ 新增 `test_source3d_naming_unit.py` 让命名核心在非 3D CI job 也有覆盖（3D 集成测试仍受 `test-3d` 只跑 hlr/evals 的既有 CI 限制，改 workflow 需 workflow scope）。
 
 ## 说明 / 残余
 
