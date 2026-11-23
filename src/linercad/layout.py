@@ -1934,9 +1934,10 @@ class _ViewLayout:
         circle; same-side circles form a row / column, the sequence runs clockwise (or counter-
         clockwise) continuously around the view, and leaders do not cross.
 
-        The order-aware plan is a small deterministic search: candidate block partitions of the
-        BOM numbers among the four sides, slots spaced by the standard gap, and a local slide of
-        each block until the leaders are crossing-free.  Written sides are never re-planned.
+        The order-aware plan is a deterministic per-balloon side-assignment hill-climb: each
+        side keeps its numbers ascending in the same rotation direction, slots are spaced by the
+        standard gap, and switches are accepted only when they reduce leader crossings (then
+        annotation-text hits, then leader length).  Written sides are never re-planned.
         """
         bs = sorted(self.els("balloon"), key=lambda e: e.number or 0)
         if not bs:
@@ -1960,7 +1961,7 @@ class _ViewLayout:
                 if isinstance(pr, Text):
                     obstacle_boxes.append(pr.box)
         plan = None
-        if 2 <= len(bs) <= 12:
+        if _can_plan_balloons(len(bs)):
             plan = _balloon_plan(B, numbered, step, offset, r, written, tuple(obstacle_boxes))
         if plan is not None:
             for e in bs:
@@ -2002,7 +2003,9 @@ class _ViewLayout:
                 centre[i] = max(centre[i], centre[i - 1] + step)
             shift = (sum(t[1][k] for t in items) - sum(centre)) / len(centre)
             centre = [p + shift for p in centre]
-            for _ in range(len(items) ** 2):  # swap slots until no two leaders cross
+            # bounded deterministic swaps: the fallback is only used for very large BOMs where the
+            # exhaustive order plan is not attempted, so cap the O(k^4) loop
+            for _ in range(min(len(items) ** 2, 8 * len(items))):
                 done = True
                 for i in range(len(items)):
                     for j in range(i + 1, len(items)):
@@ -2063,23 +2066,31 @@ def _clip_line(a, u, G):
     return t0, t1
 
 
+BALLOON_PLAN_LIMIT = 12
+
+
+def _can_plan_balloons(n):
+    return 2 <= n <= BALLOON_PLAN_LIMIT
+
+
 def _balloon_plan(B, numbered, step, offset, r, written=None, obstacles=()):
     """Side plan for the assembly balloons: same-side numbers ascend along the chosen
     clockwise (or counter-clockwise) walk, spacing is kept by the standard gap, and the local
-    search minimises leader crossings first and leader length second.
+    search minimises leader crossings first, then annotation-text hits, then leader length.
 
     Returns {number: (side, circle_centre)} or None (caller falls back to the legacy packing).
     Hand-written sides are fixed; only automatic balloons participate in the search.
     """
     written = written or {}
+    # exact inputs only: a lossy rounding key could reuse a plan for slightly different geometry
     key = (
-        tuple(round(v, 3) for v in B),
-        tuple((n_, round(a[0], 3), round(a[1], 3)) for n_, a in numbered),
-        round(step, 6),
-        round(offset, 6),
-        round(r, 6),
+        tuple(B),
+        tuple((n_, a[0], a[1]) for n_, a in numbered),
+        step,
+        offset,
+        r,
         tuple(sorted(written.items())),
-        tuple(tuple(round(v, 1) for v in box) for box in obstacles),
+        tuple(tuple(box) for box in obstacles),
     )
     if key in _BALLOON_PLAN_CACHE:
         return _BALLOON_PLAN_CACHE[key]

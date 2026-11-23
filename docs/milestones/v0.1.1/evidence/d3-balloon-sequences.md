@@ -9,6 +9,9 @@ issue 原文的「顺时针或逆时针连续」在本卡**不能按直线引线
 几何上这两个装配的组件绕视图的环向顺序与编号顺序不一致（组件左右交替），直线引线无法同时满足
 「全局连续」与「不相交」，移动锚点也改变不了组件的环向次序。
 
+**可复现**：`uv run python docs/milestones/v0.1.1/evidence/d3-order-search.py`（约 100 s）从实际 vise 装配
+重建并捕获视图 bbox / 锚点，输出 `vise: n=10 configurations=2030000 zero-crossing=0`。脚本仅作证据，不入包/测试。
+
 按 lead 2026-11-22 裁定（B3 先例、不伪造不硬凑），本卡验收口径落为：
 
 > **同一侧序号沿同一旋转方向单调递增（行 / 列形态）+ 对齐 + 间距 ≥ δ + 引线交叉 0**。
@@ -28,16 +31,17 @@ issue 原文的「顺时针或逆时针连续」在本卡**不能按直线引线
    对齐容差**单一来源** = `[placement].balloon_clearance / balloon_align_tol`（E5 A.place 同值），
    不再在 [assembly] 复制一份；测试断言两份 std 的 assembly 几何一致、[placement] 两键存在。
 2. **四侧 + 顺序**：同一侧按编号升序，方向与旋转方向一致（top +x、right −y、bottom −x、left +y；
-   反向即逆时针）；顺/逆都试，先最小化引线交叉、再最小化穿过标注文字框、再最小化引线总长。
-   确定性 hill-climb（初始近边、逐球换边），结果按 `(B, anchors, step, offset, radius, written, obstacles)`
-   缓存（有界 256 条）。
+   反向即逆时针）；顺/逆都试，先最小化引线交叉、再最小化穿过标注文字框（软代价，实测 L3 为 0）、
+   再最小化引线总长。确定性 hill-climb（初始近边、逐球换边），结果按**未舍入**的
+   `(B, anchors, step, offset, radius, written, obstacles)` 缓存（有界 256 条，避免相近几何错误命中）。
 3. **引线不交叉 + 不压标注文字**：交叉为硬项；穿其它标注文字框按 G `overlap` 口径计数（本轮修掉
    vise 的 `D.H × B.csk_fixed` 新警告）；leader 总长仅作末位 tie-break。
 4. **手写位置不动**：`Balloon.LAYOUT = ("side",)`，写死 side 不参与换边；无可行顺序方案时退回原
    「锚点排序 + 互换去交叉」打包，并在 `resolved["order"] = "fallback"` 明示（不静默）；搜索成功时写
    `resolved["order"] = "side-monotonic"`。
-5. **跨视图**：视图组 `arrange()` 用包含 balloon 图元的 `full` bbox 排布，组间保留 gap；新增
-   「一个序号放到另一个视图后 layout，A.place 三规则仍 0、全局引线不交叉」回归测试（主视图 + 俯视图场景）。
+5. **跨视图**：视图组 `arrange()` 用包含 balloon 图元的 `full` bbox 排布（该行为 main 已有，本卡未改 arrange，
+   只是补回归）；新增「vise 的一个序号真实移到 `top` 视图（锚点按 `(sheet - origin) / scale` 反算回本地）后
+   layout，A.place 三规则仍 0、全局引线不交叉」测试。
 
 ## L3 评测（jack / vise / bearing，当前分支）
 
@@ -71,7 +75,8 @@ issue 原文的「顺时针或逆时针连续」在本卡**不能按直线引线
 - `test_l3_uses_the_order_plan`：L3 三例都走 side-monotonic 方案（不是 fallback）。
 - `test_fallback_reports_its_order_state`：强制 plan 不可用时 resolved 标 `fallback` 且 A.place 仍 0。
 - `test_no_balloon_overlap_warning_on_l3`：balloon 引线/编号不得穿其它标注文字框（既有 T.bom×C.top.axis 除外）。
-- `test_balloons_from_two_views_do_not_collide`：跨视图（front + top）布局后 A.place 0、引线不交叉。
+- `test_balloons_from_two_views_do_not_collide`：vise 的 front + **真实 top** 视图，锚点按 `(sheet-origin)/scale` 反算；布局后 A.place 0、引线不交叉。
+- `test_balloon_plan_is_capped_and_falls_back_explicitly`：2..12 走 plan，1/13 走 fallback（fallback 的 `resolved["order"]` 另有测试）。
 - `test_written_balloon_side_is_kept`、`test_balloon_layout_is_deterministic`（清缓存后重建对比）。
 - `tests/test_std.py`：GB/ISO 的 assembly 几何一致、[placement] 是 δ / align_tol 单一来源。
 
@@ -83,7 +88,18 @@ issue 原文的「顺时针或逆时针连续」在本卡**不能按直线引线
 | major：跨视图避让只在本视图 | arrange 用包含 balloon 的 full bbox 排布；新增跨视图回归测试；证据记录 |
 | major：>12 静默 / fallback 破坏顺序 / 声称有偏移搜索 | 结果写 `resolved["order"]`（side-monotonic/fallback）；fallback 路径有测试；>12 走同一 fallback 并明示 |
 | major：δ 不是 E5 同源、测试容差 0.25 掩盖 | δ/align_tol 单一来源 = `[placement]`（E5 同值）；测试改为 `>= 2r + δ - 1e-9`；std 测试锁定 |
-| minor：std 覆盖、确定性缓存、缓存键、性能、offset 注释 | std 测试补 assembly/placement；确定性测试清缓存；缓存键含障碍框并做 256 条有界；offset 注释改「到圆圈边缘」；全量 pytest 1334 passed / 14m04s |
+| minor：std 覆盖、确定性缓存、缓存键、性能、offset 注释 | std 测试补 assembly/placement；确定性测试清缓存；缓存键改**不舍入**并做 256 条有界；offset 注释改「到圆圈边缘」；全量 pytest 见下 |
+
+### Codex 第 2 轮评审回应（无 blocker）
+
+| 意见 | 处理 |
+|---|---|
+| major：跨视图测试实际 front+left、锚点换算错 | 改用 vise 真实 front+top、`(sheet-origin)/scale` 反算；evidence 同步改正；`arrange` 的 full bbox 行为 main 已有，本卡只补回归，不夸大「修复」 |
+| major：缓存键四舍五入可能错误命中 | 键改未舍入精确值（B/锚点/障碍框/step 等），仍 256 条有界 |
+| major：障碍压字不是硬门禁、文档「不压」过强 | 文档改为「交叉为硬项，压标注文字为软代价（L3 实测 0）」；测试 `test_no_balloon_overlap_warning_on_l3` 仍锁既有 1 条之外无 balloon 压字 |
+| minor：穷举不可复现 | 新增 `docs/milestones/v0.1.1/evidence/d3-order-search.py`，实测输出 2,030,000 / zero=0（约 100 s） |
+| minor：>12 阈值无测试、docstring、O(k^4) | `_can_plan_balloons` + 阈值测试；docstring 改成 hill-climb 实况；fallback 交换循环封顶 `min(k², 8k)` |
+| nit：重复 build、std 注释 | `_build_res` 单次 build；offset 注释在 std 中已改「到圆圈边缘」 |
 
 ## 残余 / 说明
 

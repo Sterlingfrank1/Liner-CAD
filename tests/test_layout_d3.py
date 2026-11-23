@@ -23,12 +23,16 @@ CASES = ("jack", "vise", "bearing")
 CW_SIDES = ("top", "right", "bottom", "left")
 
 
-def _build(tmp_path, name):
+def _build_res(tmp_path, name):
     work = tmp_path / name
     shutil.copytree(
         L3 / name, work, ignore=shutil.ignore_patterns(".linercad", "__pycache__", "*.jsonl")
     )
-    return build(work).d
+    return build(work)
+
+
+def _build(tmp_path, name):
+    return _build_res(tmp_path, name).d
 
 
 def _balloons(d):
@@ -129,8 +133,7 @@ def test_a_place_balloon_rules_are_clean(tmp_path, name):
 def test_no_balloon_overlap_warning_on_l3(tmp_path, name):
     """Balloon leaders / numbers must not run through other annotations' text boxes (the G
     overlap pack would warn); the one pre-existing L3 warning is T.bom vs C.top.axis."""
-    _build(tmp_path, name)
-    for f in build(tmp_path / name, dxf=False).findings:
+    for f in _build_res(tmp_path, name).findings:
         if f["rule"] != "overlap":
             continue
         involved = {f["id"], *((f.get("measured") or {}).get("with") or [])}
@@ -160,21 +163,26 @@ def test_fallback_reports_its_order_state(tmp_path, monkeypatch):
 def test_balloons_from_two_views_do_not_collide(tmp_path):
     from linercad.layout import union
 
-    d = _build(tmp_path, "jack")
+    d = _build(tmp_path, "vise")  # vise drawing has a real front + top pair
     names = [v.name for v in d.views()]
-    assert len(names) >= 2, names
-    top = names[1]
+    assert "top" in names and "front" in names, names
+    top = "top"
     boxes = [
         e._resolved.get("bbox")
         for e in d._els.values()
         if e._intent.get("view") == top and e._resolved.get("bbox")
     ]
     gb = union(boxes)
+    view = d["V.top"]._resolved
+    ox, oy = view["origin"]
+    scale = view["scale"]
+    anchor = [((gb[0] + gb[2]) / 2 - ox) / scale, ((gb[1] + gb[3]) / 2 - oy) / scale]
     balloons = sorted((e for e in d._els.values() if e.kind == "balloon"), key=lambda e: e.number)
-    for e in balloons[:1]:  # one balloon lives in the second view (cross-view layout check)
-        e._intent["view"] = top
-        e._intent["anchor"] = [(gb[0] + gb[2]) / 2, (gb[1] + gb[3]) / 2]
+    moved = balloons[0]
+    moved._intent["view"] = top
+    moved._intent["anchor"] = anchor
     layout(d)
+    assert moved.view == top and moved._resolved.get("bbox")
     for fn in (place.place_balloon_cross, place.place_balloon_align, place.place_balloon_spacing):
         found, _ = fn(d)
         assert found == [], (fn.__name__, found)
@@ -182,6 +190,13 @@ def test_balloons_from_two_views_do_not_collide(tmp_path):
     for i, a in enumerate(leaders):
         for b in leaders[i + 1 :]:
             assert not _seg_cross(a.p, a.q, b.p, b.q)
+
+
+def test_balloon_plan_is_capped_and_falls_back_explicitly():
+    from linercad.layout import _can_plan_balloons
+
+    assert _can_plan_balloons(2) and _can_plan_balloons(12)
+    assert not _can_plan_balloons(1) and not _can_plan_balloons(13)
 
 
 def test_written_balloon_side_is_kept(tmp_path):
