@@ -340,12 +340,12 @@ def _part_key(c):
     t = c._intent.get("title", {})
     if c.std:
         return ("std", c.std, c.spec, t.get("material", ""))
-    params = tuple(sorted((k, repr(v)) for k, v in c._intent.get("params", {}).items()))
+    # instance parameters (assembly position, handedness, jaw opening) do not change the part
+    # number: the drawing number / title fields identify the parts-list item
     return (
         "part",
         c._intent.get("path", ""),
         c._intent.get("hash"),
-        params,
         t.get("drawing_no", ""),
         t.get("name", ""),
         t.get("material", ""),

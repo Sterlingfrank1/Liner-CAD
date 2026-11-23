@@ -241,6 +241,21 @@ def test_l3_assembly_case(case, tmp_path):
             assert prim.box[2] <= table._resolved["bbox"][2] + 1e-6
 
 
+def test_l3_vise_bom_merges_jaw_plates_and_screws(tmp_path):
+    # D5: the two jaw-plate components share drawing LC-VS-03 (different assembly-side params);
+    # the two GB/T 68 calls are the same standard part. Both pairs are one row with summed qty.
+    work = tmp_path / "vise"
+    shutil.copytree(
+        L3 / "vise", work, ignore=shutil.ignore_patterns(".linercad", "__pycache__", "*.jsonl")
+    )
+    d = runtime.build(work).d
+    rows = {r["code"]: r for r in d["T.bom"].rows}
+    assert len([r for r in d["T.bom"].rows if r["code"] == "LC-VS-03"]) == 1
+    assert rows["LC-VS-03"]["qty"] == 2
+    assert rows["GB/T 68-2016"]["qty"] == 4
+    assert rows["GB/T 68-2016"]["ids"] == ["A.csk_fixed", "A.csk_mov"]
+
+
 def test_every_instance_of_a_multi_placed_part_is_drawn(tmp_path):
     d = make(tmp_path).d  # washers at x = ±22, uncut (standard part)
     for view in ("front", "top"):
