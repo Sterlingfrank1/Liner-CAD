@@ -132,7 +132,72 @@ def test_handover_documents_how_to_run_the_gates():
         assert command in text, command
 
 
-def test_cross_agent_evidence_file_has_the_g5_sections():
+def test_handover_pairs_every_card_with_a_pr_reference():
+    text = read("docs/milestones/v0.1.1/HANDOVER.md")
+    for card in CARDS:
+        row = next(line for line in text.splitlines() if line.startswith(f"| {card} |"))
+        cells = [cell.strip() for cell in row.strip("|").split("|")]
+        assert cells[0] == card
+        if card == "V1":
+            assert cells[2] == "本 PR", row
+        else:
+            assert re.fullmatch(r"#\d+", cells[2]), (card, cells[2])
+
+
+def test_release_notes_quote_the_d2_d5_final_placement_numbers():
+    rel = read("docs/releases/v0.1.1.md")
+    handover = read("docs/milestones/v0.1.1/HANDOVER.md")
+    d2 = read("docs/milestones/v0.1.1/evidence/d2-multi-layer.md")
+    d5 = read("docs/milestones/v0.1.1/evidence/d5-parts-list.md")
+    for needle in ("0.9756", "0/45", "0/82"):
+        assert needle in rel, needle
+        assert needle in d2, needle
+    assert "0.9583" in rel and "0.9583" in d5
+    for doc in (rel, handover):
+        assert "d2-multi-layer.md" in doc
+        assert "d5-parts-list.md" in doc
+
+
+def test_release_notes_reference_existing_new_modules():
+    text = read("docs/releases/v0.1.1.md")
+    assert "src/linercad/place.py" in text
+    assert "evals/place.py" not in text
+    for rel in (
+        "src/linercad/place.py",
+        "src/linercad/expect.py",
+        "evals/mutate.py",
+        "evals/known-debt.json",
+        "evals/dxf_only.py",
+        "evals/dxf_import.py",
+        "evals/gtol_coverage.py",
+        "evals/expect_mutation.py",
+        "evals/place_scores.py",
+        "evals/cross_agent.py",
+    ):
+        assert (ROOT / rel).exists(), rel
+
+
+def test_pending_verification_numbers_use_the_agreed_markers():
+    for rel in (
+        "docs/releases/v0.1.1.md",
+        "docs/milestones/v0.1.1/HANDOVER.md",
+        "docs/milestones/v0.1.1/evidence/v1-g5-cross-agent.md",
+    ):
+        for token in re.findall(r"TBD-[A-Za-z0-9-]+", read(rel)):
+            assert token.startswith("TBD-V1-"), (rel, token)
+
+
+def test_cross_agent_evidence_file_covers_the_card_contract():
     text = read("docs/milestones/v0.1.1/evidence/v1-g5-cross-agent.md")
-    for needle in ("dsh", "Codex", "干净 clone", "出图评审", "uv sync --extra 3d"):
+    for needle in (
+        "dsh",
+        "Codex",
+        "干净 clone",
+        "出图评审",
+        "uv sync --extra 3d",
+        "磨头",
+        "回转体",
+        "是非题",
+        "v0.1.0",
+    ):
         assert needle in text, needle

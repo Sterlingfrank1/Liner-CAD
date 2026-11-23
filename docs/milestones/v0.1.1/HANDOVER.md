@@ -9,7 +9,7 @@ v0.1.1 把 v0.1.0 的已知缺口与人工评审项收口：评测指标体系�
 - `pyproject.toml` 版本 0.1.1（`uv.lock` 同步；CI 使用 `uv sync --locked`）。
 - 发布说明 `docs/releases/v0.1.1.md`；本交接。
 - G5 独立 Agent（dsh + Codex）多轮修改与出图评审：`evidence/v1-g5-cross-agent.md`。
-- 32 张开发卡（A1/A3 已随 PR #69 提前关闭）全部合并；逐卡去向见 §3。
+- 在册 32 张开发卡（§3 表中除 V1 外）全部合并；另有 A1/A3 随 PR #69 提前关闭；逐卡去向见 §3。
 
 ## 2. 怎么验证
 
@@ -85,7 +85,7 @@ uv run python evals/dxf_only.py --sample-dir "<sample 目录>" --m3 tests/data/d
 | V1 | #102 | 本 PR | W4 | 版本 0.1.1 + 发布说明 + 本 HANDOVER + G5 证据。 |
 
 - 另有 **A1 #90 / A3 #91**：2026-11-21 随 PR #69 核对后 squash 合并、issue 已关闭（见 PLAN 偏离 8），不计入上表 33 张在册卡。
-- 上表 33 行 = milestone v0.1.1 在册卡片（A1/A3 关闭后）。32 张开发卡已合并，V1 为本 PR。
+- 上表 33 行 = milestone v0.1.1 在册卡片（A1/A3 关闭后）。在册 32 张开发卡已合并；A1/A3 另随 PR #69 关闭；V1 为本 PR。
 
 ## 4. 验收（G5）与证据
 
@@ -94,11 +94,11 @@ uv run python evals/dxf_only.py --sample-dir "<sample 目录>" --m3 tests/data/d
 | 干净 clone（`uv sync --extra 3d`）全量回归 | TBD-V1-CLEAN-CLONE（pytest 数 / ruff / format / 评测 baseline 最终数字由 supervisor 复核填入） | 本文件与发布说明“质量与证据” |
 | 评测 40 / 40、零 error、几何 / 完整性 1.0、baseline 不退化 | 是：40/40、geometry 35 例 1.0、completeness 5 例 1.0、expect 20/20（198 checks）、`regressions: []` | `evals/baseline.json`、E1 证据 |
 | 规则变异 | 37 规则 / 39 变异 / **39 检出（100%）** / 误报 0 / known-debt 38 条精确冻结 | `evidence/mutation-report.md` |
-| 排布分数 | flange 1.0、pulley 0.9756、gear_cover 1.0、jack 1.0 / A 1.0、vise 0.9583 / A 1.0 | `evidence/placement-scores.md` + `evals/place_scores.py --eval40` |
+| 排布分数 | flange 1.0（0/45）、pulley 0.9756（2/82）、gear_cover 1.0（0/82）、jack 1.0 / A 1.0（0/30 / 0/25）、vise 0.9583（1/24）/ A 1.0（0/59）；E5 起点见 placement-scores | 最终值：`evidence/d2-multi-layer.md`、`evidence/d5-parts-list.md`；E5 起点：`evidence/placement-scores.md`；`evals/place_scores.py --eval40` |
 | DXF 导入 4 样例 | entity 256/325、text 67/67、hatch 4/4、single_frame_ok 4/4、inspect 4/4、edit_round 4/4 | `evidence/dxf-import.md` |
 | 仅 DXF 模式 | G 1.0（0/296）、D 0.97619（1/42）、T/A/P 不可判明示 | `evidence/dxf-only-metrics.md` |
 | 迭代速度 | fresh 4 场景均值 487.4 s / 108,462 token / 82.5 步；Codex 首图 523.8 s → 修改轮 114.2 s（约 4.6×） | `evidence/e7-iteration-metrics.md` |
-| 独立 Agent（dsh + Codex）多轮修改与出图评审 | TBD-V1-G5（由 supervisor 安排的 dsh 全新子代理 + Codex 在干净 clone 上完成，数字填入证据） | `evidence/v1-g5-cross-agent.md` |
+| 独立 Agent（dsh + Codex）多轮修改与出图评审 | TBD-V1-G5：至少 2 个任务（其一参照用户磨头 PDF 画回转体零件，PDF 不入库）+ 多模态是非题清单并与 v0.1.0 对比；由 supervisor 安排的 dsh 全新子代理 + Codex 在干净 clone 上完成，数字填入证据 | `evidence/v1-g5-cross-agent.md` |
 | CI 四项（lint / ubuntu 3.11 / windows 3.13 / test-3d） | TBD-V1-CI（本 PR 的 run） | GitHub Actions |
 | 版本号 / 发布说明 / HANDOVER | 0.1.1；两份文档随本 PR 合并 | 本文件、`docs/releases/v0.1.1.md` |
 
