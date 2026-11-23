@@ -46,15 +46,3 @@
 - T.hier 按行 category 判形状/方向/位置/跳动递进；尺寸公差与形位公差的比较只取可比口径（配合偏差仅在形状公差时比较，显式偏差公差全类别比较），GB/T 4249-2018 原文未读，catalog 条款状态为 pending；
 - 未读条款（A4 meta.unread：1182 第9章、17851 部分、17852 规则 D-H 等）不在本报告声称覆盖；M/L/R/F 等来自未读标准的修饰符按 modifiers_unverified 报为不可判。
 
-
-## E4 规则读数（参考图 / 变异 / baseline）
-
-| 项 | 数值 |
-|---|---|
-| 参考图 T.syntax 机会 / 违规 | 66 / 0 |
-| 参考图 T.target 机会 / 违规 | 51 / 0 |
-| 参考图 T.hier 机会 / 违规 | 1 / 0 |
-| 变异（E2 框架，全规则） | 39/39 检出（100%），误报 0，known-debt exact |
-| baseline T 族 | 机会 321 → 411（+90），违规 0，分数 1.0；--baseline regressions [] |
-
-`baseline` 用 `uv run python evals/run.py --save-baseline evals/baseline.json` 重新生成；新增项仅为三条规则的机会数，违规与分数不变；40 例向量未退化。

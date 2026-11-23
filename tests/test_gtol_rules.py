@@ -112,19 +112,16 @@ def test_hierarchy_shape_orientation_location(shaft):
     assert not [x for x in by_rule(run(d), "gtol_hier") if x["id"] in ("G.st", "G.perp")]
 
 
-def test_hierarchy_against_a_size_tolerance(shaft):
+def test_hierarchy_runout_must_not_be_tighter_than_the_covered_tolerance(shaft):
     d, _P, f = shaft
     dim, _circle, _line = _ids(d)
-    d[dim]._intent["tolerance"] = {
-        "kind": "dev",
-        "upper": 0.05,
-        "lower": -0.05,
-    }
-    f.gtol("st", "straightness", 0.2, ref=dim)  # form tolerance wider than the size tolerance
+    f.datum("A", ref=dim)
+    f.gtol("co", "concentricity", 0.03, datums=["A"], ref=dim, zone="dia")
+    f.gtol("run", "circular_runout", 0.02, datums=["A"], ref=dim)
     bad = by_rule(run(d), "gtol_hier")
-    assert [x for x in bad if x["id"] == "G.st"]
-    d["G.st"].set(value=0.02)
-    assert not [x for x in by_rule(run(d), "gtol_hier") if x["id"] == "G.st"]
+    assert [x for x in bad if x["id"] == "G.run"]
+    d["G.run"].set(value=0.03)
+    assert not [x for x in by_rule(run(d), "gtol_hier") if x["id"] == "G.run"]
 
 
 def test_opportunities_are_independent_checks(shaft):
