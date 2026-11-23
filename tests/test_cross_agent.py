@@ -265,3 +265,20 @@ def test_p_summary_does_not_count_a_failed_round_as_green():
 def test_p_summary_skips_manual_record_without_check():
     out = {"doubao/box": {"rounds": [{"round": 0, "mode": "fresh", "seconds": 95}]}}
     assert cross_agent._p_summary(out) is None
+
+
+def test_p_summary_counts_cost_of_failed_attempts():
+    out = {
+        "codex/tool": {
+            "rounds": [
+                {"round": 0, "mode": "fresh", "code": 1, "seconds": 10, "check": {"errors": None}},
+                {"round": 1, "mode": "fresh", "code": 0, "seconds": 20, "check": {"errors": 0}},
+            ]
+        }
+    }
+    p = cross_agent._p_summary(out)
+    row = p["rows"][0]
+    assert row["first_pass"] is False
+    assert row["rounds_to_green"] == 1
+    assert row["seconds"] == 30
+    assert p["modes"]["fresh"]["mean_seconds"] == 15.0

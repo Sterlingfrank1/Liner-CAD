@@ -46,7 +46,7 @@ P 聚合（cross_agent score / import-demo 的 P 字段）：first_pass_rate（�
 
 ## 5. 测试与框架
 
-- tests/test_cross_agent.py 11 tests：claude/dsh/codex 事件解析（token/步/工具/lcad 子命令）、fresh vs conversation 命令构造（dsh --session-id / codex resume / claude --resume）、P first_pass/mean_rounds 两 mode、import-demo 回放。
+- tests/test_cross_agent.py 12 tests：claude/dsh/codex 事件解析（token/步/工具/lcad 子命令）、fresh vs conversation 命令构造（dsh --session-id / codex resume / claude --resume）、P first_pass/mean_rounds 两 mode、import-demo 回放。
 - G2：test commit 6a0ed71；实现 commit 7dfd88b。
 - baseline：P 按 E1 设计不在绘图向量内（evals/baseline.json 的 families 不含 P）；cross_agent 的 P 报告独立产出，写 PR 说明，无绘图 baseline 变动（--baseline 仍空）。
 

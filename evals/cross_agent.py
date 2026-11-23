@@ -7,8 +7,9 @@ bare-ezdxf baseline, on the same requirement texts (evals/cross/tasks.toml).
     python evals/cross_agent.py record --root R --agent doubao --task box --round 0 --seconds 95
     python evals/cross_agent.py score --root R --out report.json
 
-Each (agent, task) gets R/<agent>/<task>/ outside any repo; ``lcad`` comes from R/venv. Every round
-is a fresh non-interactive invocation (like a user coming back), output kept in round-<k>.log.
+Each (agent, task) gets R/<agent>/<task>/ outside any repo; ``lcad`` comes from R/venv. ``--mode
+fresh`` starts a new non-interactive invocation every round; ``--mode conversation`` keeps one session
+and resumes it for the later rounds, output kept in round-<k>.log.
 
 dsh is DeepSeek Harness headless (``dsh.cmd`` from $DSH or PATH; DEEPSEEK_API_KEY in the
 environment; model from --dsh-model). GUI agents (doubao = 豆包工作 desktop) are driven by hand or by
@@ -435,23 +436,23 @@ def _p_summary(out):
         for r in runs:
             modes.setdefault(r.get("mode", "fresh"), []).append(r)
         for mode, rs in modes.items():
-            valid = [
-                r
-                for r in rs
-                if isinstance(r.get("code"), int)
-                and isinstance(r.get("check", {}).get("errors"), int)
-            ]
-            if not valid:
+            errors = [r.get("check", {}).get("errors") for r in rs]
+            if not any(isinstance(e, int) for e in errors) and not any(
+                isinstance(r.get("code"), int) for r in rs
+            ):
                 continue
-            errors = [r.get("check", {}).get("errors") for r in valid]
-            complete = valid[0].get("round") == 0
+            first = rs[0]
+            complete = first.get("round") == 0
             green = next(
                 (
                     i
-                    for i, r0 in enumerate(valid)
+                    for i, r0 in enumerate(rs)
                     if r0.get("code") == 0 and r0.get("check", {}).get("errors") == 0
                 ),
                 None,
+            )
+            first_green = (
+                complete and first.get("code") == 0 and first.get("check", {}).get("errors") == 0
             )
             rows.append(
                 {
@@ -460,13 +461,12 @@ def _p_summary(out):
                     "mode": mode,
                     "complete": complete,
                     "rounds": len(rs),
-                    "first_pass": (complete and valid[0].get("code") == 0 and errors[0] == 0)
-                    if complete
-                    else None,
+                    "first_pass": first_green if complete else None,
                     "rounds_to_green": green if complete else None,
-                    "seconds": sum(float(r0.get("seconds") or 0) for r0 in valid),
-                    "new_tokens": sum(_new_tokens(r0) for r0 in valid),
-                    "steps": sum(int(r0.get("steps") or 0) for r0 in valid),
+                    "rounds_to_green_abs": green,
+                    "seconds": sum(float(r0.get("seconds") or 0) for r0 in rs),
+                    "new_tokens": sum(_new_tokens(r0) for r0 in rs),
+                    "steps": sum(int(r0.get("steps") or 0) for r0 in rs),
                 }
             )
     if not rows:
