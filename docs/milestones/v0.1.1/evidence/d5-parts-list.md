@@ -74,6 +74,10 @@ BOM 行数变少后，原来 T.bom 与 C.top.axis 的 overlap 消失，L3 G 从 
 - `test_long_cell_text_wraps_inside_its_cell[cjk / latin]`：长名称/材料使行高 > 2×BOM_ROW；每个 Text 框落在所属列的左右边界、所属行的上下边界内；同一格多行、行间不重叠。
 - `test_long_standard_code_wraps_inside_the_code_column`：超长标准件代号在「代号」列换行且不越列。
 
+`tests/test_layout_d3.py`（D5 兼容回归）：`test_duplicate_numbers_keep_written_side_independent`——vise 两个同号钳口板，手写其中一个 `side` 后两球仍有独立圆位、写死侧保留。
+
+公共文档：`model.py` bom docstring 与 `src/linercad/skill/pages/assembly.md` 同步「合并后行号、同号可重复」。CI：`test-3d` job 增加 `tests/test_assembly.py tests/test_layout_d3.py`（D5 的 3D 语义测试进 CI）。
+
 ## 说明 / 残余
 
 - 合并身份按「同一图号 = 同一明细栏项」；同一图号但实例参数不同（如 vise 钳口板左右手）会合并为一行，这是 BOM 惯例，但会丢失参数差异信息（模型里仍保留在组件上）。
@@ -82,4 +86,5 @@ BOM 行数变少后，原来 T.bom 与 C.top.axis 的 overlap 消失，L3 G 从 
 
 ## 门禁（最终数字见 PR/CI）
 
-- 全量 `uv run pytest -q`：**1399 passed / 1 skipped（11m18s）**；`uv run ruff check .` 绿；`ruff format --check src tests` 绿（97 files）；L3 与 --baseline 见上；CI 四项绿后由 lead 合并。
+- 全量 `uv run pytest -q`（merge origin/main daba71c 后）：**1419 passed / 1 skipped（11m06s）**；`uv run ruff check .` 绿；`ruff format --check src tests` 绿（99 files）；L3 与 --baseline 见上；CI 四项绿后由 lead 合并。
+- Codex 两轮：R1 无 blocker（1 major=CI 3D 入口已修；3 minor+1 nit 已修）；R2 无 blocker/major（保留 1 条 minor=test-3d 仍是精选 allowlist，非本卡引入；1 nit=门禁数字已更新为本次 1419/99 files）。
