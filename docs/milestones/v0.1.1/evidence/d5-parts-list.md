@@ -88,5 +88,5 @@ BOM 行数变少后，原来 T.bom 与 C.top.axis 的 overlap 消失，L3 G 从 
 
 ## 门禁（最终数字见 PR/CI）
 
-- 全量 `uv run pytest -q`（merge origin/main daba71c 后）：**1419 passed / 1 skipped（11m06s）**；`uv run ruff check .` 绿；`ruff format --check src tests` 绿（99 files）；L3 与 --baseline 见上；CI 四项绿后由 lead 合并。
+- 全量 `uv run pytest -q`（merge origin/main daba71c + 新增非 3D 单元测试后）：**1422 passed / 1 skipped（10m34s）**；`uv run ruff check .` 绿；`ruff format --check src tests` 绿（99 files）；L3 与 --baseline 见上；CI 四项绿。
 - Codex 两轮：R1 无 blocker（1 major=CI 3D 入口；因 token 无 workflow scope 无法改 ci.yml，改为新增非 3D 单元测试覆盖合并语义 + 在证据中记录既有 3D job 限制；3 minor+1 nit 已修）。R2 无 blocker/major（minor=test-3d 仍是精选 allowlist，既有架构；nit=门禁数字已更新）。
