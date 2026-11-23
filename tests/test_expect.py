@@ -34,12 +34,6 @@ def _build(case):
         shutil.rmtree(work, ignore_errors=True)
 
 
-pytestmark = pytest.mark.skipif(
-    not any((Path(c["dir"]) / "expect.py").exists() for c in L2),
-    reason="L2 expect files not generated yet",
-)
-
-
 @pytest.mark.parametrize("case", L2, ids=[c["id"] for c in L2])
 def test_reference_drawings_pass_their_expect(case):
     pytest.importorskip("build123d")

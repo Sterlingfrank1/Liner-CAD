@@ -39,9 +39,36 @@ def find_mutations(result, d, mod):
     """Which reference dimensions/features can this expect.py be broken against?"""
     refs = [i for i in (result.get("referenced_dims") or []) if i in d._els]
     fits = [e.id for e in _fit_dims(d)]
+    one_dup = None
+    for req in result.get("dim_requirements") or ():
+        sig = req.get("signature") or ()
+        side = sig[3] if len(sig) > 3 else None
+        if side is None:
+            continue
+        did = req.get("matched")
+        el = d._els.get(did)
+        if el is None:
+            continue
+        vals = [v for v in (el._intent.get("value"), el._intent.get("measured")) if v is not None]
+        peers = [
+            e.id
+            for e in d._els.values()
+            if e.kind == "dim"
+            and e.id != did
+            and any(
+                abs(v - w) <= 0.01
+                for v in (e._intent.get("value"), e._intent.get("measured"))
+                if v is not None
+                for w in vals
+            )
+        ]
+        if peers:
+            one_dup = did
+            break
     return {
         "delete_dim": refs[0] if refs else None,
         "change_fit": fits[0] if fits else None,
+        "delete_one_duplicate": one_dup,
     }
 
 
@@ -62,6 +89,13 @@ def mutate_delete_dim(d, dim_id):
                 out._els.pop(eid, None)
     else:
         out._els.pop(dim_id, None)
+    return out
+
+
+def mutate_delete_one_duplicate(d, dim_id):
+    """Delete only one member of a duplicated feature (the single-feature mutation)."""
+    out = _clone(d)
+    out._els.pop(dim_id, None)
     return out
 
 
@@ -93,6 +127,12 @@ def run_case(mod, d):
     if where["change_fit"]:
         res = expect.evaluate(mod, mutate_change_fit(d, where["change_fit"]))
         outcomes["change_fit"] = {"caught": bool(res["violations"]), "why": where["change_fit"]}
+    if where["delete_one_duplicate"]:
+        res = expect.evaluate(mod, mutate_delete_one_duplicate(d, where["delete_one_duplicate"]))
+        outcomes["delete_one_duplicate"] = {
+            "caught": bool(res["violations"]),
+            "why": where["delete_one_duplicate"],
+        }
     caught = sum(1 for v in outcomes.values() if v["caught"])
     return {
         "base_pass": base["pass"],

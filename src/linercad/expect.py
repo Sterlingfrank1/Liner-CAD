@@ -36,7 +36,7 @@ class Target:
 
 
 class Constraint:
-    def __init__(self, rule, must, message, measured, expected, check):
+    def __init__(self, rule, must, message, measured, expected, check, signature=None):
         self.rule = rule
         self.must = must
         self.message = message
@@ -45,6 +45,7 @@ class Constraint:
         self.check = check
         self.ok = False
         self.matched = None
+        self.signature = signature
 
     def evaluate(self, obs):
         self.matched = None
@@ -71,7 +72,10 @@ class Expect:
             target = Target("value", want_value)
 
         def check(obs):
+            used = obs.get("_used_ids") if obs.get("_require_distinct") else ()
             for dim in obs["dims"]:
+                if dim["id"] in used:
+                    continue
                 if kind and dim["type"] not in _kind_set(kind):
                     continue
                 if not _target_matches_dim(target, dim, obs):
@@ -85,16 +89,16 @@ class Expect:
                 return True, dim["id"]
             return False, None
 
-        self.constraints.append(
-            Constraint(
-                "expect_dim",
-                must,
-                _msg("尺寸", _target_text(target), "fit " + str(fit) if fit else ""),
-                {},
-                {"dim": _target_text(target), "fit": fit},
-                check,
-            )
+        c = Constraint(
+            "expect_dim",
+            must,
+            _msg("尺寸", _target_text(target), "fit " + str(fit) if fit else ""),
+            {},
+            {"dim": _target_text(target), "fit": fit},
+            check,
         )
+        c.signature = ("dim", target.kind, target.value, target.side, fit, kind)
+        self.constraints.append(c)
         return target
 
     def datum(self, letter, on=None, axis=None, must=True):
@@ -102,7 +106,10 @@ class Expect:
 
         def check(obs):
             vals = _dim_values(obs)
+            used = obs.get("_used_ids") if obs.get("_require_distinct") else ()
             for dt in obs["datums"]:
+                if dt["id"] in used:
+                    continue
                 if str(dt["letter"]).upper() != str(letter).upper():
                     continue
                 if axis is not None and (dt["target"] == "axis") != bool(axis):
@@ -111,22 +118,26 @@ class Expect:
                     refv = vals.get(dt.get("ref"))
                     if refv is None or not any(abs(v - on.value) <= TOL for v in refv):
                         continue
+                    if on.side is not None:
+                        ref_dim = next((x for x in obs["dims"] if x["id"] == dt.get("ref")), None)
+                        if ref_dim is None or _dim_side(ref_dim, obs) != on.side:
+                            continue
                 elif on.kind == "face":
                     if not _ref_matches_side(obs, dt.get("ref"), on.side, dt.get("view")):
                         continue
                 return True, dt["id"]
             return False, None
 
-        self.constraints.append(
-            Constraint(
-                "expect_datum",
-                must,
-                _msg("基准", str(letter), "轴线" if axis else ""),
-                {},
-                {"letter": letter, "axis": axis},
-                check,
-            )
+        c = Constraint(
+            "expect_datum",
+            must,
+            _msg("基准", str(letter), "轴线" if axis else ""),
+            {},
+            {"letter": letter, "axis": axis},
+            check,
         )
+        c.signature = ("datum", str(letter).upper(), on.kind, on.value, on.side, axis)
+        self.constraints.append(c)
 
     def gtol(self, char, on=None, datums=None, max=None, must=True):
         on = on if isinstance(on, Target) else Target("any")
@@ -314,6 +325,7 @@ def _dim_side(dim, obs):
         for d in obs["dims"]
         if d.get("p1")
         and d.get("p2")
+        and _diameterish(d)
         and abs((d.get("value") if d.get("value") is not None else d.get("measured", 0)) - ann)
         <= TOL
     ]
@@ -364,7 +376,9 @@ def _target_matches_dim(target, dim, obs):
             and abs(ann - target.value) <= TOL
             and (target.side is None or _dim_side(dim, obs) == target.side)
         )
-    return True
+    if target.kind == "face":
+        return target.side is not None and _dim_side(dim, obs) == target.side
+    return False
 
 
 def _dim_has_fit(dim, fit):
@@ -522,14 +536,27 @@ def evaluate(path, d):
     if hasattr(mod, "expect"):
         mod.expect(e)
     obs = observed(d)
-    findings, rules, referenced = [], {}, []
+    findings, rules, referenced, dim_requirements = [], {}, [], []
+    sig_counts = {}
     for c in e.constraints:
+        if c.signature is not None:
+            sig_counts[c.signature] = sig_counts.get(c.signature, 0) + 1
+    used = {}
+    for c in e.constraints:
+        obs.pop("_used_ids", None)
+        obs.pop("_require_distinct", None)
+        if c.signature is not None and sig_counts.get(c.signature, 0) > 1:
+            obs["_require_distinct"] = True
+            obs["_used_ids"] = used.get(c.signature, set())
         ok = c.evaluate(obs)
+        if ok and c.signature is not None and c.matched:
+            used.setdefault(c.signature, set()).add(c.matched)
         st = rules.setdefault(c.rule, {"opportunities": 0, "violations": 0, "warnings": 0})
         st["opportunities"] += 1
         if ok:
             if c.rule == "expect_dim" and c.matched:
                 referenced.append(c.matched)
+                dim_requirements.append({"matched": c.matched, "signature": c.signature})
         else:
             severity = "error" if c.must else "warn"
             if c.must:
@@ -555,6 +582,7 @@ def evaluate(path, d):
         "rules": rules,
         "findings": findings,
         "referenced_dims": list(dict.fromkeys(referenced)),
+        "dim_requirements": dim_requirements,
     }
 
 

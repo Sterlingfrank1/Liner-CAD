@@ -27,6 +27,7 @@ def test_case(case):
         assert g["pass"], (view, g)
     if case.get("source") == "3d":  # S6: dimensions inferred from the model are all on the drawing
         assert r["completeness"]["pass"], r["missing"]
+    assert r["passed"], r
 
 
 def undercut_problems(d):
