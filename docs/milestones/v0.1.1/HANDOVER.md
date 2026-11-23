@@ -91,15 +91,15 @@ uv run python evals/dxf_only.py --sample-dir "<sample 目录>" --m3 tests/data/d
 
 | 项 | 结果 | 证据 |
 |---|---|---|
-| 干净 clone（`uv sync --extra 3d`）全量回归 | clone HEAD `865c9c1`（V1 文档 PR 之前，2026-11-23）：pytest **1515 passed / 1 skipped（786.7 s）**；ruff check 绿；`--baseline` `regressions: []` exit 0；mutation 39/39 检出、误报 0；place_scores 见下行。V1 的 12 条版本 / 文档测试由 PR CI 覆盖。 | 本文件与发布说明“质量与证据”；`evidence/v1-g5-cross-agent.md` §6 |
+| 干净 clone（`uv sync --extra 3d`）全量回归 | clone HEAD `865c9c1`（V1 文档 PR 之前，2026-11-23）：pytest **1515 passed / 1 skipped（786.7 s）**；ruff check 绿；`--baseline` `regressions: []` exit 0；mutation 39/39 检出、误报 0；place_scores 见下行。V1 的版本 / 文档测试由 PR CI 覆盖。 | 本文件与发布说明“质量与证据”；`evidence/v1-g5-cross-agent.md` §6 |
 | 评测 40 / 40、零 error、几何 / 完整性 1.0、baseline 不退化 | 是：40/40、geometry 35 例 1.0、completeness 5 例 1.0、expect 20/20（198 checks）、`regressions: []` | `evals/baseline.json`、E1 证据 |
 | 规则变异 | 37 规则 / 39 变异 / **39 检出（100%）** / 误报 0 / known-debt 38 条精确冻结 | `evidence/mutation-report.md` |
 | 排布分数 | flange 1.0（0/45）、pulley 0.9756（2/82）、gear_cover 1.0（0/82）、jack 1.0 / A 1.0（0/30 / 0/25）、vise 0.9583（1/24）/ A 1.0（0/59）；E5 起点见 placement-scores | 最终值：`evidence/d2-multi-layer.md`、`evidence/d5-parts-list.md`；E5 起点：`evidence/placement-scores.md`；`evals/place_scores.py --eval40` |
 | DXF 导入 4 样例 | entity 256/325、text 67/67、hatch 4/4、single_frame_ok 4/4、inspect 4/4、edit_round 4/4 | `evidence/dxf-import.md` |
 | 仅 DXF 模式 | G 1.0（0/296）、D 0.97619（1/42）、T/A/P 不可判明示 | `evidence/dxf-only-metrics.md` |
 | 迭代速度 | fresh 4 场景均值 487.4 s / 108,462 token / 82.5 步；Codex 首图 523.8 s → 修改轮 114.2 s（约 4.6×） | `evidence/e7-iteration-metrics.md` |
-| 独立 Agent（dsh + Codex）多轮修改与出图评审 | 第一批：dsh 路一 3 轮（法兰变体 e0→e3、check 0/0、dry-run 预览与最终渲染 SHA256 一致）+ Codex 路 fresh 386.5 s → conversation 86.0 s（约 4.5×、两轮 0/0）。第二批：磨头 PDF 回转体任务 + 多模态是非题清单与 v0.1.0 对比（TBD-V1-G5） | `evidence/v1-g5-cross-agent.md` |
-| CI 四项（lint / ubuntu 3.11 / windows 3.13 / test-3d） | TBD-V1-CI（本 PR 的 run） | GitHub Actions |
+| 独立 Agent（dsh + Codex）多轮修改与出图评审 | dsh 两路：法兰变体 3 轮（e0→e3、check 0/0、dry-run 预览与最终渲染 SHA256 一致）+ 磨头参考图回转体 2 轮（e0→e2、check 0/0、dry-run 5 ops 与真实提交一致、几何实测 69.9 / 20.0 / Ø16.1 / Ø14.0 @2:1）。Codex 路：fresh 386.5 s → conversation 86.0 s（约 4.5×、两轮 0/0）。独立图像评审 PASS WITH NOTES（4 / 3 / 4 / 4 / 3，5 分制），证实 v0.1.0 既有问题 #145、#146，并汇总 #147；记 v0.2、不阻塞本版。 | `evidence/v1-g5-cross-agent.md`（含 6 个小证据文件） |
+| CI 四项（lint / ubuntu 3.11 / windows 3.13 / test-3d） | PR 上全绿（run 记录与最终 commit 见 PR 的 GitHub Actions；supervisor 合并前复核） | GitHub Actions |
 | 版本号 / 发布说明 / HANDOVER | 0.1.1；两份文档随本 PR 合并 | 本文件、`docs/releases/v0.1.1.md` |
 
 ## 5. 偏离记录（PLAN §9 第 13–16 条指针）
@@ -123,6 +123,7 @@ F1 已把四条偏离写进 [PLAN §9](PLAN.md)（#137），原文不在此重�
 - **ci.yml 的 3D job 装配测试清单：** `test-3d` 目前只跑 `tests/test_hlr.py` + `tests/test_evals.py`；装配 / 3D 集成测试（`test_assembly.py`、`test_views_detail3d.py`、`test_source3d_stable.py` 等）未纳入，改 `ci.yml` 需要带 workflow scope 的 token（本版 workflow scope 不可用）。补偿：非 3D 单元测试 `test_bom_merge_unit.py` / `test_bom_wrap.py` / `test_source3d_naming_unit.py` / `test_detail_semantics.py` 已进普通 job。
 - **数据待核（`verified = false` 与 `pending`）：** `res/center_holes.toml` 的 C 型 M24 t = 8.0 与锥面几何不符（两来源均如此，照录）、B 型 D2 / l_min 单一谱系、R/C 型 ISO 2541 / DIN 332-2 原文未读；`res/gtol.toml` 未读条款见 `[meta].unread`。需要时请用户提供原文。
 - **其他 v0.2 项：** 标题栏 GB/T 10609.1 图 2 与 GB/T 14692 投影符号原文对照；GB/T 1095-2003 松联结 H9/D10、36×20 以上行、(d−t1)/(d+t2) 符号约定；ISO 5459 原文；Viewer 令牌加固（共享主机）；大样本评测验证跨 Agent 定位；STEP AP242 语义 PMI。
+- **V1 验收新发现（v0.2，已开 issue）：** #145 内置 flange 范例 A-A 全剖端面线横穿 Φ30 通孔开口（v0.1.0 既有；图像评审证实通孔圆与剖面自相矛盾，两版渲染均在）；#146 形位公差符号渲染不可辨（圆跳动只剩单斜线、箭头端缺失）；#147 V1 发现汇总（`v.hatch` 无图案 / 纹理接口等 7 条 + 正面确认）。三者均属引擎 / 工具层改进，不在 V1 范围。
 - **本版已知 minor：** D4 拓扑键依赖 OCC 遍历序（增删特征换 ID，旧 ID 有候选）；C4 只识别白名单图框 / 标题栏层；B 系列前端无 JS 测试运行器（服务端接口 + 浏览器证据）；H1 三条 minor（预览按 edit_id 命名的覆盖语义、OSError 报错形状、断言强度）；E6 30+ 条 intent 依赖规则“不可判”明示；D6 GB/T 4459.1 条款号 `pending`；D2 残余 38 条 known-debt（写死布局 / 缺中心线，见发布说明“已知缺口”）。
 
 ## 7. 评测基线与门禁运行方式
@@ -139,7 +140,7 @@ F1 已把四条偏离写进 [PLAN §9](PLAN.md)（#137），原文不在此重�
 
 ## 8. 待用户人工评审
 
-- **出图质量（V1 重评）：** G5 出图评审数字见 `evidence/v1-g5-cross-agent.md`（与 v0.1.0 的 2–3 / 5 对比）；是否接受当前尺寸 / 序号布局水平、是否把剩余布局项作为 v0.2 第一优先。
+- **出图质量（V1 重评）：** G5 独立图像评审 **PASS WITH NOTES**：视图方案 / 剖视 4、标注 3、标题栏 / 技术要求 4、整体可读 4、画法 3（5 分制；v0.1.0 新范例与装配图多为 2–3 / 5），e3 相对 e2 确认改进（Ra 引线贴面、补 h8、无回退）；详见 `evidence/v1-g5-cross-agent.md` §5。是否接受当前水平、是否把 #145 / #146 / #147 作为 v0.2 第一批。
 - **跨 Agent 定位：** 出图观感与裸 ezdxf 相当、优势在检查 / 语义 / 版本、首图速度取决于 Agent；v0.1.1 复测用 dsh + Codex（每格 n 小，仍属初步结论）。是否接受该定位。
 - **数据来源：** `res/gtol.toml` 与 `res/center_holes.toml` 的 `verified = false` 项与 `pending` 清单是否接受现状，或提供标准原文。
 - **D6 画法：** 旋合段按外螺纹、内螺纹剖面线画到大径（牙底），评审建议画到小径未采纳并写明依据；请确认。

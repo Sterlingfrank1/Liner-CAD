@@ -192,6 +192,15 @@ def test_release_notes_reference_existing_new_modules():
         assert (ROOT / rel).exists(), rel
 
 
+def test_no_pending_verification_placeholders_before_merge():
+    for rel in (
+        "docs/releases/v0.1.1.md",
+        "docs/milestones/v0.1.1/HANDOVER.md",
+        "docs/milestones/v0.1.1/evidence/v1-g5-cross-agent.md",
+    ):
+        assert "TBD-V1-" not in read(rel), rel
+
+
 def test_pending_verification_numbers_use_the_agreed_markers():
     for rel in (
         "docs/releases/v0.1.1.md",
