@@ -51,3 +51,45 @@ def test_removed_section_slice_uses_section_axes():
     v = sec._intent
     res = geocmp.compare(d, "A", hlr.slice_view(m, "front", v["trace"], v["axes"]))
     assert res["pass"], res
+
+
+def test_projected_detail_keeps_src3d_sources(tmp_path):
+    """D7: the 3D job runs this file, so projected-detail source refs are covered in CI."""
+    from linercad import txn
+    from linercad.runtime import build as build_dir
+
+    g = tmp_path / "gc"
+    txn.init(g, from_="gear_cover")
+    drawing = g / "drawing.py"
+    drawing.write_text(
+        drawing.read_text(encoding="utf-8")
+        + '\nd.detail("I", parent="front", center=(-55, 10), r=15, scale="3:1")\n',
+        encoding="utf-8",
+    )
+    r = build_dir(g)
+    assert not [f for f in r.findings if f["severity"] == "error"]
+    src = r.d.q.detail_sources("I")
+    assert len(src) == 12
+    assert any(e.kind == "hatch" for e in src)
+    assert any(e._intent.get("src3d") for e in src if e.kind == "edge")
+
+
+def test_assembly_detail_keeps_component_hatch(tmp_path):
+    l3 = Path(__file__).resolve().parents[1] / "evals" / "L3" / "bearing"
+    work = tmp_path / "bearing"
+    import shutil
+
+    shutil.copytree(l3, work, ignore=shutil.ignore_patterns(".linercad", "__pycache__", "*.jsonl"))
+    drawing = work / "drawing.py"
+    drawing.write_text(
+        drawing.read_text(encoding="utf-8")
+        + '\nd.detail("I", parent="front", center=(42, 15), r=18, scale="3:1")\n'
+        + 'd["V.I"].place(at=(170, 150))\n',
+        encoding="utf-8",
+    )
+    from linercad.runtime import build as build_dir
+
+    r = build_dir(work)
+    src = r.d.q.detail_sources("I")
+    assert len(src) == 17
+    assert any(e.kind == "hatch" and e._intent.get("component") for e in src)

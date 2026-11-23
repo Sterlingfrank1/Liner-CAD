@@ -212,6 +212,12 @@ class QueryRoot:
     def __init__(self, d):
         self._d = d
 
+    def detail_sources(self, letter):
+        """Parent elements behind a detail view (D7): d.q.detail_sources("I")."""
+        from .views import detail_sources
+
+        return Query(self._d, detail_sources(self._d, letter), f"q.detail_sources({letter})")
+
     def __getattr__(self, name):
         if name.startswith("_") or name not in KINDS:
             raise UnknownAttribute(f"d.q 没有种类 {name}", candidates=list(KINDS))
@@ -230,7 +236,7 @@ class QueryRoot:
         return run
 
     def __dir__(self):
-        return list(KINDS)
+        return [*KINDS, "detail_sources"]
 
 
 def near_sheet(d, x, y, r):
