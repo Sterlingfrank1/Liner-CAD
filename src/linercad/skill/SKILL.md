@@ -19,7 +19,7 @@ Liner-CAD 是一个 2D 工程图 harness：你写 Python，它负责画法、布
    - **参数值、视图、几何结构** → 直接改 `drawing.py`。
    - **标注、布局、公差文字、加删注释** → 写临时脚本 `.linercad/tmp/<名字>.py`，定义 `apply(d)`。
    - 一轮里两者都改也可以：先改 drawing.py，再 `lcad edit`，它们进同一个 commit。
-3. 执行：临时脚本 `lcad edit .linercad/tmp/x.py -m "<用户原话>"`；只改了 drawing.py：`lcad build -m "<用户原话>"`。
+3. 执行：临时脚本 `lcad edit .linercad/tmp/x.py -m "<用户原话>"`；**先试改**可加 `--dry-run`：返回 changed / warnings / 预览图（`.linercad/tmp/dry-run-eN.png` + DXF），不写日志、不改源文件、不提交，确认后再去掉 `--dry-run` 真跑。只改了 drawing.py：`lcad build -m "<用户原话>"`。
 4. 读输出：`ok`、`edit`（本轮编号 eN）、`changed`、`errors`、`warnings`（`new: true` 是本轮新出现的）。有问题就改，再跑一轮。
 5. 自检：`lcad render` → `.linercad/tmp/render.png`；`lcad render --focus D.L` 把该元素画成红色。用你的看图能力检查重叠、越界、表达是否合理。
 6. 撤销某一轮：`lcad undo e3 -m "<用户原话>"`。历史：`lcad log`；两版对比：`lcad diff e2 e5`。
@@ -50,11 +50,11 @@ def apply(d):
 |---|---|
 | 写 / 改 drawing.py：几何、规定画法（螺纹、键槽、中心孔、花键）、视图（剖视、断面、局部放大）、尺寸与公差、形位公差、粗糙度、查询与元素操作、资源库 | `lcad skill api` |
 | 想沉淀一张图成可复用模板，或按已有用户模板 / 内置范例出图（匹配即从模板起步） | `lcad skill api` 的「用户模板」 |
-| 用户开着 Viewer、说“这个 / 我选中的 / @sel”、在拖参数滑块 | `lcad skill viewer` |
+| 用户开着 Viewer、说“这个 / 我选中的 / @sel”、在拖参数滑块；或首次 build/edit 自动打开了 Viewer（`--no-view` / CI 关） | `lcad skill viewer` |
 | 有 3D 模型（`model.py` / STEP），或要由模型投影出视图、剖视 | `lcad skill 3d` |
 | 画装配图（组件、标准件、序号、明细栏） | `lcad skill assembly` |
 | 读懂 `error.code`、检查规则包（drafting / dimensioning / tolerancing / surface / layout） | `lcad skill checks` |
-| 别人的 DXF：`lcad inspect x.dxf` 看内容；`lcad init <目录> --from-dxf x.dxf` 导入后照常编辑 | — |
+| 别人的 DXF：`lcad inspect x.dxf` 看内容并报告识别到的图框 / 标题栏；`lcad init <目录> --from-dxf x.dxf` 导入后照常编辑——TEXT / MTEXT 成普通文字、HATCH 保留、源图框 / 标题栏吸收进模板语义（只留一个图框） | — |
 | 用户要求发布 / 出版时才用：`lcad export --to <目录> --formats dxf,pdf`（打 tag `rev-A`…） | — |
 
 ## 4. 零件族

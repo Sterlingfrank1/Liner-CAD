@@ -50,9 +50,9 @@ def test_plan_records_the_four_f1_deviations():
     ):
         item = re.search(rf"^{n}\. \*\*.*?$", text, re.MULTILINE)
         assert item, f"PLAN §9 missing deviation {n}"
-        following = text[item.end() : item.end() + 600]
-        assert card in following, (n, card)
-        assert evidence in following, (n, evidence)
+        item_text = text[item.start() : item.end() + 600]
+        assert card in item_text, (n, card)
+        assert evidence in item_text, (n, evidence)
 
 
 def test_skill_covers_h1_dry_run_and_h3_auto_viewer():
