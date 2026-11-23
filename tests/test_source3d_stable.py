@@ -48,6 +48,8 @@ def _geom(e):
     keep = ("shape", "p1", "p2", "c", "r", "start", "end")
     intent = e._intent
     data = {k: intent[k] for k in keep if k in intent}
+    if data.get("shape") == "line":
+        data["p1"], data["p2"] = sorted([data["p1"], data["p2"]])
     return json.dumps(data, sort_keys=True)
 
 
@@ -95,3 +97,28 @@ def test_projected_edges_have_topological_names_and_candidates_for_old_ids(tmp_p
         d["E.front.model.1"]  # M3 sequential child id is gone
     assert ei.value.candidates
     assert any(c.startswith("E.front.model.") for c in ei.value.candidates)
+
+
+def test_gear_cover_parameter_change_only_touches_actually_changed_edges(tmp_path):
+    from linercad import txn
+    from linercad.versions import compare, snapshot
+
+    g = tmp_path / "gc"
+    txn.init(g, from_="gear_cover")
+    r1 = runtime.build(g)
+    drawing = g / "drawing.py"
+    text = drawing.read_text(encoding="utf-8")
+    assert "L=Param(150" in text
+    drawing.write_text(text.replace("L=Param(150", "L=Param(160"), encoding="utf-8")
+    r2 = runtime.build(g)
+
+    def by_geom(res):
+        return {_geom(e): e.id for e in res.d._els.values() if e.kind == "edge"}
+
+    a, b = by_geom(r1), by_geom(r2)
+    unchanged = {a[g] for g in set(a) & set(b) if a[g] == b[g]}
+    cmp = compare(snapshot(r1.d), snapshot(r2.d))
+    reported = {i for i in cmp["intent_changed"] + cmp["layout_changed"] if i.startswith("E.")}
+    assert not (reported & unchanged), sorted(reported & unchanged)
+    added_removed = {i for i in cmp["added"] + cmp["removed"] if i.startswith("E.")}
+    assert not (added_removed & unchanged), sorted(added_removed & unchanged)

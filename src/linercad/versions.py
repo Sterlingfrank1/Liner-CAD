@@ -196,6 +196,15 @@ def _element_view(i, entry):
     return i[2:] if isinstance(i, str) and i.startswith("V.") else None
 
 
+def _diff_intent(entry: dict) -> dict:
+    """Intent fields that describe the drawing; 3D provenance may move along the view axis
+    without changing a single projected curve, so it must not count as a drawing change."""
+    intent = dict(entry.get("intent") or {})
+    intent.pop("src3d", None)
+    intent.pop("src3d_refs", None)
+    return intent
+
+
 def compare(sa: dict, sb: dict) -> dict:
     """Semantic diff by element ID: ``added / removed / intent_changed / layout_changed`` plus
     ``details`` (the changed intent fields as ``[a, b]`` and how far a box moved) and
@@ -210,12 +219,13 @@ def compare(sa: dict, sb: dict) -> dict:
     deltas = {}  # id -> per-coordinate shift, for elements present in both with a box in both
     for i in sorted(set(sa) & set(sb)):
         a, b = sa[i], sb[i]
-        if a["intent"] != b["intent"]:
+        ia, ib = _diff_intent(a), _diff_intent(b)
+        if ia != ib:
             intent_changed.append(i)
             fields = {
-                k: [a["intent"].get(k), b["intent"].get(k)]
-                for k in sorted(set(a["intent"]) | set(b["intent"]))
-                if a["intent"].get(k) != b["intent"].get(k)
+                k: [ia.get(k), ib.get(k)]
+                for k in sorted(set(ia) | set(ib))
+                if ia.get(k) != ib.get(k)
             }
             details.setdefault(i, {"kind": b["kind"]})["intent"] = fields
         mv = _moved(a["bbox"], b["bbox"])
