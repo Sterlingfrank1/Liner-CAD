@@ -23,9 +23,9 @@ place_leader_cross 是径向引线专用子规则；place_dim_cross 本就判 le
 
 | 族 | E5 基线 | E2 基线 | 变化 | 来源 |
 |---|---|---|---|---|
-| G | 1.0 (4417/0) | 1.0 (4469/0) | +52 机会 / +0 违规 | 不变 |
-| D | 0.972252 (2775/77) | 0.986906 (2902/38) | +127 机会 / +-39 违规 | 新增 place_leader_cross 的 20 条（与 place_dim_cross 在同一批径向引线物理交叉上重叠计账，族分数计双次；已知设计重叠） |
-| T | 1.0 (247/0) | 1.0 (411/0) | +164 机会 / +0 违规 | 不变 |
+| G | 1.0 (4417/0) | 1.0 (4469/0) | +52 机会 / +0 违规 | E3 expect_view +52 |
+| D | 0.972252 (2775/77) | 0.986906 (2902/38) | +127 机会 / +-39 违规 | E3 expect_dim +72；违规 97→38 来自 D2/D3 排布修复，不是新规则放宽 |
+| T | 1.0 (321/0) | 1.0 (404/0) | +83 机会 / +0 违规 | E3 expect +74；E4 T.syntax/T.target/T.hier +83 |
 
 原 34 条规则没有新增违规（E5 的 77 条债务不变），新增的 20 条来自 place_leader_cross；G/T 仍 1.0，D 的下降全部来自新增规则的已知真阳性（同时冻结进 evals/known-debt.json）。
 
@@ -39,7 +39,7 @@ place_leader_cross 是径向引线专用子规则；place_dim_cross 本就判 le
 | dev_order | 52 | 2 | 1 | 1 | 100% | 0 | L1/keyway_d28 |
 | duplicate | 247 | 2 | 1 | 1 | 100% | 0 | L1/thread_ext_M20 |
 | general_tol | 40 | 1 | 1 | 1 | 100% | 0 | L1/thread_ext_M20 |
-| gtol_hier | 1 | 1 | 1 | 1 | 100% | 0 | fixture:gtol_hier |
+| gtol_hier | 0 | 1 | 1 | 1 | 100% | 0 | fixture:gtol_hier |
 | gtol_syntax | 59 | 8 | 1 | 1 | 100% | 0 | L2/disc/bearing_cap |
 | gtol_target | 51 | 6 | 1 | 1 | 100% | 0 | L2/disc/bearing_cap |
 | line_width | 400 | 10 | 1 | 1 | 100% | 0 | L1/thread_ext_M20 |

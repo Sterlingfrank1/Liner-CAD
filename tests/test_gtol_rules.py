@@ -112,12 +112,47 @@ def test_hierarchy_shape_orientation_location(shaft):
     assert not [x for x in by_rule(run(d), "gtol_hier") if x["id"] in ("G.st", "G.perp")]
 
 
+def test_runout_needs_a_circular_or_revolved_reference(shaft):
+    d, _P, f = shaft
+    dim, circle, line = _ids(d)
+    f.datum("A", ref=dim)
+    linear = d["D.l1"]
+    f.gtol("run", "circular_runout", 0.02, datums=["A"], ref=linear.id)
+    bad = by_rule(run(d), "gtol_target")
+    assert [x for x in bad if x["id"] == "G.run"]
+    d["G.run"].suppress()
+    f.gtol("run2", "circular_runout", 0.02, datums=["A"], ref=dim)
+    assert not [x for x in by_rule(run(d), "gtol_target") if x["id"] == "G.run2"]
+
+
+def test_surface_form_does_not_accept_an_axis_target(shaft):
+    d, _P, f = shaft
+    dim, _circle, _line = _ids(d)
+    f.gtol("flat", "flatness", 0.02, ref=dim)
+    bad = by_rule(run(d), "gtol_target")
+    assert [x for x in bad if x["id"] == "G.flat"]
+
+
+def test_hierarchy_groups_a_dimension_and_its_underlying_circle(tmp_path):
+    d = Drawing(sheet="A3")
+    f = d.view("front")
+    c = f.circle((0, 0), 20, name="bore")
+    dim = f.dim.dia("D", circle=c, value=40, tol="H7")
+    f.datum("A", ref=dim.id)
+    f.gtol("circ", "circularity", 0.03, ref=c.id)
+    f.gtol("run", "circular_runout", 0.02, datums=["A"], ref=dim.id)
+    bad = by_rule(run(d), "gtol_hier")
+    assert [x for x in bad if x["id"] == "G.run"]
+    d["G.run"].set(value=0.03)
+    assert not [x for x in by_rule(run(d), "gtol_hier") if x["id"] == "G.run"]
+
+
 def test_hierarchy_runout_must_not_be_tighter_than_the_covered_tolerance(shaft):
     d, _P, f = shaft
     dim, _circle, _line = _ids(d)
     f.datum("A", ref=dim)
     f.gtol("co", "concentricity", 0.03, datums=["A"], ref=dim, zone="dia")
-    f.gtol("run", "circular_runout", 0.02, datums=["A"], ref=dim)
+    f.gtol("run", "total_runout", 0.02, datums=["A"], ref=dim)
     bad = by_rule(run(d), "gtol_hier")
     assert [x for x in bad if x["id"] == "G.run"]
     d["G.run"].set(value=0.03)

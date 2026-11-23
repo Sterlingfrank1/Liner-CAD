@@ -529,7 +529,9 @@ def _runout_ref_ok(d, e, data, ref):
     if ref is None:
         return True
     if ref.kind == "dim":
-        return True  # a feature of size: its circular elements / axis are the runout target
+        # only a diameter / radius dimension resolves to circular elements or an axis;
+        # a linear dimension measures two parallel planes and is not a runout target
+        return ref._intent.get("type") in ("dia", "rad")
     if ref._intent.get("shape") in ("circle", "arc"):
         return True
     feat = d._els.get(ref._intent.get("feature"))
@@ -717,7 +719,9 @@ def gtol_target(d):
         row, target, nature = _target_row(data, i.get("target"), shape, bool(refs))
         if row is not None and data["char"] in _FORM_TARGETS:
             want = _FORM_TARGETS[data["char"]][0]
-            if want in ("circle", "cylindrical_surface"):
+            if want in ("surface", "circle", "cylindrical_surface") and i.get("target") == "axis":
+                row = None
+            elif want in ("circle", "cylindrical_surface"):
                 if shape not in ("circle", "arc"):
                     row = None
             elif want == "line":
@@ -777,6 +781,27 @@ def gtol_target(d):
 _RANK = {"form": 0, "orientation": 1, "location": 2}
 
 
+def _gtol_feature_key(d, ref):
+    el = d._els.get(ref)
+    if el is None:
+        return ("ref", ref)
+    if el.kind == "edge":
+        return ("feature", el._intent.get("feature") or ref)
+    if el.kind == "dim":
+        keys = set()
+        for rid in getattr(el, "_refs", ()):
+            o = d._els.get(rid)
+            if o is None:
+                continue
+            if o.kind == "edge":
+                keys.add(("feature", o._intent.get("feature") or rid))
+            elif o.kind == "feature":
+                keys.add(("feature", rid))
+        if len(keys) == 1:
+            return keys.pop()
+    return ("ref", ref)
+
+
 def _gtol_category(d, e, data):
     i = e._intent
     refs = bool(i.get("datum_refs"))
@@ -802,12 +827,7 @@ def gtol_hier(d):
         data = _gtol_data(i.get("char"))
         if data is None:
             continue
-        ref = i.get("ref")
-        el = d._els.get(ref)
-        if el is not None and el.kind == "edge":
-            key = ("feature", el._intent.get("feature") or ref)
-        else:
-            key = ("ref", ref)
+        key = _gtol_feature_key(d, i.get("ref"))
         groups.setdefault(key, []).append((e, data, _gtol_category(d, e, data)))
     for entries in groups.values():
         for k, (a, _da, ca) in enumerate(entries):
@@ -815,7 +835,12 @@ def gtol_hier(d):
                 # runout vs form/location: t_runout must be >= the covered form/location value
                 if ca == "run-out" or cb == "run-out":
                     ro, other = ((a, ca), (b, cb)) if ca == "run-out" else ((b, cb), (a, ca))
-                    if other[1] in ("form", "location", "orientation"):
+                    allowed_other = (
+                        {"circularity"}
+                        if ro[0]._intent["char"] == "circular_runout"
+                        else {"concentricity", "coaxiality"}
+                    )
+                    if other[0]._intent["char"] in allowed_other:
                         n += 1
                         if ro[0]._intent["value"] < other[0]._intent["value"] - 1e-9:
                             out.append(
@@ -1057,7 +1082,7 @@ CLAUSES = {
     "dev_order": "尺寸的上偏差不应小于下偏差",
     "gtol_syntax": "按 GB/T 1182-2018 表1 判基准有无、公差带形状、修饰符与轴线圆柱带的 Φ；引用基准应已定义",
     "gtol_target": "被测要素的种类/性质应与 GB/T 1182-2018 表1 的特征项目匹配",
-    "gtol_hier": "形状 ≤ 方向 ≤ 位置 ≤ 尺寸公差（GB/T 4249-2018 推导口径，原文未读）",
+    "gtol_hier": "同一要素形状 ≤ 方向 ≤ 位置；跳动 ≥ 对应的圆度/同轴度；尺寸公差关系未判（GB/T 4249-2018 原文未读）",
     "datum_letter": "基准字母不应选用标准建议不用的字母",
     "general_tol": "有未注公差的尺寸时应注明未注公差等级",
     "chain_limit": "封闭环的极限尺寸应在设计要求范围内",

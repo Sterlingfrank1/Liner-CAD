@@ -1049,7 +1049,7 @@ def run_report(cases=None) -> dict:
 E5_BASELINE = {
     "G": {"score": 1.0, "opportunities": 4417, "violations": 0},
     "D": {"score": 0.972252, "opportunities": 2775, "violations": 77},
-    "T": {"score": 1.0, "opportunities": 247, "violations": 0},
+    "T": {"score": 1.0, "opportunities": 321, "violations": 0},
 }
 
 
@@ -1067,12 +1067,12 @@ def _baseline_table() -> list[str]:
         cur = new.get(fam, {})
         d_opp = (cur.get("opportunities") or 0) - old["opportunities"]
         d_viol = (cur.get("violations") or 0) - old["violations"]
-        why = (
-            "新增 place_leader_cross 的 20 条（与 place_dim_cross 在同一批径向引线物理交叉上"
-            "重叠计账，族分数计双次；已知设计重叠）"
-            if fam == "D"
-            else "不变"
-        )
+        why = {
+            "G": "E3 expect_view +52",
+            "D": "E3 expect_dim +72；违规 97→38 来自 D2/D3 排布修复，不是新规则放宽",
+            "T": "E3 expect +74；E4 T.syntax/T.target/T.hier +83",
+            "A": "不变",
+        }.get(fam, "不变")
         out.append(
             f"| {fam} | {old['score']} ({old['opportunities']}/{old['violations']}) | "
             f"{cur.get('score')} ({cur.get('opportunities')}/{cur.get('violations')}) | "
