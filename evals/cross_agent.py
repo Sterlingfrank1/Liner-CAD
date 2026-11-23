@@ -131,8 +131,12 @@ def _add_usage(m, u, in_key="input", out_key="output"):
         return
     m["usage"]["input"] += int(u.get(in_key) or 0)
     m["usage"]["output"] += int(u.get(out_key) or 0)
-    m["usage"]["cache_read"] += int(u.get("cache_read") or u.get("cached_input_tokens") or 0)
-    m["usage"]["cache_write"] += int(u.get("cache_write") or u.get("cache_write_input_tokens") or 0)
+    m["usage"]["cache_read"] += int(
+        u.get("cache_read") or u.get("cached_input_tokens") or u.get("cacheReadTokens") or 0
+    )
+    m["usage"]["cache_write"] += int(
+        u.get("cache_write") or u.get("cache_write_input_tokens") or u.get("cacheWriteTokens") or 0
+    )
 
 
 def parse_events(agent, text):
@@ -338,6 +342,10 @@ def run(root, agent, tid, rounds, start=0, dsh_model=DSH_MODEL, mode="fresh"):
     session = None
     if mode == "conversation" and res:
         session = res[-1].get("session")
+    if mode == "conversation" and start > 0 and not session:
+        raise SystemExit(
+            "conversation mode with --start > 0 needs a session id from the previous runs.json"
+        )
     for k in range(start, rounds + 1):
         cli = agent if agent in ("codex", "dsh") else "claude"  # baseline: claude without skill
         r = invoke(
@@ -358,7 +366,7 @@ def run(root, agent, tid, rounds, start=0, dsh_model=DSH_MODEL, mode="fresh"):
             session = r["session"]
         check = {"errors": None, "warnings": None}
         drawing = w / "drawing"
-        if drawing.exists():
+        if r.get("code") == 0 and drawing.exists():
             try:
                 chk = lcad(root, "-C", str(drawing), "check")
                 if isinstance(chk.get("warnings"), int):
@@ -421,15 +429,30 @@ def _p_summary(out):
         if not runs:
             continue
         agent, task = key.split("/", 1)
-        if agent == "baseline":
+        if agent not in ("codex", "dsh", "claude"):
             continue
         modes = {}
         for r in runs:
             modes.setdefault(r.get("mode", "fresh"), []).append(r)
         for mode, rs in modes.items():
-            errors = [r.get("check", {}).get("errors") for r in rs]
-            complete = bool(rs) and rs[0].get("round") == 0
-            green = next((i for i, e in enumerate(errors) if e == 0), None)
+            valid = [
+                r
+                for r in rs
+                if isinstance(r.get("code"), int)
+                and isinstance(r.get("check", {}).get("errors"), int)
+            ]
+            if not valid:
+                continue
+            errors = [r.get("check", {}).get("errors") for r in valid]
+            complete = valid[0].get("round") == 0
+            green = next(
+                (
+                    i
+                    for i, r0 in enumerate(valid)
+                    if r0.get("code") == 0 and r0.get("check", {}).get("errors") == 0
+                ),
+                None,
+            )
             rows.append(
                 {
                     "agent": agent,
@@ -437,11 +460,13 @@ def _p_summary(out):
                     "mode": mode,
                     "complete": complete,
                     "rounds": len(rs),
-                    "first_pass": errors[0] == 0 if errors and complete else None,
+                    "first_pass": (complete and valid[0].get("code") == 0 and errors[0] == 0)
+                    if complete
+                    else None,
                     "rounds_to_green": green if complete else None,
-                    "seconds": sum(float(r.get("seconds") or 0) for r in rs),
-                    "new_tokens": sum(_new_tokens(r) for r in rs),
-                    "steps": sum(int(r.get("steps") or 0) for r in rs),
+                    "seconds": sum(float(r0.get("seconds") or 0) for r0 in valid),
+                    "new_tokens": sum(_new_tokens(r0) for r0 in valid),
+                    "steps": sum(int(r0.get("steps") or 0) for r0 in valid),
                 }
             )
     if not rows:
@@ -574,7 +599,7 @@ def score(root):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["setup", "run", "prompt", "record", "score", "import-demo"])
-    ap.add_argument("--root", default=".")
+    ap.add_argument("--root")
     ap.add_argument("--clone")
     ap.add_argument("--agent")
     ap.add_argument("--task")
@@ -594,7 +619,9 @@ def main():
     ap.add_argument("--out")
     ap.add_argument("--results", help="run_demo results directory (import-demo)")
     a = ap.parse_args()
-    root = Path(a.root).resolve()
+    if a.cmd != "import-demo" and not a.root:
+        ap.error("--root is required (evaluation directories live outside the repo)")
+    root = Path(a.root or ".").resolve()
     if a.cmd == "setup":
         setup(root, a.clone)
     elif a.cmd == "run":

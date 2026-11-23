@@ -46,7 +46,7 @@ P 聚合（cross_agent score / import-demo 的 P 字段）：first_pass_rate（�
 
 ## 5. 测试与框架
 
-- tests/test_cross_agent.py 9 tests：claude/dsh/codex 事件解析（token/步/工具/lcad 子命令）、fresh vs conversation 命令构造（dsh --session-id / codex resume / claude --resume）、P first_pass/mean_rounds 两 mode、import-demo 回放。
+- tests/test_cross_agent.py 11 tests：claude/dsh/codex 事件解析（token/步/工具/lcad 子命令）、fresh vs conversation 命令构造（dsh --session-id / codex resume / claude --resume）、P first_pass/mean_rounds 两 mode、import-demo 回放。
 - G2：test commit 6a0ed71；实现 commit 7dfd88b。
 - baseline：P 按 E1 设计不在绘图向量内（evals/baseline.json 的 families 不含 P）；cross_agent 的 P 报告独立产出，写 PR 说明，无绘图 baseline 变动（--baseline 仍空）。
 
@@ -67,11 +67,11 @@ P 聚合（cross_agent score / import-demo 的 P 字段）：first_pass_rate（�
 |---|---|---:|---:|---:|---:|---:|---|
 | fresh | 0 首图 | 301.5 | 1,973,440 | 1,881,856 | 81 | 28 | 0 error / 1 warning |
 
-Codex 两种口径的 P（本机现场）：fresh tool+motor 2 场景 mean_seconds **412.6**、mean_new_tokens 2,927,851、mean_steps 100、first_pass_rate 1.0、mean_rounds 0.0；conversation 只有修改轮（round 1，无 round 0），按实现归入 **incremental**，不计算 first_pass_rate/mean_rounds：本轮 114.2s、5,129,887 新 token、26 步；comparison 只作增量口径。
+Codex 两种口径的 P（本机现场，来自 e7-codex root 的 runs，未写进入库的 e7-cross-report.json）：fresh tool+motor 2 场景 mean_seconds **412.6**、mean_new_tokens 2,927,851、mean_steps 100、first_pass_rate 1.0、mean_rounds 0.0；conversation 只有修改轮（round 1，无 round 0），按实现归入 **incremental**，不计算 first_pass_rate/mean_rounds：本轮 114.2s、5,129,887 新 token、26 步；comparison 只作增量口径。
 
 ## 7. P 族数据
 
-- fresh（H2 四场景回放 + Codex tool）first_pass_rate、mean_rounds、mean_seconds、mean_new_tokens、mean_steps 见 cross_agent report 的 P 字段；本卡 P fresh 数据来自 §2/§6；conversation 只有 Codex tool 的修改轮增量（incremental），无完整 conversation 首轮数据，dsh conversation 402 缺测。
+- fresh（入库 e7-cross-report.json 为 H2 四场景回放；Codex tool/motor 为 e7-codex root 现场 runs，另表）first_pass_rate、mean_rounds、mean_seconds、mean_new_tokens、mean_steps 见 cross_agent report 的 P 字段；本卡 P fresh 数据来自 §2/§6；conversation 只有 Codex tool 的修改轮增量（incremental），无完整 conversation 首轮数据，dsh conversation 402 缺测。
 - P 不在 evals/baseline.json 的绘图向量内（E1 设计：families 为 G/D/T/A，P 为过程规则）；cross_agent 的 P 报告独立产出。本卡未改绘图 baseline，--baseline 仍空。
 
 

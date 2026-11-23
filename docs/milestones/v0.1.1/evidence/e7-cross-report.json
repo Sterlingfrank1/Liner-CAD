@@ -78,7 +78,7 @@
     "mode": "fresh",
     "code": 0,
     "seconds": 900.0,
-    "tokens_total": 228094,
+    "tokens_total": 19938814,
     "steps": 142,
     "tools": {
      "pwsh": 82,
@@ -103,7 +103,7 @@
     "usage": {
      "input": 119944,
      "output": 108150,
-     "cache_read": 0,
+     "cache_read": 19710720,
      "cache_write": 0
     },
     "check": {
@@ -121,7 +121,7 @@
     "mode": "fresh",
     "code": 0,
     "seconds": 675.3,
-    "tokens_total": 177401,
+    "tokens_total": 12806137,
     "steps": 124,
     "tools": {
      "pwsh": 77,
@@ -149,7 +149,7 @@
     "usage": {
      "input": 98702,
      "output": 78699,
-     "cache_read": 0,
+     "cache_read": 12628736,
      "cache_write": 0
     },
     "check": {

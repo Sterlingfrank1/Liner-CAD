@@ -43,7 +43,12 @@ DSH = "\n".join(
             {
                 "type": "status",
                 "phase": "step_end",
-                "usage": {"inputTokens": 20, "outputTokens": 7},
+                "usage": {
+                    "inputTokens": 20,
+                    "outputTokens": 7,
+                    "cacheReadTokens": 11,
+                    "cacheWriteTokens": 2,
+                },
             }
         ),
         json.dumps({"type": "final", "text": "done"}),
@@ -86,6 +91,7 @@ def test_parse_dsh_stream_metrics():
     assert m["steps"] == 1 and m["tools"] == {"pwsh": 1}
     assert m["lcad"] == {"render": 1}
     assert m["usage"]["input"] == 20 and m["usage"]["output"] == 7
+    assert m["usage"]["cache_read"] == 11 and m["usage"]["cache_write"] == 2
     assert m["session"] == "session-1"
 
 
@@ -128,6 +134,7 @@ def test_p_summary_reports_both_modes():
                 {
                     "round": 0,
                     "mode": "fresh",
+                    "code": 0,
                     "seconds": 10,
                     "tokens_total": 100,
                     "steps": 4,
@@ -136,6 +143,7 @@ def test_p_summary_reports_both_modes():
                 {
                     "round": 1,
                     "mode": "fresh",
+                    "code": 0,
                     "seconds": 5,
                     "tokens_total": 50,
                     "steps": 2,
@@ -148,6 +156,7 @@ def test_p_summary_reports_both_modes():
                 {
                     "round": 0,
                     "mode": "conversation",
+                    "code": 0,
                     "seconds": 20,
                     "tokens_total": 200,
                     "steps": 6,
@@ -156,6 +165,7 @@ def test_p_summary_reports_both_modes():
                 {
                     "round": 1,
                     "mode": "conversation",
+                    "code": 0,
                     "seconds": 8,
                     "tokens_total": 80,
                     "steps": 3,
@@ -219,8 +229,14 @@ def test_p_summary_skips_baseline_and_marks_mixed_mode_incremental():
         },
         "codex/tool": {
             "rounds": [
-                {"round": 0, "mode": "fresh", "seconds": 10, "check": {"errors": 0}},
-                {"round": 1, "mode": "conversation", "seconds": 5, "check": {"errors": 0}},
+                {"round": 0, "mode": "fresh", "code": 0, "seconds": 10, "check": {"errors": 0}},
+                {
+                    "round": 1,
+                    "mode": "conversation",
+                    "code": 0,
+                    "seconds": 5,
+                    "check": {"errors": 0},
+                },
             ]
         },
     }
@@ -231,3 +247,21 @@ def test_p_summary_skips_baseline_and_marks_mixed_mode_incremental():
     assert p["incremental"][0]["mode"] == "conversation"
     assert p["incremental"][0]["first_pass"] is None
     assert all(r["agent"] != "baseline" for r in p["rows"])
+
+
+def test_p_summary_does_not_count_a_failed_round_as_green():
+    out = {
+        "codex/tool": {
+            "rounds": [
+                {"round": 0, "mode": "fresh", "code": 1, "seconds": 1, "check": {"errors": 0}},
+            ]
+        }
+    }
+    p = cross_agent._p_summary(out)
+    assert p["modes"]["fresh"]["first_pass_rate"] == 0.0
+    assert p["rows"][0]["first_pass"] is False
+
+
+def test_p_summary_skips_manual_record_without_check():
+    out = {"doubao/box": {"rounds": [{"round": 0, "mode": "fresh", "seconds": 95}]}}
+    assert cross_agent._p_summary(out) is None
