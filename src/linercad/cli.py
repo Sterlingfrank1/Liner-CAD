@@ -36,7 +36,7 @@ class _Parser(argparse.ArgumentParser):
 COMMANDS = {
     "init": "新建图纸目录：lcad init <dir> [--from <范例|用户模板> | --from-dxf x.dxf] [--sheet A3] [--set 参数=值 …]（范例见 lcad skill 的零件族卡片；用户模板见 lcad template save/list）",
     "build": '重建产物；-m "<原话>" 时提交源文件改动',
-    "edit": '事务执行临时脚本：lcad edit <script.py> -m "<用户原话>"',
+    "edit": '事务执行临时脚本：lcad edit <script.py> [-m "<用户原话>"] [--dry-run]；--dry-run 试改不写日志/不提交，只出预览，可省略 -m（真实提交仍需 -m）',
     "undo": "撤销某一轮：lcad undo eK [-m ...]",
     "context": "图纸摘要，或 lcad context <ID>... 看元素详情",
     "render": "出 PNG 自检：lcad render [--focus ID]",
@@ -76,6 +76,7 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("edit")
     s.add_argument("script")
     s.add_argument("-m", dest="msg", default=None)
+    s.add_argument("--dry-run", dest="dry_run", action="store_true")
     s.add_argument("--no-view", dest="no_view", action="store_true")
     s = sub.add_parser("undo")
     s.add_argument("edit")
@@ -170,7 +171,7 @@ def _run(args, parser) -> int:
     elif args.cmd == "build":
         out = txn.build_commit(d, args.msg)
     elif args.cmd == "edit":
-        out = txn.edit(d, args.script, args.msg)
+        out = txn.edit(d, args.script, args.msg, dry_run=getattr(args, "dry_run", False))
     elif args.cmd == "undo":
         out = txn.undo(d, args.edit, args.msg)
     elif args.cmd == "context":
@@ -208,7 +209,7 @@ def _run(args, parser) -> int:
         out = commands.render(d, args.focus, args.out, args.dpi)
     # H3: the first successful build / edit starts the background Viewer and opens it once; an
     # already running Viewer is only refreshed (the page polls). --no-view / LCAD_NO_VIEW / CI off.
-    if args.cmd in ("build", "edit") and out.get("ok"):
+    if args.cmd in ("build", "edit") and out.get("ok") and not getattr(args, "dry_run", False):
         try:
             from .viewer import autostart
 
