@@ -14,6 +14,8 @@ from pathlib import Path
 
 import pytest
 
+pytest.importorskip("build123d")  # L3 assemblies are 3D-sourced; CI non-3d job skips this file
+
 from linercad import place
 from linercad.layout import Circle, Line, _seg_cross, layout
 from linercad.runtime import build
