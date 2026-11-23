@@ -38,6 +38,7 @@ sys.path.insert(0, str(HERE))
 import completeness  # noqa: E402
 import geocmp  # noqa: E402
 
+from linercad import expect as expect_rules  # noqa: E402
 from linercad.checks import FAMILIES, family  # noqa: E402
 
 
@@ -240,7 +241,26 @@ def run_case(case, drawings=None, geo=True):
                 r["geo"] = geometry(res.d, case)
         ok_geo = all(v["pass"] for v in r.get("geo", {}).values())
         ok_cmp = r.get("completeness", {}).get("pass", True)
-        r["passed"] = not errors and ok_geo and ok_cmp
+        # E3: declarative expectations live beside the reference case (evals/L2/*/expect.py)
+        exp_path = Path(case["dir"]) / "expect.py" if case.get("dir") else None
+        ok_expect = True
+        if exp_path is not None and exp_path.exists():
+            exp = expect_rules.evaluate(exp_path, res.d)
+            r["expect"] = {
+                "pass": exp["pass"],
+                "checks": exp["checks"],
+                "violations": exp["violations"],
+                "warnings": exp["warnings"],
+                "findings": exp["findings"],
+                "rules": exp["rules"],
+            }
+            for rule, st in exp["rules"].items():
+                t = r["rules"].setdefault(rule, {"opportunities": 0, "violations": 0})
+                t["opportunities"] += int(st["opportunities"])
+                t["violations"] += int(st["violations"])
+            r["rules"] = dict(sorted(r["rules"].items()))
+            ok_expect = exp["pass"]
+        r["passed"] = not errors and ok_geo and ok_cmp and ok_expect
     return r
 
 
@@ -287,6 +307,7 @@ def summary(results):
     built = [r for r in results if "errors" in r]
     geo = [r for r in results if r.get("geo")]
     cmp = [r for r in results if r.get("completeness")]
+    exp = [r for r in results if r.get("expect")]
     rounds = [r["rounds"] for r in results if r.get("rounds") is not None]
     fams, proc = family_scores(results)
     first_pass = (
@@ -300,6 +321,15 @@ def summary(results):
         "built": len(built),
         "geometry_cases": len(geo),
         "completeness_cases": len(cmp),
+        "expect": {
+            "cases": len(exp),
+            "checks": sum(r["expect"]["checks"] for r in exp),
+            "violations": sum(r["expect"]["violations"] for r in exp),
+            "warnings": sum(r["expect"]["warnings"] for r in exp),
+            "pass_rate": (
+                round(sum(1 for r in exp if r["expect"]["pass"]) / len(exp), 4) if exp else None
+            ),
+        },
         "zero_error_rate": round(sum(1 for r in built if r["errors"] == 0) / n, 4) if n else 0,
         "geometry_pass_rate": round(
             sum(1 for r in geo if all(v["pass"] for v in r["geo"].values())) / len(geo), 4
@@ -337,6 +367,13 @@ def baseline_vector(report):
         "geometry_cases": s["geometry_cases"],
         "completeness_pass_rate": s["completeness_pass_rate"],
         "completeness_cases": s["completeness_cases"],
+        "expect": {
+            "cases": s["expect"]["cases"],
+            "checks": s["expect"]["checks"],
+            "violations": s["expect"]["violations"],
+            "warnings": s["expect"]["warnings"],
+            "pass_rate": s["expect"]["pass_rate"],
+        },
         "families": {
             fam: {
                 "score": v["score"],
@@ -525,6 +562,22 @@ def compare_baseline(report, base):
             out.append(f"{label}: not compared now (baseline {before:g}); install linercad[3d]")
         elif not isinstance(now, (int, float)) or not math.isfinite(now) or now < before - 1e-9:
             out.append(f"{label}: {now} < baseline {before:g}")
+    exp_base = base.get("expect") if isinstance(base.get("expect"), dict) else None
+    exp_now = s.get("expect") or {}
+    if exp_now.get("cases") and exp_base is None:
+        out.append("expect: baseline has no expect block (fail-closed)")
+    if exp_base:
+        if isinstance(exp_base.get("cases"), int) and exp_now.get("cases", 0) < exp_base["cases"]:
+            out.append(f"expect: cases {exp_now.get('cases')} < baseline {exp_base['cases']}")
+        before = exp_base.get("pass_rate")
+        now = exp_now.get("pass_rate")
+        if isinstance(before, (int, float)) and math.isfinite(before):
+            if now is None or now < before - 1e-9:
+                out.append(f"expect: pass_rate {now} < baseline {before:g}")
+        wbase = exp_base.get("warnings")
+        wnow = exp_now.get("warnings")
+        if isinstance(wbase, int) and isinstance(wnow, int) and wnow > wbase:
+            out.append(f"expect: should warnings {wnow} > baseline {wbase}")
     cases = s["cases"]
     if isinstance(base.get("cases"), int) and cases < base["cases"]:
         out.append(f"cases: {cases} < baseline {base['cases']}")

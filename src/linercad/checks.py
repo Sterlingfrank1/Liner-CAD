@@ -62,6 +62,17 @@ PACK_FAMILY = {
 }
 FAMILY_OVERRIDES = {"stale_op": "P"}
 
+#: expect.py rules (E3): D.complete / T.func / G.express read on the semantic model
+EXPECT_FAMILIES = {
+    "expect_dim": "D",
+    "expect_datum": "T",
+    "expect_gtol": "T",
+    "expect_rough": "T",
+    "expect_note": "T",
+    "expect_view": "G",
+    "expect_any_of": "D",
+}
+
 _v1_rules()
 
 #: Clause statements of the layout rules (the rule packs carry theirs in rules.CLAUSES).
@@ -80,6 +91,8 @@ def family(rule):
     """Score family of a rule: G / D / T / A (the vector) or P (process, listed separately)."""
     if rule in FAMILY_OVERRIDES:
         return FAMILY_OVERRIDES[rule]
+    if rule in EXPECT_FAMILIES:
+        return EXPECT_FAMILIES[rule]
     return PACK_FAMILY.get(RULES.get(rule, "layout"), "G")
 
 
