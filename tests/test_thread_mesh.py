@@ -106,10 +106,14 @@ from linercad.assembly import thread_hatch_loops
 
 d = Drawing(kind="assembly", sheet="A3")
 v = d.view("front")
+from linercad import res
+
+r1 = res.thread("M10")["d1"] / 2
 for y in (-12, 12):
     v.line((20, y), (70, y), name="nut_top" if y > 0 else "nut_bottom")
-v.line((20, -12), (20, 12), name="nut_left")
-v.line((70, -12), (70, 12), name="nut_right")
+for x in (20, 70):
+    v.line((x, -12), (x, -r1), name=f"nut_face_{x}_lo")
+    v.line((x, r1), (x, 12), name=f"nut_face_{x}_hi")
 v.hatch("nut", loops=thread_hatch_loops("M10", screw=(0, 50), hole=(20, 70), outer=12))
 v.thread_mesh("joint", "M10", screw=(0, 50), hole=(20, 70), outer=12)
 v.dim.thread("t", "F.front.joint")
@@ -124,8 +128,18 @@ d.title(name="螺纹连接", drawing_no="LC-TH-01")
     f = r.d["F.front.joint"]
     assert f._intent["engaged"] == [20.0, 50.0]
     assert all(e._prims for e in f.edges)
+    from linercad.layout import Hatch, Line
+
+    ox, oy = r.d["V.front"]._resolved["origin"]
+    for e in f.edges:
+        prim = next(p for p in e._prims if isinstance(p, Line))
+        assert prim.p[1] - oy == pytest.approx(e._intent["p1"][1])
+        assert prim.q[1] - oy == pytest.approx(e._intent["p2"][1])
     hatch = r.d["H.front.nut"]
-    assert hatch._prims
+    prim = next(p for p in hatch._prims if isinstance(p, Hatch))
+    ys = [pt[1] - oy for loop in prim.loops for pt in loop]
+    assert min(abs(y) for y in ys) == pytest.approx(5.0)
+    assert max(abs(y) for y in ys) == pytest.approx(12.0)
     ys = [p[1] for loop in hatch._intent["loops"] for p in loop["points"]]
     assert min(abs(y) for y in ys) == pytest.approx(5.0)
     assert max(abs(y) for y in ys) == pytest.approx(12.0)

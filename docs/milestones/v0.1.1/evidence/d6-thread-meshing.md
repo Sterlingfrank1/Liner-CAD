@@ -68,12 +68,32 @@ v.thread_mesh("joint", "M10", screw=(0, 50), hole=(20, 70), outer=12,
   断言 `F.front.joint` 旋合区间、每个 feature edge 有渲染图元、`H.front.nut` 剖面线存在且
   内边界 = 5 mm；同时 `v.dim.thread` 注代号、构建零 error。
 
+## Codex R1 回应
+
+- **blocker（已修）**：`View.thread_mesh` 是 mutator，但没进 `record.CREATE_OPS / VIEW_SCOPED`，录制会丢 `F.*` id、
+  replay 报 StaleOp。已加入两表；`tests/test_record.py::test_thread_mesh_records_its_feature_id_and_replays`
+  回归（record op id = F.front.joint，replay 无 stale）。
+- **major（已修）**：`dim.hole` 被允许接受 thread_mesh 但没有 points，会 KeyError；已从 dim.hole 类型清单移除，
+  螺纹代号统一走 `dim.thread`（对 thread_mesh 已验证）。
+- **major（不采纳并说明依据）**：Codex 建议未旋合内螺纹段的剖面线内边界退回小径 d1/2。按 GB/T 4459.1 通行画法，
+  内螺纹剖视的剖面线画到**大径（牙底，细实线）**，因此未旋合段与旋合段的 hatch 内边界都在 d/2（本实现 `rroot =
+  max(d/2, d1/2+GAP)`，M10 时恰为 5.0）；画到 d1/2 会把螺纹牙型的材料留在剖面线外，不符合标准画法。已保留并在
+  测试/证据中锁定 d/2。
+- **major（已修）**：原集成夹具在 x=20/70 画了贯穿螺孔的整条端面线，与 thread_mesh 的短端面线重叠，导致 after
+  证据不能证明“端面线只到小径”。已把调用方外形线拆成上下两段（±12 到 ±d1/2），并重新渲染；集成测试新增
+  渲染图元断言：feature edge 的 Line 坐标与 intent 一致、hatch 的 Hatch prim loops 内边界 5 mm / 外边界 12 mm。
+- **minor（已修）**：`outer` 校验统一为 > 外螺纹大径半径 d/2；`thread_hatch_loops` 的 hole 参数改为严格两元组校验，
+  非法输入返回 InvalidArgument（不再裸 TypeError）。
+- **minor（已修）**：移除 `thread_mesh` 未使用的 `cut` 参数（工具面向装配剖视；非剖视虚线不在本卡范围）。
+- **剩余 minor**：单元测试仍主要断言生成的 intent；集成测试已补渲染 prim 断言，但 hatch 实际填充图案由渲染器生成，
+  测试只验证 Hatch prim 的边界环；这属于现有测试设施边界。
+
 ## 评测 / 门禁
 
 - 40 例评测 **40/40、geometry 1.0**，20 条 expect 198 checks 全过；默认 D 族 0.986906（E3 后 baseline 同值），
   `--baseline` **regressions: []**。
 - L3 三装配零 error：G 1.0、D 0.99（既有 1 条 ext_line）、A 1.0（0/116），与 main 一致（L3 没改）。
-- 全量 `uv run pytest -q`（merge E4 后）：**1495 passed / 1 skipped（11m51s）**；`uv run ruff check .` 绿；`ruff format --check src tests` 绿；CI 四项待跑/绿。
+- 全量 `uv run pytest -q`（R1 修正 + merge E4 后）：**1496 passed / 1 skipped（12m00s）**；`uv run ruff check .` 绿；`ruff format --check src tests` 绿；CI 四项待跑/绿。
 
 ## 残余
 

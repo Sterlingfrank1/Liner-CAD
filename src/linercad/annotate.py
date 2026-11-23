@@ -826,7 +826,7 @@ class DimNS:
     @mutator("dim.hole")
     def hole(self, name=None, feature=None, n=1, dir=None, length=None):
         """Hole callout on a leader, e.g. 4×M8-6H↧16 (GB/T 16675.2 depth symbol)."""
-        f = self._conv(feature, ("tapped_hole", "thread", "thread_mesh"))
+        f = self._conv(feature, ("tapped_hole", "thread"))
         i = f._intent
         des = (
             ("" if int(n) == 1 else f"{int(n)}×")

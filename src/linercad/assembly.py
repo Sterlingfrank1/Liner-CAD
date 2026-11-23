@@ -392,8 +392,12 @@ def thread_hatch_loops(spec, screw, hole, outer, axis=0.0):
     r = t["d"] / 2
     if outer <= r + 1e-9:
         raise InvalidArgument("outer 必须大于螺纹大径半径", values={"outer": outer, "d/2": r})
-    h0, h1 = sorted((num(hole[0], "hole"), num(hole[1], "hole")))
-    thread_engagement(screw, hole)
+    try:
+        h0, h1 = (num(v, "hole") for v in hole)
+    except (TypeError, ValueError):
+        raise InvalidArgument("hole 应为 (x0, x1) 两元组", values={"hole": repr(hole)})
+    h0, h1 = sorted((h0, h1))
+    thread_engagement(screw, (h0, h1))
     top = [[h0, axis + r], [h1, axis + r], [h1, axis + outer], [h0, axis + outer]]
     bottom = [[h0, axis - outer], [h1, axis - outer], [h1, axis - r], [h0, axis - r]]
     return [top, bottom]

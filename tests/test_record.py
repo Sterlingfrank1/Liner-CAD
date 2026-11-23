@@ -271,3 +271,22 @@ def test_raw_bad_sub_index_is_stale():
     d2, _ = rebuild(ops)
     _, _, fails = to_doc(d2)
     assert fails and fails[0]["edit"] == "e1" and fails[0]["line"] == 1
+
+
+def test_thread_mesh_records_its_feature_id_and_replays():
+    d = Drawing()
+    d.view("front")
+    ops = record(
+        d,
+        lambda x: x.view("front").thread_mesh(
+            "joint", "M10", screw=(0, 50), hole=(20, 70), outer=12
+        ),
+    )
+    assert ops[0]["op"] == "thread_mesh"
+    assert ops[0]["id"] == "F.front.joint"
+    d2 = Drawing()
+    d2.view("front")
+    stale = replay(d2, ops, None)
+    assert not stale, stale
+    layout(d2)
+    assert "F.front.joint" in d2
