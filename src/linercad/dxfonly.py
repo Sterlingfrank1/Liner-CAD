@@ -60,7 +60,7 @@ RULE_TABLE = {
         "family": "D",
         "basis": "D.place（箭头大小一致）",
         "judgeable": True,
-        "description": "DIMENSION 几何块里有 >=2 个箭头且面积一致（无几何块的 DIMENSION 不适用）",
+        "description": "DIMENSION 几何块箭头的数量按类型（线性/对齐/角度 2，半径/直径/坐标 1）；>=2 时面积一致；无几何块不适用",
     },
 }
 
@@ -276,6 +276,10 @@ def _entities(msp) -> list:
                         "lines": tb["lines"],
                     }
                 )
+        elif t not in ("SEQEND", "VIEWPORT", "ATTRIB"):
+            box = _entity_bbox(e)  # POINT / SOLID / 3DFACE / LEADER / MLINE ...
+            if box is not None:
+                out.append({"type": t, "id": str(e.dxf.handle), "segments": [], "box": box})
     return out
 
 
@@ -313,10 +317,17 @@ def _box_overlap(a, b) -> float:
 
 
 def _rect_from_4pts(pts):
+    """Rectangle if the four points are a closed rectangle in cyclic order (not a butterfly)."""
     xs = sorted({round(p[0], 6) for p in pts})
     ys = sorted({round(p[1], 6) for p in pts})
-    if len(xs) != 2 or len(ys) != 2:
+    if len(xs) != 2 or len(ys) != 2 or len(pts) != 4:
         return None
+    corners = {(xs[0], ys[0]), (xs[1], ys[0]), (xs[1], ys[1]), (xs[0], ys[1])}
+    if {(round(q[0], 6), round(q[1], 6)) for q in pts} != corners:
+        return None
+    for a, b in zip(pts, pts[1:] + pts[:1]):
+        if abs(a[0] - b[0]) > 1e-6 and abs(a[1] - b[1]) > 1e-6:
+            return None  # diagonal edge: not an axis-aligned rectangle loop
     return (xs[0], ys[0], xs[1], ys[1])
 
 
@@ -372,29 +383,22 @@ def _detect_frame(msp):
                 cands.append((r, {h0, h1, left[0][3], right[0][3]}))
     if not cands:
         return None
-    xs, ys = [], []
-    for e in msp:
-        if e.dxftype() == "LINE":
-            xs += [float(e.dxf.start[0]), float(e.dxf.end[0])]
-            ys += [float(e.dxf.start[1]), float(e.dxf.end[1])]
-        elif e.dxftype() in ("LWPOLYLINE", "POLYLINE"):
-            pts = (
-                [(float(p[0]), float(p[1])) for p in e.get_points("xy")]
-                if e.dxftype() == "LWPOLYLINE"
-                else [(float(v.dxf.location[0]), float(v.dxf.location[1])) for v in e.vertices]
-            )
-            xs += [q[0] for q in pts]
-            ys += [q[1] for q in pts]
-        elif e.dxftype() in ("CIRCLE", "ARC"):
-            c, r = e.dxf.center, float(e.dxf.radius)
-            xs += [float(c[0]) - r, float(c[0]) + r]
-            ys += [float(c[1]) - r, float(c[1]) + r]
-    if not xs:
-        return None
-    drawing_area = max(1.0, (max(xs) - min(xs)) * (max(ys) - min(ys)))
     best = max(cands, key=lambda c: (c[0][2] - c[0][0]) * (c[0][3] - c[0][1]))
-    area = (best[0][2] - best[0][0]) * (best[0][3] - best[0][1])
-    return best if area >= 0.5 * drawing_area else None
+    (x0, y0, x1, y1), frame_ids = best
+    inside = total = 0
+    for e in msp:
+        if str(e.dxf.handle) in frame_ids:
+            continue
+        eb = _entity_bbox(e)
+        if eb is None:
+            continue
+        total += 1
+        cx, cy = (eb[0] + eb[2]) / 2, (eb[1] + eb[3]) / 2
+        if x0 - 0.5 <= cx <= x1 + 0.5 and y0 - 0.5 <= cy <= y1 + 0.5:
+            inside += 1
+    if total and inside / total < 0.1:
+        return None  # a small inner rectangle of a frame-less part, not a sheet frame
+    return best
 
 
 # --------------------------------------------------------------------------- rules
@@ -425,12 +429,11 @@ def _rule_out_of_frame(msp, prims):
         return _rule("dxf_out_of_frame", 0, 0, "no primitives besides the frame")
     viol = 0
     for p in checked:
-        if p.get("point") is not None:
-            px, py = p["point"]
-            outside = px < x0 - 0.01 or px > x1 + 0.01 or py < y0 - 0.01 or py > y1 + 0.01
-        else:
-            b = p["box"]
-            outside = b[0] < x0 - 0.5 or b[1] < y0 - 0.5 or b[2] > x1 + 0.5 or b[3] > y1 + 0.5
+        b = p["box"]
+        if p.get("point") is not None:  # text: a 10% glyph-box inset tolerates small overhang
+            w, h = b[2] - b[0], b[3] - b[1]
+            b = (b[0] + 0.1 * w, b[1] + 0.1 * h, b[2] - 0.1 * w, b[3] - 0.1 * h)
+        outside = b[0] < x0 - 0.5 or b[1] < y0 - 0.5 or b[2] > x1 + 0.5 or b[3] > y1 + 0.5
         if outside:
             viol += 1
     r = _rule("dxf_out_of_frame", len(checked), viol)
@@ -582,6 +585,7 @@ def score_doc(doc, name="<memory>") -> dict:
         "ok": True,
         "mode": "dxf-only",
         "file": str(name),
+        "source": str(name),
         "dxfversion": doc.dxfversion,
         "rules": rules,
         "families": families,
@@ -597,7 +601,9 @@ def score_doc(doc, name="<memory>") -> dict:
 def score_file(path) -> dict:
     try:
         doc = ezdxf.readfile(str(path))
-        return score_doc(doc, Path(path).name)
+        report = score_doc(doc, Path(path).name)
+        report["source"] = str(path)
+        return report
     except Exception as e:  # noqa: BLE001 - one bad DXF is reported, not fatal
         return {
             "ok": False,

@@ -10,6 +10,7 @@ the importer's output with a different scope).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -77,6 +78,21 @@ def markdown(reports) -> str:
             f"| {r['file']} | {fam['G']['score']} | {fam['D']['score']} | "
             f"{fam['T']['score']} | {fam['A']['score']} | {rules} | {note} |"
         )
+    lines += [
+        "",
+        "### 输入文件哈希（4 样例为外部文件，不进仓库；M3 基线随仓库）",
+        "",
+        "| 文件 | sha256 |",
+        "|---|---|",
+    ]
+    for r in reports:
+        path = Path(r.get("source") or r.get("file", ""))
+        digest = ""
+        try:
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError:
+            digest = "（外部样例，运行目录）"
+        lines.append(f"| {r.get('file')} | {digest} |")
     g = _points(reports, "G")
     d = _points(reports, "D")
     lines += [
@@ -91,8 +107,8 @@ def markdown(reports) -> str:
         "",
         "- 文字外框按 DXF 的字高/MTEXT 宽度/附件点近似；文字-文字重叠用 IoU>0.1 判"
         "（小于此的贴边/包含不算），不与 C1 的导入器口径混用。",
-        "- 图框从图元本身探测（最大的轴对齐闭合矩形，且面积 >= 图面 bbox 的 50%）；"
-        "探测不到时 dxf_out_of_frame 不适用（记为 0 机会，不扣分）。",
+        "- 图框从图元本身探测（最大的轴对齐闭合矩形，且至少覆盖 10% 的非框图元；"
+        "少量出框图元不会让图框失效）；探测不到时 dxf_out_of_frame 不适用（0 机会，不扣分）。",
         "- DIMENSION 文字缺失、箭头检查只看 DXF 可读属性/几何块；半径/直径尺寸允许单箭头。",
         "- 标题栏模板语义、视图归属、形位公差/装配/过程指标都不可判，明确列在不可判表。",
         "- M3 基线图 = tests/data/dxf/sample_part.dxf（M3 验收用的 ezdxf 原生尺寸基线图例；"
@@ -118,12 +134,14 @@ def main(argv=None):
     md = markdown(reports)
     if a.out:
         Path(a.out).parent.mkdir(parents=True, exist_ok=True)
-        Path(a.out).write_text(md + "\n", encoding="utf-8")
+        with Path(a.out).open("w", encoding="utf-8", newline="\n") as fh:
+            fh.write(md.rstrip() + "\n")
     if a.json_out:
-        Path(a.json_out).write_text(
-            json.dumps({"mode": "dxf-only", "reports": reports}, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        with Path(a.json_out).open("w", encoding="utf-8", newline="\n") as fh:
+            fh.write(
+                json.dumps({"mode": "dxf-only", "reports": reports}, ensure_ascii=False, indent=2)
+                + "\n"
+            )
     print(md)
     return 0
 

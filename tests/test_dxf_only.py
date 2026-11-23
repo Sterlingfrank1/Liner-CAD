@@ -112,6 +112,73 @@ def test_no_frame_file_reports_the_rule_as_not_applicable(tmp_path):
     assert r["families"]["G"]["score"] == 1.0  # text overlap still judges
 
 
+def test_hatch_defined_negative(tmp_path):
+    doc = _doc()
+    msp = doc.modelspace()
+    h = msp.add_hatch()
+    h.dxf.solid_fill = 0
+    h.dxf.pattern_name = ""
+    h.dxf.pattern_scale = 0.0
+    h.paths.add_polyline_path([(0, 0), (10, 0), (10, 10), (0, 0)])
+    src = tmp_path / "badhatch.dxf"
+    doc.saveas(src)
+    r = dxfonly.score_file(src)
+    assert r["rules"]["dxf_hatch_defined"]["violations"] == 1
+
+
+def test_radius_dimension_with_one_arrow_passes(tmp_path):
+    doc = _doc()
+    msp = doc.modelspace()
+    msp.add_radius_dim(center=(50, 50), radius=20, location=(70, 70)).render()
+    src = tmp_path / "radius.dxf"
+    doc.saveas(src)
+    r = dxfonly.score_file(src)
+    rule = r["rules"]["dxf_dim_arrows"]
+    assert rule["opportunities"] == 1 and rule["violations"] == 0
+
+
+def test_scaled_arrow_inserts_keep_their_consistency(tmp_path):
+    doc = _doc()
+    msp = doc.modelspace()
+    dim = msp.add_linear_dim(base=(0, 50), p1=(0, 0), p2=(100, 0))
+    dim.render()
+    block = doc.blocks.get(dim.dimension.dxf.geometry)
+    for b in block:
+        if b.dxftype() == "INSERT":
+            b.dxf.xscale = 2.0
+            b.dxf.yscale = 2.0
+    src = tmp_path / "scaled.dxf"
+    doc.saveas(src)
+    r = dxfonly.score_file(src)
+    assert r["rules"]["dxf_dim_arrows"]["violations"] == 0
+
+
+def test_butterfly_polyline_is_not_a_frame(tmp_path):
+    doc = _doc()
+    msp = doc.modelspace()
+    msp.add_lwpolyline([(0, 0), (0, 50), (100, 0), (100, 50)], format="xy", close=True)
+    msp.add_text("文字", height=5).set_placement((10, 10))
+    src = tmp_path / "butterfly.dxf"
+    doc.saveas(src)
+    r = dxfonly.score_file(src)
+    assert "no sheet frame" in r["rules"]["dxf_out_of_frame"]["note"].lower()
+
+
+def test_point_outside_the_frame_is_counted(tmp_path):
+    doc = _doc()
+    msp = doc.modelspace()
+    _frame(msp, w=100, h=50)
+    msp.add_line((10, 10), (20, 10))  # an in-frame primitive keeps the frame recognizable
+    msp.add_circle((40, 25), 5)
+    for q in ((500, 500), (510, 500), (520, 500)):
+        msp.add_point(q)
+    src = tmp_path / "points.dxf"
+    doc.saveas(src)
+    r = dxfonly.score_file(src)
+    assert r["rules"]["dxf_out_of_frame"]["opportunities"] >= 3
+    assert r["rules"]["dxf_out_of_frame"]["violations"] >= 3
+
+
 def test_open_polyline_is_not_a_frame(tmp_path):
     doc = _doc()
     msp = doc.modelspace()
