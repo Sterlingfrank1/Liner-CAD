@@ -156,7 +156,7 @@ def sheet(d):
     return [], 1
 
 
-CONV_NEED = {"thread": 1, "spline": 1, "groove": 1, "keyway": 2}
+CONV_NEED = {"thread": 1, "thread_mesh": 1, "spline": 1, "groove": 1, "keyway": 2}
 
 
 def conv_dim(d):

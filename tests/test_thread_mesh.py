@@ -98,3 +98,34 @@ def test_thread_mesh_rejects_a_missing_engagement():
 
     with pytest.raises(InvalidArgument):
         thread_mesh(_view(), "joint", "M10", screw=(0, 10), hole=(20, 40), outer=12)
+
+
+def test_assembly_thread_connection_builds_and_draws_the_joint(tmp_path):
+    drawing = """from linercad import Drawing
+from linercad.assembly import thread_hatch_loops
+
+d = Drawing(kind="assembly", sheet="A3")
+v = d.view("front")
+for y in (-12, 12):
+    v.line((20, y), (70, y), name="nut_top" if y > 0 else "nut_bottom")
+v.line((20, -12), (20, 12), name="nut_left")
+v.line((70, -12), (70, 12), name="nut_right")
+v.hatch("nut", loops=thread_hatch_loops("M10", screw=(0, 50), hole=(20, 70), outer=12))
+v.thread_mesh("joint", "M10", screw=(0, 50), hole=(20, 70), outer=12)
+v.dim.thread("t", "F.front.joint")
+d.title(name="螺纹连接", drawing_no="LC-TH-01")
+"""
+    (tmp_path / "drawing.py").write_text(drawing, encoding="utf-8")
+    from linercad import runtime
+
+    r = runtime.build(tmp_path)
+    errs = [f for f in r.findings if f["severity"] == "error"]
+    assert not errs, errs
+    f = r.d["F.front.joint"]
+    assert f._intent["engaged"] == [20.0, 50.0]
+    assert all(e._prims for e in f.edges)
+    hatch = r.d["H.front.nut"]
+    assert hatch._prims
+    ys = [p[1] for loop in hatch._intent["loops"] for p in loop["points"]]
+    assert min(abs(y) for y in ys) == pytest.approx(5.0)
+    assert max(abs(y) for y in ys) == pytest.approx(12.0)

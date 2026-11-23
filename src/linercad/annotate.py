@@ -785,7 +785,7 @@ class DimNS:
     @mutator("dim.thread")
     def thread(self, name=None, feature=None, side=None, row=None, offset=None, at=None):
         """Thread designation on the major diameter: M20×1.5-6g (coarse pitch not written)."""
-        f = self._conv(feature, ("thread",))
+        f = self._conv(feature, ("thread", "thread_mesh"))
         i = f._intent
         des = (
             f"M{fmt_num(i['d'])}"
@@ -826,7 +826,7 @@ class DimNS:
     @mutator("dim.hole")
     def hole(self, name=None, feature=None, n=1, dir=None, length=None):
         """Hole callout on a leader, e.g. 4×M8-6H↧16 (GB/T 16675.2 depth symbol)."""
-        f = self._conv(feature, ("tapped_hole", "thread"))
+        f = self._conv(feature, ("tapped_hole", "thread", "thread_mesh"))
         i = f._intent
         des = (
             ("" if int(n) == 1 else f"{int(n)}×")
