@@ -46,3 +46,15 @@
 - T.hier 按行 category 判形状/方向/位置递进与跳动≥对应圆度/同轴度；尺寸公差与几何公差的比较未判（gtol-clauses.md 记录 GB/T 4249-2018 原文未读，catalog 条款状态 pending）；
 - 未读条款（A4 meta.unread：1182 第9章、17851 部分、17852 规则 D-H 等）不在本报告声称覆盖；M/L/R/F 等来自未读标准的修饰符按 modifiers_unverified 报为不可判。
 
+
+## E4 规则读数（参考图 / 变异 / baseline）
+
+| 项 | 数值 |
+|---|---|
+| 参考图 T.syntax 机会 / 违规 | 59 / 0 |
+| 参考图 T.target 机会 / 违规 | 51 / 0 |
+| 参考图 T.hier 机会 / 违规 | 1 / 0 |
+| 变异（E2 框架，全规则） | 39/39 检出（100%），误报 0，known-debt exact |
+| baseline T 族 | 机会 321 → 403（+82），违规 0，分数 1.0；--baseline regressions [] |
+
+baseline 由 evals/run.py --save-baseline evals/baseline.json 重新生成；新增项仅为三条规则机会数，违规/分数/40 例未变。

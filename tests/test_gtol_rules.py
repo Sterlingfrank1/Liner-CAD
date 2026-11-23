@@ -112,6 +112,51 @@ def test_hierarchy_shape_orientation_location(shaft):
     assert not [x for x in by_rule(run(d), "gtol_hier") if x["id"] in ("G.st", "G.perp")]
 
 
+def test_runout_accepts_a_revolved_feature_reference(shaft):
+    d, _P, f = shaft
+    dim, _circle, _line = _ids(d)
+    f.datum("A", ref=dim)
+    f.gtol("run", "circular_runout", 0.02, datums=["A"], ref="F.front.b")
+    bad = by_rule(run(d), "gtol_target")
+    assert not [x for x in bad if x["id"] == "G.run"]
+
+
+def test_hierarchy_groups_a_feature_and_its_edge_references(shaft):
+    d, _P, f = shaft
+    dim, _circle, _line = _ids(d)
+    f.datum("A", ref=dim)
+    edge = next(
+        e.id
+        for e in d._els.values()
+        if e.kind == "edge" and e._intent.get("feature") == "F.front.b"
+    )
+    f.gtol("flat", "flatness", 0.06, ref="F.front.b")
+    f.gtol("perp", "perpendicularity", 0.02, datums=["A"], ref=edge, zone="dia")
+    bad = by_rule(run(d), "gtol_hier")
+    assert [x for x in bad if x["id"] == "G.flat"]
+
+
+def test_profile_rows_are_selected_by_datum_and_direction():
+    from linercad import res
+    from linercad.rules import _target_row
+
+    data = res.gtol("profile_line")
+    row, _target, _nature = _target_row(data, "surface", None, True, False)
+    assert row["id"] == "location.profile_line"
+    row, _t, _n = _target_row(data, "surface", None, True, True)
+    assert row["id"] == "orientation.profile_line"
+
+
+def test_integral_plane_condition_is_not_satisfied_by_an_axis(shaft):
+    d, _P, f = shaft
+    dim, _circle, _line = _ids(d)
+    f.datum("A", ref=dim)
+    f.gtol("pos", "position", 0.02, datums=["A"], ref=dim)
+    d["G.pos"]._intent["modifiers"] = ["UZ"]  # only legal for an integral plane target
+    bad = by_rule(run(d), "gtol_syntax")
+    assert [x for x in bad if x["id"] == "G.pos"]
+
+
 def test_runout_needs_a_circular_or_revolved_reference(shaft):
     d, _P, f = shaft
     dim, circle, line = _ids(d)

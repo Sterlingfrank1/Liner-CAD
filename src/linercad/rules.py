@@ -477,13 +477,18 @@ _FORM_TARGETS = {
 }
 
 
-def _target_row(data, target_kind, ref_shape, has_datums=False):
+def _target_row(data, target_kind, ref_shape, has_datums=False, direction_only=False):
     """(row, target, nature): the table-1 row and measured-element signature for this callout."""
     char = data["char"]
     rows = list(data["rows"])
     if char.startswith("profile_"):
-        # form rows have datum=no; orientation / location rows have datum=yes
-        rows = [r for r in rows if (r["datum"] != "no") == bool(has_datums)] or rows
+        if has_datums:
+            # rows are ordered form, orientation, location: >< marks the direction-only case,
+            # otherwise a datum-constrained profile is a location specification
+            rows = [r for r in rows if r["datum"] != "no"] or rows
+            rows = [rows[0] if direction_only else rows[-1]]
+        else:
+            rows = [r for r in rows if r["datum"] == "no"] or rows
     if char == "circular_runout":
         wanted = [("circle", "integral")]
     elif char == "total_runout":
@@ -517,7 +522,7 @@ def _condition_holds(when, target_kind, ref_shape) -> bool:
     if when == "integral":
         return target_kind == "surface"
     if when == "integral_plane":
-        return target_kind == "surface" and ref_shape in ("line", None)
+        return target_kind == "surface" and ref_shape == "line"
     if when == "derived_line":
         return target_kind == "axis" or ref_shape == "line"
     if when == "nominal_line_point_set":
@@ -532,6 +537,8 @@ def _runout_ref_ok(d, e, data, ref):
         # only a diameter / radius dimension resolves to circular elements or an axis;
         # a linear dimension measures two parallel planes and is not a runout target
         return ref._intent.get("type") in ("dia", "rad")
+    if ref.kind == "feature":
+        return ref._intent.get("type") in ("turned", "cylinder", "revolved", "shaft")
     if ref._intent.get("shape") in ("circle", "arc"):
         return True
     feat = d._els.get(ref._intent.get("feature"))
@@ -570,7 +577,9 @@ def gtol_syntax(d):
         ref = d._els.get(i.get("ref"))
         shape = ref._intent.get("shape") if ref is not None else None
         refs = list(i.get("datum_refs") or ())
-        row, _target, _nature = _target_row(data, i.get("target"), shape, bool(refs))
+        row, _target, _nature = _target_row(
+            data, i.get("target"), shape, bool(refs), "><" in (i.get("modifiers") or ())
+        )
         row = row or data["rows"][0]
         std = data.get("std", "GB/T 1182-2018")
         clause = _gtol_clause(data, row)
@@ -716,7 +725,9 @@ def gtol_target(d):
         ref = d._els.get(i.get("ref"))
         shape = ref._intent.get("shape") if ref is not None else None
         refs = list(i.get("datum_refs") or ())
-        row, target, nature = _target_row(data, i.get("target"), shape, bool(refs))
+        row, target, nature = _target_row(
+            data, i.get("target"), shape, bool(refs), "><" in (i.get("modifiers") or ())
+        )
         if row is not None and data["char"] in _FORM_TARGETS:
             want = _FORM_TARGETS[data["char"]][0]
             if want in ("surface", "circle", "cylindrical_surface") and i.get("target") == "axis":
@@ -785,6 +796,8 @@ def _gtol_feature_key(d, ref):
     el = d._els.get(ref)
     if el is None:
         return ("ref", ref)
+    if el.kind == "feature":
+        return ("feature", ref)
     if el.kind == "edge":
         return ("feature", el._intent.get("feature") or ref)
     if el.kind == "dim":
@@ -811,7 +824,7 @@ def _gtol_category(d, e, data):
         if refs:
             return "orientation" if "><" in (i.get("modifiers") or ()) else "location"
         return "form"
-    row, _t, _n = _target_row(data, i.get("target"), None, refs)
+    row, _t, _n = _target_row(data, i.get("target"), None, refs, "><" in (i.get("modifiers") or ()))
     return row["category"] if row is not None else data["categories"][0]
 
 
