@@ -21,12 +21,12 @@ uv run lcad -C <临时目录>\flange view --port 0 --no-open   # 打开输出的
 
 浏览器里：
 
-1. 参数栏把「外径 D」滑到 **150**（预览态，画布左上角显示「预览中（未写回）」）。
+1. 参数栏把「外径 D」滑到 **200**（预览态，画布左上角显示「预览中（未写回）」）。
 2. 画布上剖切符号 S.A 变**红**（`g.st-violation`，`rgb(214, 39, 40)`）；检查器顶部「预览违规（1）」列出 `overlap S.A`，并**始终**显示条款 / 实测 / 要求 / 候选四个字段（空容器显示「无」，本例如候选为「无」）；点该行下面的 `S.A` 选中元素，元素详情里同样有这四个字段（见截图 1）。
 3. 把 D 拖回 120（或点「撤回预览」/ 按 Esc）→ 红标与「预览违规」消失、画布恢复；此时 `snapshot.json` 的 `issues` 也回到空（见截图 2）。
 
 截图（本目录，小图，同一缩放区域）：
-- `b3-preview-violation.jpg`：D=150 预览，S.A 标红 + 检查器四字段（选中态仍保持红色，CSS 让违规色优先于选中色）。
+- `b3-preview-violation.jpg`：**B3 合并时的历史截图（D=150）**，示意 S.A 标红 + 检查器四字段（选中态仍保持红色，CSS 让违规色优先于选中色）；当前 main 的触发值已改为 D=200，见上面的当前步骤。
 - `b3-released.jpg`：拖回默认后，红标与预览违规消失、元素状态恢复为 ok。
 
 ## 3. 接口与文件字段
@@ -35,7 +35,7 @@ uv run lcad -C <临时目录>\flange view --port 0 --no-open   # 打开输出的
 - 参数规则失败时返回 `affected`（covers 该参数的元素 ID），错误对象只用 ParamError 实有的 `message / values / hint / candidates`，不造 clause / measured / expected。
 - `GET /api/state` 带 `preview` / `preview_seq` / `param_errors`：页面 reload 后客户端用 `preview_seq` 作拖动基线；失败预览的标红与面板保持到下一次用户动作。
 - `GET /api/model` 的 `issues`（全局与每元素）、`resolved` / `unplaced` 带同样字段；页面 reload 且服务端预览仍在时，用 model 复原红色标记、检查器与预览参数值。
-- `.linercad/snapshot.json` 的 `issues` 带同样字段（预览时是预览 build 的 findings，撤回后回到当前 build 的 findings）。实测预览 D=150 时：
+- `.linercad/snapshot.json` 的 `issues` 带同样字段（预览时是预览 build 的 findings，撤回后回到当前 build 的 findings）。下面是 B3 合并时（D=150）的实测示例，字段结构不随触发值变化（当前触发值见上面的 D=200 步骤）：
 
 ```json
 {"rule": "overlap", "id": "S.A", "severity": "warn", "message": "S.A 的文字与 T.frame 重叠",

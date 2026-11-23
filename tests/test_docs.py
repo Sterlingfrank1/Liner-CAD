@@ -27,6 +27,8 @@ def test_readme_versions_and_v011_capabilities():
         "多层",
         "序号",
         "吸收",
+        "识别到的",
+        "未命名",
         "fallback",
         "2–12",
     ):
@@ -98,6 +100,7 @@ def test_b3_evidence_matches_the_current_preview_scenario():
     text = read("docs/milestones/v0.1.1/evidence/b3-viewer-violations.md")
     assert 'PREVIEW_VIOLATION = {"D": 200}' in text
     assert "D2" in text
+    assert "历史截图（D=150）" in text  # the remaining D=150 mention is explicitly historical
 
 
 def test_skill_install_copies_the_packaged_skill_byte_for_byte(tmp_path):

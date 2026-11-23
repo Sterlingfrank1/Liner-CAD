@@ -18,7 +18,7 @@ Liner-CAD 本身不是 Agent。推理、理解需求、写代码交给宿主 Cod
 - **试改不提交：** `lcad edit .linercad/tmp/x.py --dry-run` 返回变化元素、finding 与预览（PNG + DXF），HEAD、动作日志、源文件都不变；确认后去掉 `--dry-run` 真跑，报告一致。
 - **用户参数化模板：** `lcad template save <名> --description …` 把当前图纸沉淀成模板；`lcad template list` 看清单；`lcad init <目录> --from <模板名> --set D=6 R=0.5` 一步出图（已有模板能匹配时先从模板起步，不重画）。
 - **Viewer 自动打开与选择同步：** 首次 `build` / `edit` 成功后自动在后台起 Viewer 并开一次浏览器，已在运行只刷新；`--no-view` / `LCAD_NO_VIEW` / CI 默认关，空闲自退。选中后「复制引用」（Ctrl+Alt+C）得到一行 `@ID`，粘给任意 Agent；也可直接说「选中的 / 这个」，Agent 用 `lcad context "@sel"` 读取，选择过期会如实报告。
-- **DXF 导入改进：** TEXT / MTEXT 导成普通文字元素，HATCH 保留（ANSI31 / SOLID；不可表示图案按 handle 报告），尺寸保留或降级 note；源图框 / 标题栏几何**吸收**进新图幅模板语义（只留一个图框），`lcad inspect` 报告识别到的图框 / 标题栏。
+- **DXF 导入改进：** TEXT / MTEXT 导成普通文字元素，HATCH 保留（ANSI31 / SOLID；不可表示图案按 handle 报告），尺寸保留或降级 note；**识别到的**源图框 / 标题栏层几何**吸收**进新图幅模板语义（只留一个图框；未命名 / 普通图层上的图框不吸收，属已知局限），`lcad inspect` 报告识别到的图框 / 标题栏。
 - **排布改进：** 圆形尺寸的放射引线自动在 24 个方向（15° 档）里选优；线性 / 多层尺寸按小内大外、文字内外、箭头外翻排序；装配序号在 2–12 个时自动搜索「同侧沿旋转方向单调 + 对齐 + 间距 ≥ δ + 引线交叉 0」，超出规模或找不到无交叉方案时退回保守排布并在 `resolved["order"] = "fallback"` 明示（严格全局连续留 v0.2）。
 
 ## 快速开始
