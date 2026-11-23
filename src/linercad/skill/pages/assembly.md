@@ -33,5 +33,5 @@ d.title(name="滑动轴承", drawing_no="LC-A-01")
 
 - `d.bom()` 的序号自动排布：**同一侧**序号沿同一**旋转方向单调递增**（行 / 列形态），并满足对齐、间距 ≥ δ（`[placement].balloon_clearance`，与 E5 A.place 同值）、引线**交叉 0**；引线尽量不压标注文字。
 - `d["B.x"].place(side="top")` 等手写位置不参与自动换边（尊重手写）。
-- 无可行顺序方案时退回「锚点排序 + 交换去交叉」的保守方案，并在 `resolved["order"] = "fallback"` 明示（正常为 `"side-monotonic"`），不静默。
+- 自动搜索只对 **2–12 个序号**（`BALLOON_PLAN_LIMIT = 12`）尝试；`n=1` 或 `n>12` 不尝试，或 2–12 时找不到无交叉方案，就退回「锚点排序 + 有界交换去交叉」的保守方案，并在 `resolved["order"] = "fallback"` 明示（正常为 `"side-monotonic"`），不静默。fallback 的交换有上界，不保证一般情况下的零交叉。
 - 口径说明：issue 的「顺时针 / 逆时针全局连续」用直线引线在两个装配上穷举 2,030,000 个配置仍无零交叉解，本版按 lead 裁定落为上述「同侧旋转方向单调 + 对齐 + δ + 交叉 0」（GB/T 4458.2 行 / 列形态、标准措辞为「尽可能」）；严格全局连续留 v0.2。详见 `docs/milestones/v0.1.1/evidence/d3-balloon-sequences.md`。

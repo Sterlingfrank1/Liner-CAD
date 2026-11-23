@@ -6,11 +6,11 @@
 
 v0.1.0 review 第 3 条的复现写作「flange 把 dh 拖到违规值」，但 **E1 后的 dh 场景不可复现**：flange 的参数规则只挂在 Dh / d0 / L / pcd 上，dh 无规则；dh∈[6, 20] 内 `Dh < pcd − dh` 与 `pcd + dh < D` 恒成立，预览既不报 ParamError 也不产生任何 check finding（实测扫过 dh=6..20 全部 0.5 步长，并把其它参数推到极值核对规则语义）。lead 裁定改用真实可触发的预览违规。
 
-**场景随 main（D1）演进而重钉**：B3 分支最初按 c20c8b7 的布局写「D=140 → overlap / G.pos」，D1（#117，放射状直径引线与布局）合入后 flange 的布局变了，D=140 不再产生 finding；按 main（ee5b1f6）实测重钉为：
+**场景随 main 演进两次重钉**：B3 分支最初按 c20c8b7 的布局写「D=140 → overlap / G.pos」，D1（#117，放射状直径引线与布局）合入后 flange 的布局变了，D=140 不再产生 finding；按 main（ee5b1f6）实测重钉为 D=150 → `overlap / S.A`。D2（#84，多层尺寸避让）合入后布局再次变化，**当前 main 的触发值是 D=200**（`tests/test_viewer.py` 的 `PREVIEW_VIOLATION = {"D": 200}`）：
 
-- **flange 把 D 拖到 150** → 预览产生 `overlap / S.A`（warn，E1 四字段齐全）→ 画布上 S.A（剖切符号 A）标红 → 拖回默认值 / 撤回预览后消失。
+- **flange 把 D 拖到 200** → 预览产生 `overlap / S.A`（warn，E1 四字段齐全）→ 画布上 S.A（剖切符号 A）标红 → 拖回默认值 / 撤回预览后消失。
 - dh 场景在 E1 后不可复现这件事，lead 记入台账，由 F1 的 docs PR 补偏离记录。
-- 测试把触发值收在一个常量（`PREVIEW_VIOLATION = {"D": 150}` / `PREVIEW_VIOLATION_ID = "S.A"`），断言语义（违规 finding 四字段齐全、ID 是画布元素、撤回后消失）；以后 main 的布局再动只需改这一行。
+- 测试把触发值收在一个常量（`PREVIEW_VIOLATION = {"D": 200}` / `PREVIEW_VIOLATION_ID = "S.A"`），断言语义（违规 finding 四字段齐全、ID 是画布元素、撤回后消失）；以后 main 的布局再动只需改这一行。
 
 ## 2. 复现步骤（临时目录图纸仓库，产物不入库）
 

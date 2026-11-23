@@ -27,6 +27,8 @@ def test_readme_versions_and_v011_capabilities():
         "多层",
         "序号",
         "吸收",
+        "fallback",
+        "2–12",
     ):
         assert needle in text, needle
 
@@ -88,8 +90,14 @@ def test_skill_api_documents_import_layout_and_dry_run():
 
 def test_skill_assembly_documents_d3_ordering():
     page = read("src/linercad/skill/pages/assembly.md")
-    for needle in ("旋转方向", "单调", "间距", "交叉", "fallback"):
+    for needle in ("旋转方向", "单调", "间距", "交叉", "fallback", "2–12", "BALLOON_PLAN_LIMIT"):
         assert needle in page, needle
+
+
+def test_b3_evidence_matches_the_current_preview_scenario():
+    text = read("docs/milestones/v0.1.1/evidence/b3-viewer-violations.md")
+    assert 'PREVIEW_VIOLATION = {"D": 200}' in text
+    assert "D2" in text
 
 
 def test_skill_install_copies_the_packaged_skill_byte_for_byte(tmp_path):
