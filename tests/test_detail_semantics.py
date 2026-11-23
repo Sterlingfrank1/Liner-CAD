@@ -32,7 +32,7 @@ def test_detail_sources_are_queryable():
     layout(d)
     src = d.q.detail_sources("I")
     ids = set(src.ids())
-    assert "E.front.base" in ids and "E.front.hole" in ids
+    assert "E.front.base.1" in ids and "E.front.hole.1" in ids
     assert all(e._intent.get("view") == "front" for e in src)
     assert d["V.I"]._intent["detail_sources"]
 

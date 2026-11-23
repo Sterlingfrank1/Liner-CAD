@@ -140,6 +140,33 @@ def detail(d, letter, parent, center, r, scale):
     return v
 
 
+def detail_sources(d, letter):
+    """Parent elements that the detail view V.<letter> clipped (semantic back-reference).
+
+    The detail view owns its primitives (SPEC M1 §5), but each clipped primitive remembers the
+    parent edge / center line / hatch element it came from, so a selection in the detail view can
+    be followed back to the source feature.  Requires the drawing to be laid out."""
+    v = d.get(f"V.{letter}")
+    if v is None:
+        raise NotFound(
+            f"视图 V.{letter} 不存在",
+            id=f"V.{letter}",
+            candidates=[x.id for x in d.views()],
+        )
+    if v._intent.get("aux") != "detail":
+        raise InvalidArgument(
+            f"V.{letter} 不是局部放大图",
+            id=v.id,
+            candidates=[x.id for x in d.views() if x._intent.get("aux") == "detail"],
+        )
+    out = []
+    for rec in v._intent.get("detail_sources", ()):
+        el = d._els.get(rec.get("id"))
+        if el is not None and el not in out:
+            out.append(el)
+    return out
+
+
 def oblique(d, letter, parent, at, look, rotate=False):
     letter = _letter(d, letter)
     _parent(d, parent)

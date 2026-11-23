@@ -50,7 +50,7 @@ front = d.view("front")      # 基本视图：front top bottom left right rear�
 |---|---|
 | `d.section("A", view="front", cut_in="left", through=[p1, p2, ...])` | 剖切符号；2 点全剖，直角折线阶梯剖，斜折线旋转剖 |
 | `sec = d.removed_section("B", parent="front", through=[p1, p2], look="left")` | 移出断面 `V.B`。局部坐标：v 沿剖切线（同主视图的 y），u = 朝主视图观察者的深度 × `sec.intent["axes"]["depth"]` |
-| `det = d.detail("I", parent="front", center=(x, y), r=5, scale="4:1")` | 局部放大 `V.I`：自动裁剪重画；可直接用主视图坐标在 `det` 上标尺寸 |
+| `det = d.detail("I", parent="front", center=(x, y), r=5, scale="4:1")` | 局部放大 `V.I`：自动裁剪重画（2D、3D 投影、装配视图都可用；剖面线按源角度/间距重新生成）；可直接用主视图坐标在 `det` 上标尺寸；`d.q.detail_sources("I")` 返回放大图对应的源边/中心线/剖面线元素（选择可回溯到源特征） |
 | `obl = d.oblique("C", parent="front", at=(x, y), look=-60, rotate=False)` | 斜视图：箭头 + 字母，几何你画 |
 
 辅助视图自动找空位摆放；`V.B.place(at=(x, y))` 指定图纸位置，`move(dx=, dy=)` 微调。

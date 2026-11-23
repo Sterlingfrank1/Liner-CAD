@@ -747,6 +747,12 @@ class _ViewLayout:
         c, r = tuple(i["center"]), i["r"]
         S = self.s
         prims = []
+        source_map = []  # parallel to prims: the parent element each clipped primitive came from
+
+        def emit(e, items):
+            prims.extend(items)
+            source_map.extend([e] * len(items))
+
         ext = self.std["center"]["extend"] / S
 
         def P(p):
@@ -759,16 +765,18 @@ class _ViewLayout:
                 if it["shape"] == "line":
                     seg = clip_segment(it["p1"], it["p2"], c, r)
                     if seg:
-                        prims.append(Line(P(seg[0]), P(seg[1]), it["role"]))
+                        emit(e, [Line(P(seg[0]), P(seg[1]), it["role"])])
                 else:
                     a0, a1 = (0, 360) if it["shape"] == "circle" else (it["start"], it["end"])
+                    clipped = []
                     for b0, b1 in clip_arc(it["c"], it["r"], a0, a1, c, r):
                         if b1 - b0 >= 360 - 1e-6:
-                            prims.append(Circle(P(it["c"]), it["r"] * S, it["role"]))
+                            clipped.append(Circle(P(it["c"]), it["r"] * S, it["role"]))
                         else:
-                            prims.append(
+                            clipped.append(
                                 Arc(P(it["c"]), it["r"] * S, b0 % 360, b1 % 360, it["role"])
                             )
+                    emit(e, clipped)
             elif e.kind == "center" and it["type"] == "line":
                 a, b = it["p1"], it["p2"]
                 L = math.dist(a, b)
@@ -780,7 +788,7 @@ class _ViewLayout:
                     if seg:
                         pc = center_piece(P(seg[0]), P(seg[1]), self.std)
                         if pc:
-                            prims.append(pc)
+                            emit(e, [pc])
             elif e.kind == "hatch":
                 loops = []
                 for lp in it["loops"]:
@@ -796,8 +804,28 @@ class _ViewLayout:
                         elif lpts:
                             loops.append([P(p) for p in lpts])
                 hs = self.std["hatch"]
-                for a, b in hatch_lines(loops, P(c), r * S, hs["spacing"], hs["angle"]):
-                    prims.append(Line(a, b, "hatch"))
+                spacing = it.get("spacing") or hs["spacing"]
+                angle = it.get("angle") if it.get("angle") is not None else hs["angle"]
+                emit(
+                    e,
+                    [
+                        Line(a, b, "hatch")
+                        for a, b in hatch_lines(loops, P(c), r * S, spacing, angle)
+                    ],
+                )
+        grouped = {}
+        for idx, e in enumerate(source_map):
+            rec = grouped.setdefault(
+                e._id,
+                {
+                    "id": e._id,
+                    "kind": e.kind,
+                    "feature": e._intent.get("feature") or (e._id if e.kind == "feature" else None),
+                    "prims": [],
+                },
+            )
+            rec["prims"].append(idx)
+        self.view._intent["detail_sources"] = list(grouped.values())
         # wavy boundary where the circle runs through material (GB/T 4458.1)
         regions = self._material(src)
         n = 96

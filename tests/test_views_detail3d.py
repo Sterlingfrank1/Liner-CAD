@@ -8,7 +8,7 @@ import pytest
 
 pytest.importorskip("build123d")
 
-from linercad import Drawing, runtime  # noqa: E402
+from linercad import runtime  # noqa: E402
 
 MODEL = """
 from build123d import Box, Cylinder, Pos
@@ -45,3 +45,42 @@ def test_projected_detail_links_back_to_source_edges_and_features(tmp_path):
     # every source id still exists and belongs to the parent view
     assert all(i in d for i in ids)
     assert all(d[i]._intent.get("view") == "front" for i in ids)
+
+
+def test_gear_cover_and_an_assembly_have_working_detail_views(tmp_path):
+    import shutil
+    from pathlib import Path
+
+    from linercad import txn
+
+    # gear_cover (3D box-family example): a detail of its sectioned front view
+    g = tmp_path / "gc"
+    txn.init(g, from_="gear_cover")
+    drawing = g / "drawing.py"
+    drawing.write_text(
+        drawing.read_text(encoding="utf-8")
+        + '\nd.detail("I", parent="front", center=(-55, 10), r=15, scale="3:1")\n',
+        encoding="utf-8",
+    )
+    r = runtime.build(g)
+    assert not [f for f in r.findings if f["severity"] == "error"]
+    src = r.d.q.detail_sources("I")
+    assert any(e.id.startswith("E.front.") and e._intent.get("src3d") for e in src)
+    assert any(e.kind == "hatch" for e in src)
+
+    # an L3 assembly view: clipped edges keep their component attribution
+    l3 = Path(__file__).resolve().parents[1] / "evals" / "L3" / "bearing"
+    work = tmp_path / "bearing"
+    shutil.copytree(l3, work, ignore=shutil.ignore_patterns(".linercad", "__pycache__", "*.jsonl"))
+    drawing = work / "drawing.py"
+    drawing.write_text(
+        drawing.read_text(encoding="utf-8")
+        + '\nd.detail("I", parent="front", center=(42, 0), r=12, scale="4:1")\nd["V.I"].place(at=(170, 180))\n',
+        encoding="utf-8",
+    )
+    r = runtime.build(work)
+    assert not [f for f in r.findings if f["severity"] == "error"]
+    src = r.d.q.detail_sources("I")
+    assert any(e._intent.get("component") for e in src if e.kind == "edge")
+    assert any(e.kind == "hatch" and e._intent.get("component") for e in src)
+    assert r.d["V.I"]._intent["detail_sources"]
