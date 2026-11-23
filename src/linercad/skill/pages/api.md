@@ -113,3 +113,24 @@ lcad init <新目录> --from bull-nose --set D=6 R=0.5                          
 - 只保存**构建层**：修订层 `drawing.actions.jsonl` 不随模板保存，存在时会提示；先把修订层改动并入 `drawing.py` 再 save。
 - `--set 参数=值` 可一次给多个，只改 `Param` 的数字字面量默认值；找不到参数会直接失败、不建目录（`lcad check` 仍要过）。
 - **匹配即从模板起步：** 用户的要求与已有用户模板（或内置范例，`lcad init --from <名>`）匹配时，先 `lcad template list` / `init --from` 起步，只改参数与少量标注，**不要从空白重画**；模板不匹配再走重画。
+
+
+## 试改（dry-run，H1）
+
+```powershell
+lcad -C <图纸目录> edit .linercad/tmp/x.py --dry-run [-m "<用户原话>"]
+```
+
+走与真实 edit 相同的构建 / 脚本 / 检查 / 渲染流水线，返回 `{ok, dry_run:true, edit, commit:null, ops, changed, errors, warnings, dxf, model, preview}`：`dxf` / `model` 指向 `.linercad/tmp/dry-run-eN.*` 的试改产物，`preview` 是 PNG 预览。**不写** `drawing.actions.jsonl`、不改源文件、不提交；确认后去掉 `--dry-run` 真跑，changed / ops / warnings 与试改报告一致。失败时错误结构与 edit 相同（脚本异常、`stale`、`no_ops` 等）。
+
+## DXF 导入（C1–C4）
+
+- `lcad inspect x.dxf`：图层、实体统计、范围、导入映射和临时 PNG，并报告识别到的图框图元与标题栏（`frame` / `title`）。
+- `lcad init <目录> --from-dxf x.dxf` 导入后照常编辑：`TEXT` / `MTEXT` 导成普通文字元素（保留位置/字高/旋转/对齐，MTEXT 保留换行），`HATCH` 保留（本仓语汇可表示的 ANSI31 / SOLID；不可表示图案按源 handle 报告），`DIMENSION` 保留为尺寸或降级为 note。
+- 图框 / 标题栏：新图幅的模板图框保留，源图框 / 标题栏图层上的普通边**吸收**进模板图框语义，常规样例最终只有**一个**图框；标题栏块 INSERT 的模板文字与属性仍跳过（不导入）。已知例外：未命名 / 普通层不吸收、隐藏 / 冻结层不吸收、图框层上的 SPLINE / ELLIPSE 等 raw 仍按 raw 导入并可能否决单图框。
+
+## 排布（D1 / D2）
+
+- 圆形直径 / 半径的**放射引线**自动在 24 个候选方向（15° 档）里选优，避免与其他尺寸线及标注文字相交；公共圆心的汇聚尺寸按豁免规则处理。
+- 线性 / **多层尺寸**按「小内大外」、文字内外、箭头外翻、行距与嵌套子项排序；不满意时用 `el.place(side=, row=)` 换侧 / 换排、`el.move(dx=, dy=)` 微调，或 `el.set(...)` 改意图。
+- 布局 finding 的 `violations` / `corridors` 给出冲突对象与可动方向；`d.accept(rule, id, "理由")` 放行有意的检查结果。改完用 `lcad check` 看 E1 四字段，或用 Viewer 检查器/预览违规定位。

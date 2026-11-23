@@ -2,6 +2,12 @@
 
 用户可能开着 `lcad view`（浏览器里看图、点选、拖参数滑块）；画完后 Viewer 也会被自动打开。
 
+## 自动打开与关闭（H3）
+
+- 图纸目录**第一次** `build` / `edit` 成功后，若没有运行中的 Viewer，harness 会在后台起一个并打开浏览器一次；命令 JSON 带 `viewer: {url, opened}`，打不开浏览器时把 url 告诉用户即可。已在运行则只刷新页面、不新开标签。
+- 关闭：本次命令加 `--no-view`，或设置 `LCAD_NO_VIEW=1`，CI 环境默认关。后台 Viewer 在空闲超时（默认 30 分钟，`LCAD_VIEW_IDLE_TIMEOUT` 秒）后自退，并删除状态文件。
+- 状态在 `.linercad/viewer.json`（pid / port / url），只是本地状态，不要提交或手改。
+
 ## 选择同步到对话（H4）
 
 Viewer 的选择是唯一事实源：`.linercad/selection.json`（`ids` + 每个元素的 `ref` / 时间 / 版本）。两条路都支持，任何 Agent 通用：

@@ -2,15 +2,15 @@
 
 卡 B3（issue #96，W3 核心卡）· 2026-11-21 · 依赖 E1（finding 的 clause / measured / expected / candidates）
 
-## 1. 验收场景（lead 2026-11-21 裁定；main 合入 D1 后重钉）
+## 1. 验收场景（lead 2026-11-21 裁定；随 main 演进重钉：D1、D2）
 
 v0.1.0 review 第 3 条的复现写作「flange 把 dh 拖到违规值」，但 **E1 后的 dh 场景不可复现**：flange 的参数规则只挂在 Dh / d0 / L / pcd 上，dh 无规则；dh∈[6, 20] 内 `Dh < pcd − dh` 与 `pcd + dh < D` 恒成立，预览既不报 ParamError 也不产生任何 check finding（实测扫过 dh=6..20 全部 0.5 步长，并把其它参数推到极值核对规则语义）。lead 裁定改用真实可触发的预览违规。
 
-**场景随 main（D1）演进而重钉**：B3 分支最初按 c20c8b7 的布局写「D=140 → overlap / G.pos」，D1（#117，放射状直径引线与布局）合入后 flange 的布局变了，D=140 不再产生 finding；按 main（ee5b1f6）实测重钉为：
+**场景随 main 演进两次重钉**：B3 分支最初按 c20c8b7 的布局写「D=140 → overlap / G.pos」，D1（#117，放射状直径引线与布局）合入后 flange 的布局变了，D=140 不再产生 finding；按 main（ee5b1f6）实测重钉为 D=150 → `overlap / S.A`。D2（#84，多层尺寸避让）合入后布局再次变化，**当前 main 的触发值是 D=200**（`tests/test_viewer.py` 的 `PREVIEW_VIOLATION = {"D": 200}`）：
 
-- **flange 把 D 拖到 150** → 预览产生 `overlap / S.A`（warn，E1 四字段齐全）→ 画布上 S.A（剖切符号 A）标红 → 拖回默认值 / 撤回预览后消失。
+- **flange 把 D 拖到 200** → 预览产生 `overlap / S.A`（warn，E1 四字段齐全）→ 画布上 S.A（剖切符号 A）标红 → 拖回默认值 / 撤回预览后消失。
 - dh 场景在 E1 后不可复现这件事，lead 记入台账，由 F1 的 docs PR 补偏离记录。
-- 测试把触发值收在一个常量（`PREVIEW_VIOLATION = {"D": 150}` / `PREVIEW_VIOLATION_ID = "S.A"`），断言语义（违规 finding 四字段齐全、ID 是画布元素、撤回后消失）；以后 main 的布局再动只需改这一行。
+- 测试把触发值收在一个常量（`PREVIEW_VIOLATION = {"D": 200}` / `PREVIEW_VIOLATION_ID = "S.A"`），断言语义（违规 finding 四字段齐全、ID 是画布元素、撤回后消失）；以后 main 的布局再动只需改这一行。
 
 ## 2. 复现步骤（临时目录图纸仓库，产物不入库）
 
@@ -21,12 +21,12 @@ uv run lcad -C <临时目录>\flange view --port 0 --no-open   # 打开输出的
 
 浏览器里：
 
-1. 参数栏把「外径 D」滑到 **150**（预览态，画布左上角显示「预览中（未写回）」）。
+1. 参数栏把「外径 D」滑到 **200**（预览态，画布左上角显示「预览中（未写回）」）。
 2. 画布上剖切符号 S.A 变**红**（`g.st-violation`，`rgb(214, 39, 40)`）；检查器顶部「预览违规（1）」列出 `overlap S.A`，并**始终**显示条款 / 实测 / 要求 / 候选四个字段（空容器显示「无」，本例如候选为「无」）；点该行下面的 `S.A` 选中元素，元素详情里同样有这四个字段（见截图 1）。
 3. 把 D 拖回 120（或点「撤回预览」/ 按 Esc）→ 红标与「预览违规」消失、画布恢复；此时 `snapshot.json` 的 `issues` 也回到空（见截图 2）。
 
 截图（本目录，小图，同一缩放区域）：
-- `b3-preview-violation.jpg`：D=150 预览，S.A 标红 + 检查器四字段（选中态仍保持红色，CSS 让违规色优先于选中色）。
+- `b3-preview-violation.jpg`：**B3 合并时的历史截图（D=150）**，示意 S.A 标红 + 检查器四字段（选中态仍保持红色，CSS 让违规色优先于选中色）；当前 main 的触发值已改为 D=200，见上面的当前步骤。
 - `b3-released.jpg`：拖回默认后，红标与预览违规消失、元素状态恢复为 ok。
 
 ## 3. 接口与文件字段
@@ -35,7 +35,7 @@ uv run lcad -C <临时目录>\flange view --port 0 --no-open   # 打开输出的
 - 参数规则失败时返回 `affected`（covers 该参数的元素 ID），错误对象只用 ParamError 实有的 `message / values / hint / candidates`，不造 clause / measured / expected。
 - `GET /api/state` 带 `preview` / `preview_seq` / `param_errors`：页面 reload 后客户端用 `preview_seq` 作拖动基线；失败预览的标红与面板保持到下一次用户动作。
 - `GET /api/model` 的 `issues`（全局与每元素）、`resolved` / `unplaced` 带同样字段；页面 reload 且服务端预览仍在时，用 model 复原红色标记、检查器与预览参数值。
-- `.linercad/snapshot.json` 的 `issues` 带同样字段（预览时是预览 build 的 findings，撤回后回到当前 build 的 findings）。实测预览 D=150 时：
+- `.linercad/snapshot.json` 的 `issues` 带同样字段（预览时是预览 build 的 findings，撤回后回到当前 build 的 findings）。下面是 B3 合并时（D=150）的实测示例，字段结构不随触发值变化（当前触发值见上面的 D=200 步骤）：
 
 ```json
 {"rule": "overlap", "id": "S.A", "severity": "warn", "message": "S.A 的文字与 T.frame 重叠",
