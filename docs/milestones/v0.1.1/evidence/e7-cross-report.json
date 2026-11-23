@@ -1,0 +1,226 @@
+{
+ "claude/motor": {
+  "rounds": [
+   {
+    "round": 0,
+    "mode": "fresh",
+    "code": 0,
+    "seconds": 274.2,
+    "tokens_total": 1488067,
+    "steps": 39,
+    "tools": {
+     "Read": 5,
+     "Bash": 17
+    },
+    "lcad": {
+     "init": 1,
+     "skill api": 2,
+     "skill 2": 1,
+     "build": 8,
+     "render": 10,
+     "context": 4,
+     "edit": 5
+    },
+    "usage": {
+     "input": 44,
+     "output": 23170,
+     "cache_read": 1383500,
+     "cache_write": 81353
+    },
+    "check": {
+     "errors": 0,
+     "warnings": 1
+    }
+   }
+  ],
+  "source": "D:\\Industry\\Claude-Code\\lcad-demo\\results\\claude-motor"
+ },
+ "claude/tool": {
+  "rounds": [
+   {
+    "round": 0,
+    "mode": "fresh",
+    "code": 0,
+    "seconds": 100.1,
+    "tokens_total": 753868,
+    "steps": 25,
+    "tools": {
+     "Read": 6,
+     "Bash": 11
+    },
+    "lcad": {
+     "skill api": 1,
+     "skill shaft": 1,
+     "inspect": 2,
+     "template import": 2,
+     "init": 1,
+     "build": 6,
+     "render": 6
+    },
+    "usage": {
+     "input": 28,
+     "output": 5113,
+     "cache_read": 686666,
+     "cache_write": 62061
+    },
+    "check": {
+     "errors": 0,
+     "warnings": 5
+    }
+   }
+  ],
+  "source": "D:\\Industry\\Claude-Code\\lcad-demo\\results\\claude-tool"
+ },
+ "dsh/motor": {
+  "rounds": [
+   {
+    "round": 0,
+    "mode": "fresh",
+    "code": 0,
+    "seconds": 900.0,
+    "tokens_total": 228094,
+    "steps": 142,
+    "tools": {
+     "pwsh": 82,
+     "web_search": 2,
+     "web_fetch": 2,
+     "read_image": 29,
+     "write": 15,
+     "edit": 13
+    },
+    "lcad": {
+     "init": 5,
+     "context": 7,
+     "skill api": 1,
+     "skill disc": 1,
+     "skill checks": 1,
+     "skill": 1,
+     "skill assembly": 1,
+     "render": 21,
+     "build": 27,
+     "check": 3
+    },
+    "usage": {
+     "input": 119944,
+     "output": 108150,
+     "cache_read": 0,
+     "cache_write": 0
+    },
+    "check": {
+     "errors": 0,
+     "warnings": 0
+    }
+   }
+  ],
+  "source": "D:\\Industry\\Claude-Code\\lcad-demo\\results\\dsh-motor"
+ },
+ "dsh/tool": {
+  "rounds": [
+   {
+    "round": 0,
+    "mode": "fresh",
+    "code": 0,
+    "seconds": 675.3,
+    "tokens_total": 177401,
+    "steps": 124,
+    "tools": {
+     "pwsh": 77,
+     "read_image": 26,
+     "read": 4,
+     "write": 2,
+     "edit": 14
+    },
+    "lcad": {
+     "inspect": 3,
+     "init": 3,
+     "context": 9,
+     "skill api": 2,
+     "template": 1,
+     "template import": 1,
+     "render": 14,
+     "skill": 1,
+     "skill shaft": 1,
+     "edit": 8,
+     "build": 11,
+     "undo": 1,
+     "check": 2,
+     "log": 1
+    },
+    "usage": {
+     "input": 98702,
+     "output": 78699,
+     "cache_read": 0,
+     "cache_write": 0
+    },
+    "check": {
+     "errors": 0,
+     "warnings": 0
+    }
+   }
+  ],
+  "source": "D:\\Industry\\Claude-Code\\lcad-demo\\results\\dsh-tool"
+ },
+ "P": {
+  "modes": {
+   "fresh": {
+    "cases": 4,
+    "first_pass_rate": 1.0,
+    "mean_rounds": 0.0,
+    "mean_seconds": 487.4,
+    "mean_new_tokens": 108462,
+    "mean_steps": 82.5
+   }
+  },
+  "incremental": [],
+  "rows": [
+   {
+    "agent": "claude",
+    "task": "motor",
+    "mode": "fresh",
+    "complete": true,
+    "rounds": 1,
+    "first_pass": true,
+    "rounds_to_green": 0,
+    "seconds": 274.2,
+    "new_tokens": 23214,
+    "steps": 39
+   },
+   {
+    "agent": "claude",
+    "task": "tool",
+    "mode": "fresh",
+    "complete": true,
+    "rounds": 1,
+    "first_pass": true,
+    "rounds_to_green": 0,
+    "seconds": 100.1,
+    "new_tokens": 5141,
+    "steps": 25
+   },
+   {
+    "agent": "dsh",
+    "task": "motor",
+    "mode": "fresh",
+    "complete": true,
+    "rounds": 1,
+    "first_pass": true,
+    "rounds_to_green": 0,
+    "seconds": 900.0,
+    "new_tokens": 228094,
+    "steps": 142
+   },
+   {
+    "agent": "dsh",
+    "task": "tool",
+    "mode": "fresh",
+    "complete": true,
+    "rounds": 1,
+    "first_pass": true,
+    "rounds_to_green": 0,
+    "seconds": 675.3,
+    "new_tokens": 177401,
+    "steps": 124
+   }
+  ]
+ }
+}

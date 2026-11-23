@@ -210,3 +210,24 @@ def test_demo_tasks_are_merged_into_the_task_set():
 def test_new_tokens_do_not_count_replayed_cache():
     assert cross_agent._new_tokens({"usage": {"input": 10, "output": 5, "cache_read": 999}}) == 15
     assert cross_agent._new_tokens({"tokens_total": 42}) == 42
+
+
+def test_p_summary_skips_baseline_and_marks_mixed_mode_incremental():
+    out = {
+        "baseline/box": {
+            "rounds": [{"round": 0, "mode": "fresh", "seconds": 1, "check": {"errors": 9}}]
+        },
+        "codex/tool": {
+            "rounds": [
+                {"round": 0, "mode": "fresh", "seconds": 10, "check": {"errors": 0}},
+                {"round": 1, "mode": "conversation", "seconds": 5, "check": {"errors": 0}},
+            ]
+        },
+    }
+    p = cross_agent._p_summary(out)
+    assert p["modes"]["fresh"]["cases"] == 1
+    assert p["modes"]["fresh"]["first_pass_rate"] == 1.0
+    assert p["incremental"]
+    assert p["incremental"][0]["mode"] == "conversation"
+    assert p["incremental"][0]["first_pass"] is None
+    assert all(r["agent"] != "baseline" for r in p["rows"])

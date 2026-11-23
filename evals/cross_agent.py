@@ -350,17 +350,27 @@ def run(root, agent, tid, rounds, start=0, dsh_model=DSH_MODEL, mode="fresh"):
             mode=mode,
             session=session,
         )
-        if mode == "conversation" and r.get("session"):
+        if mode == "conversation" and not r.get("session"):
+            raise SystemExit(
+                "conversation mode: the CLI did not return a session id; refusing to label a new session as conversation"
+            )
+        if r.get("session"):
             session = r["session"]
         check = {"errors": None, "warnings": None}
         drawing = w / "drawing"
         if drawing.exists():
             try:
                 chk = lcad(root, "-C", str(drawing), "check")
-                check = {
-                    "errors": chk.get("errors"),
-                    "warnings": len(chk.get("packs", {}).get("layout", ())),
-                }
+                if isinstance(chk.get("warnings"), int):
+                    warnings = chk["warnings"]
+                else:
+                    warnings = sum(
+                        1
+                        for pack in chk.get("packs", {}).values()
+                        for finding in pack
+                        if finding.get("severity") == "warn"
+                    )
+                check = {"errors": chk.get("errors"), "warnings": warnings}
             except Exception:  # noqa: BLE001 - a broken check must not hide the round metrics
                 pass
         res.append({"round": k, "mode": mode, "check": check, **r})
@@ -411,20 +421,24 @@ def _p_summary(out):
         if not runs:
             continue
         agent, task = key.split("/", 1)
+        if agent == "baseline":
+            continue
         modes = {}
         for r in runs:
             modes.setdefault(r.get("mode", "fresh"), []).append(r)
         for mode, rs in modes.items():
             errors = [r.get("check", {}).get("errors") for r in rs]
+            complete = bool(rs) and rs[0].get("round") == 0
             green = next((i for i, e in enumerate(errors) if e == 0), None)
             rows.append(
                 {
                     "agent": agent,
                     "task": task,
                     "mode": mode,
+                    "complete": complete,
                     "rounds": len(rs),
-                    "first_pass": errors[0] == 0 if errors else False,
-                    "rounds_to_green": green,
+                    "first_pass": errors[0] == 0 if errors and complete else None,
+                    "rounds_to_green": green if complete else None,
                     "seconds": sum(float(r.get("seconds") or 0) for r in rs),
                     "new_tokens": sum(_new_tokens(r) for r in rs),
                     "steps": sum(int(r.get("steps") or 0) for r in rs),
@@ -433,8 +447,10 @@ def _p_summary(out):
     if not rows:
         return None
     by_mode = {}
+    incremental = [row for row in rows if not row["complete"]]
     for row in rows:
-        by_mode.setdefault(row["mode"], []).append(row)
+        if row["complete"]:
+            by_mode.setdefault(row["mode"], []).append(row)
     summary = {}
     for mode, rs in sorted(by_mode.items()):
         summary[mode] = {
@@ -454,7 +470,7 @@ def _p_summary(out):
             ),
             "mean_steps": round(sum(r["steps"] for r in rs) / sum(r["rounds"] for r in rs), 1),
         }
-    return {"modes": summary, "rows": rows}
+    return {"modes": summary, "incremental": incremental, "rows": rows}
 
 
 def import_demo(results, out=None):

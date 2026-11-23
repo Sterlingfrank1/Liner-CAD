@@ -1,6 +1,7 @@
 # E7 迭代速度（P 过程）证据
 
 卡片 issue #108 · 流 W1 · 分支 m5/e7-iteration-metrics · 基线 cf1f959。
+入库 P 工件：docs/milestones/v0.1.1/evidence/e7-cross-report.json（由 import-demo 生成，含 4 个 fresh 场景与 P 字段）。
 数据源：把仓库外的 run_demo.py 驱动/事件解析并入 evals/cross_agent.py（import-demo 可回放其 events.jsonl + metrics.json）；现场 Codex 用 cross_agent.py 直接跑；dsh 使用 H2 已有 4 场景结果与本机 headless 复跑（配额见第 4 节）。
 
 ## 1. 口径
@@ -16,7 +17,7 @@ P 聚合（cross_agent score / import-demo 的 P 字段）：first_pass_rate（�
 
 ## 2. run_demo 4 个试用场景（fresh 首轮，H2 现场实测，来源：D:\Industry\Claude-Code\lcad-demo\results，2026-11-22 前跑）
 
-命令：uv run python evals/cross_agent.py import-demo --results D:\Industry\Claude-Code\lcad-demo\results --out report.json
+命令：uv run python evals/cross_agent.py import-demo --results D:\Industry\Claude-Code\lcad-demo\results --out docs/milestones/v0.1.1/evidence/e7-cross-report.json（入库的 P 报告工件即该命令产物）
 
 | 场景 | 首轮耗时 s | 新 token（in+out） | 步数 | check |
 |---|---:|---:|---:|---|
@@ -45,7 +46,7 @@ P 聚合（cross_agent score / import-demo 的 P 字段）：first_pass_rate（�
 
 ## 5. 测试与框架
 
-- tests/test_cross_agent.py 6 tests：claude/dsh/codex 事件解析（token/步/工具/lcad 子命令）、fresh vs conversation 命令构造（dsh --session-id / codex resume / claude --resume）、P first_pass/mean_rounds 两 mode、import-demo 回放。
+- tests/test_cross_agent.py 9 tests：claude/dsh/codex 事件解析（token/步/工具/lcad 子命令）、fresh vs conversation 命令构造（dsh --session-id / codex resume / claude --resume）、P first_pass/mean_rounds 两 mode、import-demo 回放。
 - G2：test commit 6a0ed71；实现 commit 7dfd88b。
 - baseline：P 按 E1 设计不在绘图向量内（evals/baseline.json 的 families 不含 P）；cross_agent 的 P 报告独立产出，写 PR 说明，无绘图 baseline 变动（--baseline 仍空）。
 
@@ -58,7 +59,7 @@ P 聚合（cross_agent score / import-demo 的 P 字段）：first_pass_rate（�
 | fresh | 0 首图 | 523.8 | 3,882,262 | 3,709,440 | 119 | 40 | 0 error / 0 warning |
 | conversation | 1 改 D=10 | 114.2 | 5,129,887 | 4,820,672 | 26 | 8 | 0 error / 0 warning |
 
-同一 session（thread 01a206d2-…）连续修改：耗时从 523.8s 降到 114.2s（约 4.6×），步数 119→26；首图与修改轮都 0 error。Codex 现场只跑了 tool（两口径）与 motor（fresh 首图）；另两个 Codex 场景未跑（时间预算），dsh 见第 4 节。
+同一 session（thread 01a206d2-…）连续修改：耗时从 523.8s 降到 114.2s（约 4.6×），步数 119→26；首图与修改轮都 0 error。Codex 现场只跑了 tool（fresh 首图 + resume 修改轮）与 motor（fresh 首图）；另两个 Codex 场景未跑（时间预算），dsh 见第 4 节。conversation 的修改轮无 round 0，P 中记为 incremental，不能当成完整 conversation 口径。
 
 任务 motor（电机外形图，fresh 首轮）：
 
@@ -66,11 +67,11 @@ P 聚合（cross_agent score / import-demo 的 P 字段）：first_pass_rate（�
 |---|---|---:|---:|---:|---:|---:|---|
 | fresh | 0 首图 | 301.5 | 1,973,440 | 1,881,856 | 81 | 28 | 0 error / 1 warning |
 
-Codex 两种口径的 P（本机现场）：fresh tool+motor 2 场景 mean_seconds 412.7、mean_new_tokens 2,927,851、mean_steps 100、first_pass_rate 1.0、mean_rounds 0.0；conversation tool 1 格 mean_seconds 114.2、mean_new_tokens 5,129,887、mean_steps 26、first_pass_rate 1.0、mean_rounds 0.0。
+Codex 两种口径的 P（本机现场）：fresh tool+motor 2 场景 mean_seconds **412.6**、mean_new_tokens 2,927,851、mean_steps 100、first_pass_rate 1.0、mean_rounds 0.0；conversation 只有修改轮（round 1，无 round 0），按实现归入 **incremental**，不计算 first_pass_rate/mean_rounds：本轮 114.2s、5,129,887 新 token、26 步；comparison 只作增量口径。
 
 ## 7. P 族数据
 
-- fresh（H2 四场景回放 + Codex tool）first_pass_rate、mean_rounds、mean_seconds、mean_new_tokens、mean_steps 见 cross_agent report 的 P 字段；本卡 P fresh 数据来自 §2/§6，conversation 只有 Codex tool 一格，dsh conversation 402 缺测。
+- fresh（H2 四场景回放 + Codex tool）first_pass_rate、mean_rounds、mean_seconds、mean_new_tokens、mean_steps 见 cross_agent report 的 P 字段；本卡 P fresh 数据来自 §2/§6；conversation 只有 Codex tool 的修改轮增量（incremental），无完整 conversation 首轮数据，dsh conversation 402 缺测。
 - P 不在 evals/baseline.json 的绘图向量内（E1 设计：families 为 G/D/T/A，P 为过程规则）；cross_agent 的 P 报告独立产出。本卡未改绘图 baseline，--baseline 仍空。
 
 
