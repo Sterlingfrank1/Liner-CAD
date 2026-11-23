@@ -1,0 +1,10 @@
+def expect(e):
+    e.dim(value=30)
+    e.dim(e.feature(cyl=126), fit='h11')
+    e.dim(e.feature(cyl=32), fit='H7')
+    e.datum('A', axis=True)
+    e.gtol('circular_runout', datums=['A'], max=0.03)
+    e.rough(ra_max=1.6)
+    e.note(contains='正火处理 170')
+    e.view('front', must=False)
+    e.view('left', must=False)

@@ -49,20 +49,26 @@
  "geometry_cases": 35,
  "completeness_pass_rate": 1.0,
  "completeness_cases": 5,
+ "expect": {
+  "cases": 20,
+  "checks": 188,
+  "violations": 0,
+  "pass_rate": 1.0
+ },
  "families": {
   "G": {
    "score": 1.0,
-   "opportunities": 4417,
+   "opportunities": 4469,
    "violations": 0
   },
   "D": {
-   "score": 0.965724,
-   "opportunities": 2830,
-   "violations": 97
+   "score": 0.986878,
+   "opportunities": 2896,
+   "violations": 38
   },
   "T": {
    "score": 1.0,
-   "opportunities": 247,
+   "opportunities": 317,
    "violations": 0
   },
   "A": {

@@ -118,7 +118,7 @@ def test_any_of_and_must_should(tmp_path):
     res = expect.evaluate(mod, d)
     assert res["pass"]  # the should-note is allowed to fail
     assert any(f["severity"] == "warn" for f in res["findings"])
-    assert any(f["rule"] == "expect_view" for f in res["findings"])
+    assert any(f["rule"] == "expect_note" for f in res["findings"])
 
 
 def test_mutation_operators_catch_deleted_dim_and_changed_fit():

@@ -1,0 +1,10 @@
+def expect(e):
+    e.dim(value=11)
+    e.dim(e.feature(cyl=28), fit='H7')
+    e.dim(value=8, fit='JS9')
+    e.datum('A', axis=True)
+    e.gtol('circular_runout', datums=['A'], max=0.05)
+    e.rough(ra_max=1.6)
+    e.note(contains='铸件时效处理。')
+    e.view('front', must=False)
+    e.view('left', must=False)

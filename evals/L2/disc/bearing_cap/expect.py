@@ -1,0 +1,10 @@
+def expect(e):
+    e.dim(value=12)
+    e.dim(e.feature(cyl=62), fit='f7')
+    e.dim(e.feature(cyl=36), fit='H9')
+    e.datum('A', axis=True)
+    e.gtol('concentricity', datums=['A'], max=0.05)
+    e.rough(ra_max=1.6)
+    e.note(contains='铸件不得有砂眼、')
+    e.view('front', must=False)
+    e.view('left', must=False)

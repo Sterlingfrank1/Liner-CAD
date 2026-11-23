@@ -1,0 +1,11 @@
+def expect(e):
+    e.dim(value=90)
+    e.dim(e.feature(cyl=12), fit='H9')
+    e.dim(value=20, fit='H12')
+    e.datum('A', axis=True)
+    e.gtol('perpendicularity', datums=['A'], max=0.05)
+    e.rough(ra_max=3.2)
+    e.note(contains='锻件不得有裂纹、')
+    e.view('front', must=False)
+    e.view('top', must=False)
+    e.view('left', must=False)

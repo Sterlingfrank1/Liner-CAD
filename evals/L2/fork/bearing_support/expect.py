@@ -1,0 +1,11 @@
+def expect(e):
+    e.dim(value=100)
+    e.dim(value=70)
+    e.dim(e.feature(cyl=32), fit='H7')
+    e.datum('A', axis=True)
+    e.gtol('parallelism', datums=['B'], max=0.05)
+    e.rough(ra_max=1.6)
+    e.note(contains='铸件不得有砂眼、')
+    e.view('front', must=False)
+    e.view('top', must=False)
+    e.view('left', must=False)

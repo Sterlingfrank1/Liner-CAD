@@ -1,0 +1,11 @@
+def expect(e):
+    e.dim(value=100)
+    e.dim(value=94)
+    e.dim(value=76)
+    e.dim(e.feature(cyl=28), fit='H11')
+    e.dim(e.feature(cyl=22), fit='H8')
+    e.rough(ra_max=3.2)
+    e.note(contains='GB/T 1804')
+    e.view('front', must=False)
+    e.view('top', must=False)
+    e.view('left', must=False)
