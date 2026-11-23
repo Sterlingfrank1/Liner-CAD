@@ -20,8 +20,10 @@ returned drawing.zip into R/doubao/<task>/drawing and ``score`` treats it like t
 from __future__ import annotations
 
 import argparse
+import collections
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -91,6 +93,172 @@ def workdir(root, agent, task):
 
 DSH_MODEL = "deepseek-flash:high"  # DeepSeek-V4.1-Flash, reasoning effort high
 
+LCAD_RE = re.compile(
+    r"(?:\blcad(?:\.exe)?|-m\s+linercad)\s+(?:-C\s+\S+\s+)?([a-z][a-z-]*)(?:\s+([a-z0-9_-]+))?"
+)
+
+
+def lcad_calls(cmd):
+    """lcad subcommands in a shell command, as run_demo.py counted them."""
+    out = []
+    for m in LCAD_RE.finditer(cmd or ""):
+        sub, arg = m.group(1), m.group(2)
+        if sub in ("skill", "template") and arg and re.fullmatch(r"[a-z0-9_]+", arg):
+            sub = f"{sub} {arg}"
+        out.append(sub)
+    return out
+
+
+def _empty_metrics():
+    return {
+        "tools": collections.Counter(),
+        "lcad": collections.Counter(),
+        "steps": 0,
+        "usage": {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0},
+        "final": "",
+    }
+
+
+def _add_usage(m, u, in_key="input", out_key="output"):
+    if not isinstance(u, dict):
+        return
+    m["usage"]["input"] += int(u.get(in_key) or 0)
+    m["usage"]["output"] += int(u.get(out_key) or 0)
+    m["usage"]["cache_read"] += int(u.get("cache_read") or u.get("cached_input_tokens") or 0)
+    m["usage"]["cache_write"] += int(u.get("cache_write") or u.get("cache_write_input_tokens") or 0)
+
+
+def parse_events(agent, text):
+    """Per-round process metrics from the CLI event stream (run_demo.py parsers, merged here)."""
+    m = _empty_metrics()
+    for line in text.splitlines():
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            continue
+        t = ev.get("type")
+        if agent == "claude":
+            if t == "system" and ev.get("subtype") == "init":
+                m["session"] = ev.get("session_id")
+            elif t == "assistant":
+                m["steps"] += 1
+                for c in (ev.get("message") or {}).get("content", ()):
+                    if c.get("type") == "tool_use":
+                        m["tools"][c.get("name", "tool")] += 1
+                        inp = c.get("input") or {}
+                        for s in lcad_calls(
+                            inp.get("command", "") if isinstance(inp, dict) else ""
+                        ):
+                            m["lcad"][s] += 1
+            elif t == "result":
+                u = ev.get("usage") or {}
+                m["usage"] = {
+                    "input": int(u.get("input_tokens") or 0),
+                    "output": int(u.get("output_tokens") or 0),
+                    "cache_read": int(u.get("cache_read_input_tokens") or 0),
+                    "cache_write": int(u.get("cache_creation_input_tokens") or 0),
+                }
+                m["final"] = ev.get("result", "") or m["final"]
+        elif agent == "dsh":
+            if t == "session":
+                m["session"] = ev.get("sessionId")
+            elif t == "tool_call":
+                m["tools"][ev.get("tool", "tool")] += 1
+                inp = ev.get("input") or {}
+                cmd = inp.get("command", "") if isinstance(inp, dict) else str(inp)
+                for s in lcad_calls(cmd):
+                    m["lcad"][s] += 1
+            elif t == "status" and ev.get("phase") == "step_end":
+                m["steps"] += 1
+                _add_usage(m, ev.get("usage"), "inputTokens", "outputTokens")
+            elif t == "final":
+                m["final"] = ev.get("text", "") or m["final"]
+        elif agent == "codex":
+            if t == "thread.started":
+                m["session"] = ev.get("thread_id")
+            elif t == "item.completed":
+                item = ev.get("item") or {}
+                kind = item.get("type")
+                if kind == "command_execution":
+                    m["steps"] += 1
+                    m["tools"]["shell"] += 1
+                    for s in lcad_calls(item.get("command", "")):
+                        m["lcad"][s] += 1
+                elif kind == "agent_message":
+                    m["steps"] += 1
+                    m["final"] = item.get("text", "") or m["final"]
+                elif kind == "reasoning":
+                    m["steps"] += 1
+            elif t == "turn.completed":
+                _add_usage(m, ev.get("usage"), "input_tokens", "output_tokens")
+    m["tools"], m["lcad"] = dict(m["tools"]), dict(m["lcad"])
+    m["tokens_total"] = sum(m["usage"].values())
+    return m
+
+
+def command_for(agent, w, root, log, dsh_model=DSH_MODEL, mode="fresh", session=None):
+    """CLI argv for one round. fresh = a new session every round; conversation = resume."""
+    resume = mode == "conversation" and bool(session)
+    if agent == "dsh":
+        cmd = [
+            os.environ.get("DSH") or exe(root, "dsh"),
+            "--profile",
+            "headless",
+            "--patch",
+            str(dsh_patch(root, dsh_model)),
+            "--json",
+            "--permission-mode",
+            "workspace-write",
+            "--approval-policy",
+            "never",
+        ]
+        if resume:
+            cmd += ["--session-id", session]
+        cmd += ["-"]
+        return cmd
+    if agent == "codex":
+        if resume:
+            return [
+                exe(root, "codex"),
+                "exec",
+                "resume",
+                session,
+                "--json",
+                "--skip-git-repo-check",
+                "--dangerously-bypass-approvals-and-sandbox",
+                "-C",
+                str(w),
+                "-",
+            ]
+        return [
+            exe(root, "codex"),
+            "exec",
+            "--json",
+            "--skip-git-repo-check",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "-C",
+            str(w),
+            "-o",
+            str(log.with_suffix(".last.txt")),
+            "-",
+        ]
+    cmd = [
+        exe(root, "claude"),
+        "-p",
+        "--model",
+        "sonnet",
+        "--permission-mode",
+        "bypassPermissions",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--setting-sources",
+        "project",
+    ]
+    if resume:
+        cmd += ["--resume", session]
+    return cmd
+
 
 def dsh_patch(root, model):
     """Profile overlay picking the model ("<id>:<effort>", effort off|low|high|max)."""
@@ -103,45 +271,8 @@ def dsh_patch(root, model):
     return p
 
 
-def invoke(agent, w, prompt, root, log, dsh_model=DSH_MODEL):
-    if agent == "dsh":
-        cmd = [
-            os.environ.get("DSH") or exe(root, "dsh"),
-            "--profile",
-            "headless",
-            "--patch",
-            str(dsh_patch(root, dsh_model)),
-            "--permission-mode",
-            "workspace-write",
-            "--approval-policy",
-            "never",
-            "-",
-        ]
-    elif agent == "codex":
-        cmd = [
-            exe(root, "codex"),
-            "exec",
-            "--skip-git-repo-check",
-            "--dangerously-bypass-approvals-and-sandbox",
-            "-C",
-            str(w),
-            "-o",
-            str(log.with_suffix(".last.txt")),
-            "-",
-        ]
-    else:  # claude and baseline: same CLI, same model
-        cmd = [
-            exe(root, "claude"),
-            "-p",
-            "--model",
-            "sonnet",
-            "--permission-mode",
-            "bypassPermissions",
-            "--output-format",
-            "json",
-            "--setting-sources",
-            "project",
-        ]
+def invoke(agent, w, prompt, root, log, dsh_model=DSH_MODEL, mode="fresh", session=None):
+    cmd = command_for(agent, w, root, log, dsh_model, mode, session)
     t = time.time()
     try:
         r = subprocess.run(
@@ -158,7 +289,9 @@ def invoke(agent, w, prompt, root, log, dsh_model=DSH_MODEL):
     except subprocess.TimeoutExpired as e:
         out, code = f"TIMEOUT {e}", -1
     log.write_text(out, encoding="utf-8")
-    return {"code": code, "seconds": round(time.time() - t, 1)}
+    metrics = parse_events(agent, out)
+    metrics.pop("session", None)
+    return {"code": code, "seconds": round(time.time() - t, 1), **metrics}
 
 
 def task_of(tid):
@@ -193,14 +326,40 @@ def load_runs(w, upto=None):
     return res if upto is None else [r for r in res if r["round"] < upto]
 
 
-def run(root, agent, tid, rounds, start=0, dsh_model=DSH_MODEL):
+def run(root, agent, tid, rounds, start=0, dsh_model=DSH_MODEL, mode="fresh"):
+    """Run rounds in fresh mode (new session each round) or conversation mode (resume)."""
     task = task_of(tid)
     w = workdir(root, agent, task)
     res = load_runs(w, start) if start else []
+    session = None
+    if mode == "conversation" and res:
+        session = res[-1].get("session")
     for k in range(start, rounds + 1):
         cli = agent if agent in ("codex", "dsh") else "claude"  # baseline: claude without skill
-        r = invoke(cli, w, prompt_for(root, agent, task, k), root, w / f"round-{k}.log", dsh_model)
-        res.append({"round": k, **r})
+        r = invoke(
+            cli,
+            w,
+            prompt_for(root, agent, task, k),
+            root,
+            w / f"round-{k}.log",
+            dsh_model,
+            mode=mode,
+            session=session,
+        )
+        if mode == "conversation" and r.get("session"):
+            session = r["session"]
+        check = {"errors": None, "warnings": None}
+        drawing = w / "drawing"
+        if drawing.exists():
+            try:
+                chk = lcad(root, "-C", str(drawing), "check")
+                check = {
+                    "errors": chk.get("errors"),
+                    "warnings": len(chk.get("packs", {}).get("layout", ())),
+                }
+            except Exception:  # noqa: BLE001 - a broken check must not hide the round metrics
+                pass
+        res.append({"round": k, "mode": mode, "check": check, **r})
         if agent == "dsh":
             res[-1]["model"] = dsh_model
         save_runs(w, res)
@@ -228,6 +387,99 @@ def lcad(root, *args, cwd=None):
         return json.loads(r.stdout)
     except ValueError:
         return {"ok": False, "raw": r.stdout[-2000:] + r.stderr[-2000:]}
+
+
+def _p_summary(out):
+    """P (process) family: first-pass rate / mean rounds / timing, split by mode and agent."""
+    rows = []
+    for key, rec in out.items():
+        if key == "P":
+            continue
+        runs = rec.get("rounds") or []
+        if not runs:
+            continue
+        agent, task = key.split("/", 1)
+        modes = {}
+        for r in runs:
+            modes.setdefault(r.get("mode", "fresh"), []).append(r)
+        for mode, rs in modes.items():
+            errors = [r.get("check", {}).get("errors") for r in rs]
+            green = next((i for i, e in enumerate(errors) if e == 0), None)
+            rows.append(
+                {
+                    "agent": agent,
+                    "task": task,
+                    "mode": mode,
+                    "rounds": len(rs),
+                    "first_pass": errors[0] == 0 if errors else False,
+                    "rounds_to_green": green,
+                    "seconds": sum(float(r.get("seconds") or 0) for r in rs),
+                    "new_tokens": sum(int(r.get("tokens_total") or 0) for r in rs),
+                    "steps": sum(int(r.get("steps") or 0) for r in rs),
+                }
+            )
+    if not rows:
+        return None
+    by_mode = {}
+    for row in rows:
+        by_mode.setdefault(row["mode"], []).append(row)
+    summary = {}
+    for mode, rs in sorted(by_mode.items()):
+        summary[mode] = {
+            "cases": len(rs),
+            "first_pass_rate": round(sum(1 for r in rs if r["first_pass"]) / len(rs), 4),
+            "mean_rounds": round(
+                sum(
+                    r["rounds_to_green"] if r["rounds_to_green"] is not None else r["rounds"]
+                    for r in rs
+                )
+                / len(rs),
+                2,
+            ),
+            "mean_seconds": round(sum(r["seconds"] for r in rs) / sum(r["rounds"] for r in rs), 1),
+            "mean_new_tokens": round(
+                sum(r["new_tokens"] for r in rs) / sum(r["rounds"] for r in rs)
+            ),
+            "mean_steps": round(sum(r["steps"] for r in rs) / sum(r["rounds"] for r in rs), 1),
+        }
+    return {"modes": summary, "rows": rows}
+
+
+def import_demo(results, out=None):
+    """Replay run_demo.py results (events.jsonl + metrics.json) through the merged metrics parser.
+
+    run_demo.py itself is kept outside the repo (issue #108); this command is the migration path:
+    each <agent>-<task> directory becomes one fresh-mode round in the cross_agent report.
+    """
+    report = {}
+    for d in sorted(Path(results).glob("*-*")):
+        if not d.is_dir():
+            continue
+        agent, task = d.name.split("-", 1)
+        events = (d / "events.jsonl").read_text(encoding="utf-8", errors="replace")
+        base = json.loads((d / "metrics.json").read_text(encoding="utf-8"))
+        m = parse_events(agent, events)
+        round_rec = {
+            "round": 0,
+            "mode": "fresh",
+            "code": base.get("code", 0),
+            "seconds": base.get("seconds"),
+            "tokens_total": m["tokens_total"],
+            "steps": m["steps"],
+            "tools": m["tools"],
+            "lcad": m["lcad"],
+            "usage": m["usage"],
+            "check": {
+                "errors": (base.get("check") or {}).get("errors"),
+                "warnings": (base.get("check") or {}).get("warnings"),
+            },
+        }
+        report[f"{agent}/{task}"] = {"rounds": [round_rec], "source": str(d)}
+    report["P"] = _p_summary(report)
+    text = json.dumps(report, ensure_ascii=False, indent=1)
+    if out:
+        Path(out).write_text(text, encoding="utf-8")
+    return {"cases": len(report) - 1, "P": report["P"]}
 
 
 def score(root):
@@ -287,30 +539,38 @@ def score(root):
                 rec["dxf_entities"] = ins.get("entities")
                 rec["dxf_png"] = ins.get("png")
             out[f"{agent}/{task['id']}"] = rec
+    out["P"] = _p_summary(out)
     return out
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["setup", "run", "prompt", "record", "score"])
+    ap.add_argument("cmd", choices=["setup", "run", "prompt", "record", "score", "import-demo"])
     ap.add_argument("--root", required=True)
     ap.add_argument("--clone")
     ap.add_argument("--agent")
     ap.add_argument("--task")
     ap.add_argument("--rounds", type=int, default=3)
     ap.add_argument("--start", type=int, default=0, help="resume from this round")
+    ap.add_argument(
+        "--mode",
+        choices=["fresh", "conversation"],
+        default="fresh",
+        help="new session per round or resume the same session",
+    )
     ap.add_argument("--round", type=int, default=0)
     ap.add_argument("--seconds", type=float)
     ap.add_argument("--code", type=int, default=0)
     ap.add_argument("--note")
     ap.add_argument("--dsh-model", default=DSH_MODEL, help="<model id>:<effort>")
     ap.add_argument("--out")
+    ap.add_argument("--results", help="run_demo results directory (import-demo)")
     a = ap.parse_args()
     root = Path(a.root).resolve()
     if a.cmd == "setup":
         setup(root, a.clone)
     elif a.cmd == "run":
-        res = run(root, a.agent, a.task, a.rounds, a.start, a.dsh_model)
+        res = run(root, a.agent, a.task, a.rounds, a.start, a.dsh_model, a.mode)
         print(json.dumps(res, ensure_ascii=False))
     elif a.cmd == "prompt":
         print(prompt_for(root, a.agent, task_of(a.task), a.round))
