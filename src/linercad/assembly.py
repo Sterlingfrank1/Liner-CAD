@@ -334,34 +334,66 @@ def hatch_styles(shapes):
 # ---- balloons and parts list ---------------------------------------------------------------------
 
 
+def _part_key(c):
+    """Identity of one parts-list line: the same part (path + model hash + parameters + title
+    fields) or the same standard designation (code + spec + material) merge into one row."""
+    t = c._intent.get("title", {})
+    if c.std:
+        return ("std", c.std, c.spec, t.get("material", ""))
+    # instance parameters (assembly position, handedness, jaw opening) do not change the part
+    # number: the drawing number / title fields identify the parts-list item
+    return (
+        "part",
+        c._intent.get("path", ""),
+        c._intent.get("hash"),
+        t.get("drawing_no", ""),
+        t.get("name", ""),
+        t.get("material", ""),
+    )
+
+
 def bom_rows(d):
+    """Parts list rows (GB/T 10609.2): identical parts / standard parts share one row and their
+    quantities add up, in first-occurrence order."""
     rows = []
-    for k, c in enumerate(components(d), 1):
+    by_key = {}
+    for c in components(d):
+        key = _part_key(c)
+        row = by_key.get(key)
+        if row is not None:
+            row["qty"] += c.qty
+            row["ids"].append(c.id)
+            continue
         t = c._intent.get("title", {})
         if c.std:
             code = c.std
             name = f"{t.get('name', '')} {c.spec}"
         else:
-            code = t.get("drawing_no", "")
             name = t.get("name", c.name)
-        rows.append(
-            {
-                "no": k,
-                "id": c.id,
-                "code": code,
-                "name": name,
-                "qty": c.qty,
-                "material": t.get("material", ""),
-                "remark": "",
-            }
-        )
+            code = t.get("drawing_no", "")
+        row = {
+            "no": 0,
+            "id": c.id,
+            "ids": [c.id],
+            "code": code,
+            "name": name,
+            "qty": c.qty,
+            "material": t.get("material", ""),
+            "remark": "",
+        }
+        by_key[key] = row
+        rows.append(row)
+    for k, row in enumerate(rows, 1):
+        row["no"] = k
     return rows
 
 
 def number(d, cid):
-    """Balloon number = the component's row in the parts list."""
-    ids = [c.id for c in components(d)]
-    return ids.index(cid) + 1 if cid in ids else None
+    """Balloon number = the component's (merged) row in the parts list."""
+    for row in bom_rows(d):
+        if cid in row["ids"]:
+            return row["no"]
+    return None
 
 
 def balloon_for(d, c, view):

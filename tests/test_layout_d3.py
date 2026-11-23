@@ -210,6 +210,21 @@ def test_written_balloon_side_is_kept(tmp_path):
     assert target._resolved["side"] == "right"
 
 
+def test_duplicate_numbers_keep_written_side_independent(tmp_path):
+    # D5: merged BOM rows give several balloons one number; a hand-written side on one instance
+    # must not move the other instance to the same slot (the plan is index-keyed).
+    d = _build(tmp_path, "vise")
+    bs = {e.id: e for e in d._els.values() if e.kind == "balloon"}
+    fixed, other = bs["B.plate_fixed"], bs["B.plate_mov"]
+    assert fixed.number == other.number
+    fixed.place(side="right")
+    layout(d)
+    assert fixed._layout["side"] == "right" and fixed._resolved["side"] == "right"
+    assert fixed.number == other.number
+    circles = [b["c"] for b in _balloons(d)]
+    assert len(set(circles)) == len(circles), "same-number balloons must keep distinct slots"
+
+
 def test_balloon_layout_is_deterministic(tmp_path):
     from linercad.layout import _BALLOON_PLAN_CACHE
 

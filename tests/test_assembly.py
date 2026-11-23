@@ -94,6 +94,30 @@ def test_bom_rows_and_balloons(tmp_path):
     assert not errs, errs
 
 
+def test_bom_merges_identical_components(tmp_path):
+    # D5: two identical bushes in the assembly -> one row with qty 2, both balloons share its no.
+    d = make(tmp_path, pre='d.component("parts/bush", name="bush2")').d
+    rows = d["T.bom"].rows
+    assert [r["name"] for r in rows] == ["底座", "轴套", "轴", "平垫圈 6"]
+    bush = next(r for r in rows if r["id"] == "A.bush")
+    assert bush["qty"] == 2
+    balloons = [e for e in d._els.values() if e.kind == "balloon"]
+    assert len(balloons) == 5  # one balloon per component instance, not per merged row
+    assert sorted(b.number for b in balloons) == [1, 2, 2, 3, 4]
+    assert sum(1 for b in balloons if b.number == bush["no"]) == 2
+
+
+def test_bom_merges_identical_standard_parts(tmp_path):
+    # D5: same standard code + spec + material merge; the quantity includes all instances.
+    d = make(tmp_path, pre='d.std_part("GB/T 97.1", "6", name="washer2", at=(-30, 0, 20))').d
+    rows = d["T.bom"].rows
+    washers = [r for r in rows if r["code"] == "GB/T 97.1-2002"]
+    assert len(washers) == 1 and washers[0]["qty"] == 3
+    balloons = [e for e in d._els.values() if e.kind == "balloon"]
+    assert len(balloons) == 5
+    assert sorted(b.number for b in balloons) == [1, 2, 3, 4, 4]
+
+
 def test_hatch_per_component_adjacent_differ_and_solid_not_cut(tmp_path):
     d = make(tmp_path).d
     hs = {e._intent["component"]: e for e in d._els.values() if e.kind == "hatch"}
@@ -191,7 +215,8 @@ def test_l3_cases_present():
 
 @pytest.mark.parametrize("case", L3_CASES)
 def test_l3_assembly_case(case, tmp_path):
-    """L3 evals: zero errors, a parts list of at least 4 rows, one balloon per row."""
+    """L3 evals: zero errors, a merged parts list of at least 4 rows, one balloon per component;
+    every row owns at least one balloon and every balloon number is an existing row number."""
     work = tmp_path / case  # build in a copy: nothing generated lands in evals/
     shutil.copytree(
         L3 / case, work, ignore=shutil.ignore_patterns(".linercad", "__pycache__", "*.jsonl")
@@ -201,10 +226,35 @@ def test_l3_assembly_case(case, tmp_path):
     assert not errs, errs
     rows = r.d["T.bom"].rows
     assert len(rows) >= 4
+    components = [e for e in r.d._els.values() if e.kind == "component"]
     balloons = [e for e in r.d._els.values() if e.kind == "balloon"]
-    assert len(balloons) == len(rows)
-    assert {b.component for b in balloons} == {row["id"] for row in rows}
-    assert sorted(b.number for b in balloons) == list(range(1, len(rows) + 1))
+    assert len(balloons) == len(components)
+    assert {b.component for b in balloons} == {c.id for c in components}
+    nums = [b.number for b in balloons]
+    assert sorted(set(nums)) == list(range(1, len(rows) + 1))
+    for row in rows:
+        assert any(n == row["no"] for n in nums), row
+    table = r.d["T.bom"]
+    for prim in table._prims:
+        if hasattr(prim, "box"):
+            assert prim.box[0] >= table._resolved["bbox"][0] - 1e-6
+            assert prim.box[2] <= table._resolved["bbox"][2] + 1e-6
+
+
+def test_l3_vise_bom_merges_jaw_plates_and_screws(tmp_path):
+    # D5: the two jaw-plate components share drawing LC-VS-03 (different assembly-side params);
+    # the two GB/T 68 calls are the same standard part. Both pairs are one row with summed qty.
+    work = tmp_path / "vise"
+    shutil.copytree(
+        L3 / "vise", work, ignore=shutil.ignore_patterns(".linercad", "__pycache__", "*.jsonl")
+    )
+    d = runtime.build(work).d
+    rows = {r["code"]: r for r in d["T.bom"].rows}
+    assert len([r for r in d["T.bom"].rows if r["code"] == "LC-VS-03"]) == 1
+    assert rows["LC-VS-03"]["qty"] == 2
+    assert rows["LC-VS-03"]["ids"] == ["A.plate_fixed", "A.plate_mov"]
+    assert rows["GB/T 68-2016"]["qty"] == 4
+    assert rows["GB/T 68-2016"]["ids"] == ["A.csk_fixed", "A.csk_mov"]
 
 
 def test_every_instance_of_a_multi_placed_part_is_drawn(tmp_path):
