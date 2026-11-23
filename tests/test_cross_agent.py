@@ -198,3 +198,15 @@ def test_import_demo_replays_run_demo_results(tmp_path):
     assert report["P"]["modes"]["fresh"]["first_pass_rate"] == 1.0
     assert report["dsh/tool"]["rounds"][0]["seconds"] == 12.5
     assert report["codex/tool"]["rounds"][0]["lcad"] == {"build": 1}
+
+
+def test_demo_tasks_are_merged_into_the_task_set():
+    ids = {t["id"] for t in cross_agent.TASKS}
+    assert {"box", "fork", "asm", "tool", "motor"} <= ids
+    tool = next(t for t in cross_agent.TASKS if t["id"] == "tool")
+    assert tool["rounds"] and "牛鼻" in tool["first"]
+
+
+def test_new_tokens_do_not_count_replayed_cache():
+    assert cross_agent._new_tokens({"usage": {"input": 10, "output": 5, "cache_read": 999}}) == 15
+    assert cross_agent._new_tokens({"tokens_total": 42}) == 42

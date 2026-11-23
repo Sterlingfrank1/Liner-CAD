@@ -33,6 +33,9 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 TASKS = tomllib.loads((HERE / "cross" / "tasks.toml").read_text(encoding="utf-8"))["task"]
+DEMO_TASKS = HERE / "cross" / "demo_tasks.toml"
+if DEMO_TASKS.exists():  # E7: run_demo.py trial scenarios, same task schema
+    TASKS += tomllib.loads(DEMO_TASKS.read_text(encoding="utf-8"))["task"]
 TIMEOUT = 20 * 60
 AGENTS = ("codex", "claude", "dsh", "doubao", "baseline")
 SKILL_TARGET = {"codex": "codex", "dsh": "codex", "claude": "claude"}
@@ -88,6 +91,10 @@ def workdir(root, agent, task):
                 env=env(root),
                 capture_output=True,
             )
+        sample = os.environ.get("E7_DEMO_SAMPLE")
+        if task["id"] == "tool" and sample and Path(sample).exists():
+            (w / "template").mkdir()
+            shutil.copy2(sample, w / "template" / "牛鼻铣刀.dxf")
     return w
 
 
@@ -226,8 +233,6 @@ def command_for(agent, w, root, log, dsh_model=DSH_MODEL, mode="fresh", session=
                 "--json",
                 "--skip-git-repo-check",
                 "--dangerously-bypass-approvals-and-sandbox",
-                "-C",
-                str(w),
                 "-",
             ]
         return [
@@ -290,7 +295,6 @@ def invoke(agent, w, prompt, root, log, dsh_model=DSH_MODEL, mode="fresh", sessi
         out, code = f"TIMEOUT {e}", -1
     log.write_text(out, encoding="utf-8")
     metrics = parse_events(agent, out)
-    metrics.pop("session", None)
     return {"code": code, "seconds": round(time.time() - t, 1), **metrics}
 
 
@@ -389,6 +393,14 @@ def lcad(root, *args, cwd=None):
         return {"ok": False, "raw": r.stdout[-2000:] + r.stderr[-2000:]}
 
 
+def _new_tokens(run):
+    """New processed tokens: input + output; cached input is replayed context, not new work."""
+    usage = run.get("usage") or {}
+    if usage:
+        return int(usage.get("input") or 0) + int(usage.get("output") or 0)
+    return int(run.get("tokens_total") or 0)
+
+
 def _p_summary(out):
     """P (process) family: first-pass rate / mean rounds / timing, split by mode and agent."""
     rows = []
@@ -414,7 +426,7 @@ def _p_summary(out):
                     "first_pass": errors[0] == 0 if errors else False,
                     "rounds_to_green": green,
                     "seconds": sum(float(r.get("seconds") or 0) for r in rs),
-                    "new_tokens": sum(int(r.get("tokens_total") or 0) for r in rs),
+                    "new_tokens": sum(_new_tokens(r) for r in rs),
                     "steps": sum(int(r.get("steps") or 0) for r in rs),
                 }
             )
@@ -546,7 +558,7 @@ def score(root):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["setup", "run", "prompt", "record", "score", "import-demo"])
-    ap.add_argument("--root", required=True)
+    ap.add_argument("--root", default=".")
     ap.add_argument("--clone")
     ap.add_argument("--agent")
     ap.add_argument("--task")
@@ -577,6 +589,12 @@ def main():
     elif a.cmd == "record":
         res = record(root, a.agent, a.task, a.round, a.seconds, a.code, a.note)
         print(json.dumps(res, ensure_ascii=False))
+    elif a.cmd == "import-demo":
+        print(
+            json.dumps(
+                import_demo(Path(a.results), Path(a.out) if a.out else None), ensure_ascii=False
+            )
+        )
     else:
         rep = score(root)
         text = json.dumps(rep, ensure_ascii=False, indent=1)
