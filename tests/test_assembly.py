@@ -94,6 +94,30 @@ def test_bom_rows_and_balloons(tmp_path):
     assert not errs, errs
 
 
+def test_bom_merges_identical_components(tmp_path):
+    # D5: two identical bushes in the assembly -> one row with qty 2, both balloons share its no.
+    d = make(tmp_path, pre='d.component("parts/bush", name="bush2")').d
+    rows = d["T.bom"].rows
+    assert [r["name"] for r in rows] == ["底座", "轴套", "轴", "平垫圈 6"]
+    bush = next(r for r in rows if r["id"] == "A.bush")
+    assert bush["qty"] == 2
+    balloons = [e for e in d._els.values() if e.kind == "balloon"]
+    assert len(balloons) == 5  # one balloon per component instance, not per merged row
+    assert sorted(b.number for b in balloons) == [1, 2, 2, 3, 4]
+    assert sum(1 for b in balloons if b.number == bush["no"]) == 2
+
+
+def test_bom_merges_identical_standard_parts(tmp_path):
+    # D5: same standard code + spec + material merge; the quantity includes all instances.
+    d = make(tmp_path, pre='d.std_part("GB/T 97.1", "6", name="washer2", at=(-30, 0, 20))').d
+    rows = d["T.bom"].rows
+    washers = [r for r in rows if r["code"] == "GB/T 97.1-2002"]
+    assert len(washers) == 1 and washers[0]["qty"] == 3
+    balloons = [e for e in d._els.values() if e.kind == "balloon"]
+    assert len(balloons) == 5
+    assert sorted(b.number for b in balloons) == [1, 2, 3, 4, 4]
+
+
 def test_hatch_per_component_adjacent_differ_and_solid_not_cut(tmp_path):
     d = make(tmp_path).d
     hs = {e._intent["component"]: e for e in d._els.values() if e.kind == "hatch"}
