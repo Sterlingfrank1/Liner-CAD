@@ -7,7 +7,7 @@ No semantic model, no element intent, no view ownership is used.
 Judgeable part of the vector:
 
 * G.layout: dxf_out_of_frame (all primitives inside the detected sheet frame) and
-  dxf_text_overlap (text boxes do not overlap each other / are not crossed by geometry).
+  dxf_text_overlap (text boxes do not substantially overlap each other; text-on-line needs dimension semantics).
 * G.conv: dxf_hatch_defined (section fill has a usable pattern) and
   dxf_section_hatch_consistency (all hatches in one DXF share pattern / angle / scale).
 * D.place: dxf_dim_text_present (DIMENSION carries a text) and dxf_dim_arrows
@@ -50,12 +50,6 @@ RULE_TABLE = {
         "judgeable": True,
         "description": "每个 HATCH 有实体填充或可用的图案定义（图案名 + 比例）",
     },
-    "dxf_section_hatch_consistency": {
-        "family": "G",
-        "basis": "G.conv（剖面画法）",
-        "judgeable": True,
-        "description": "同一 DXF 内多个 HATCH 的图案名 / 角度 / 比例一致（至少两个才判）",
-    },
     "dxf_dim_text_present": {
         "family": "D",
         "basis": "D.place（尺寸文字可读）",
@@ -78,6 +72,7 @@ INTENT_METRICS = {
     "G.section": ("G", "需要剖视语义"),
     "G.express": ("G", "需要 3D 特征"),
     "G.layout.view_align": ("G", "需要视图归属"),
+    "G.conv.hatch_consistency": ("G", "相邻零件允许不同方向/间距，需要零件/剖视归属"),
     "D.complete": ("D", "需要 3D 特征 / expect"),
     "D.redundant": ("D", "需要尺寸语义（封闭链/重复）"),
     "D.value": ("D", "需要被标几何的实测值（intent）"),
@@ -89,6 +84,13 @@ INTENT_METRICS = {
     "D.place.nesting": ("D", "大小尺寸嵌套需要尺寸 intent"),
     "D.place.text_direction": ("D", "水平/垂直尺寸需要尺寸 intent"),
     "D.place.leader_cross": ("D", "引线目标需要尺寸 intent"),
+    "D.place.dim_outline": ("D", "尺寸线与轮廓线需要尺寸 intent"),
+    "D.place.ext_line": ("D", "尺寸界线需要尺寸 intent"),
+    "D.place.text_overlap": ("D", "尺寸文字与图元重叠需要尺寸 intent"),
+    "D.place.arrow": ("D", "箭头大小/朝向需要尺寸 intent"),
+    "D.place.balloon_cross": ("D", "装配序号引线需要装配 intent"),
+    "D.place.balloon_align": ("D", "装配序号对齐需要装配 intent"),
+    "D.place.balloon_spacing": ("D", "装配序号间距需要装配 intent"),
     "T.syntax": ("T", "需要形位公差框格语义"),
     "T.datum": ("T", "需要基准语义"),
     "T.target": ("T", "需要被测要素语义"),
@@ -131,9 +133,11 @@ def _text_box(e) -> dict | None:
         if e.dxftype() == "TEXT":
             h = float(e.dxf.get("height", 2.5) or 2.5)
             rot = math.radians(float(e.dxf.get("rotation", 0.0) or 0.0))
-            at = e.dxf.insert
             halign = int(e.dxf.get("halign", 0) or 0)
             valign = int(e.dxf.get("valign", 0) or 0)
+            at = e.dxf.insert
+            if (halign or valign) and e.dxf.hasattr("align_point"):
+                at = e.dxf.align_point  # aligned/fit/middle text is anchored at the alignment point
             natural = sum(1.0 if ord(ch) > 127 else 0.7 for ch in text) * h
             width = natural
             height = h
@@ -230,6 +234,19 @@ def _segments_of(e) -> list:
     return out
 
 
+def _entity_bbox(e):
+    """Bounding box of an arbitrary entity (HATCH / INSERT / DIMENSION) via ezdxf.bbox."""
+    try:
+        from ezdxf import bbox as ezbbox
+
+        b = ezbbox.extents([e])
+        if b.has_data:
+            return (float(b.extmin.x), float(b.extmin.y), float(b.extmax.x), float(b.extmax.y))
+    except Exception:  # noqa: BLE001 - geometry we cannot measure is not judged
+        return None
+    return None
+
+
 def _entities(msp) -> list:
     out = []
     for e in msp:
@@ -240,6 +257,10 @@ def _entities(msp) -> list:
             ys = [p[1] for s in segs for p in s]
             box = (min(xs), min(ys), max(xs), max(ys)) if segs else None
             out.append({"type": t, "id": str(e.dxf.handle), "segments": segs, "box": box})
+        elif t in ("HATCH", "INSERT", "DIMENSION"):
+            box = _entity_bbox(e)
+            if box is not None:
+                out.append({"type": t, "id": str(e.dxf.handle), "segments": [], "box": box})
         elif t in ("TEXT", "MTEXT"):
             tb = _text_box(e)
             if tb is not None:
@@ -305,12 +326,12 @@ def _detect_frame(msp):
     segs = []
     for e in msp:
         t = e.dxftype()
-        if t == "LWPOLYLINE" and len(list(e.get_points("xy"))) == 4:
+        if t == "LWPOLYLINE" and e.closed and len(list(e.get_points("xy"))) == 4:
             pts = [(float(p[0]), float(p[1])) for p in e.get_points("xy")]
             r = _rect_from_4pts(pts)
             if r and (r[2] - r[0]) * (r[3] - r[1]) > 100:
                 cands.append((r, {str(e.dxf.handle)}))
-        elif t == "POLYLINE" and len(list(e.vertices)) == 4:
+        elif t == "POLYLINE" and e.is_closed and len(list(e.vertices)) == 4:
             pts = [(float(v.dxf.location[0]), float(v.dxf.location[1])) for v in e.vertices]
             r = _rect_from_4pts(pts)
             if r and (r[2] - r[0]) * (r[3] - r[1]) > 100:
@@ -409,7 +430,7 @@ def _rule_out_of_frame(msp, prims):
             outside = px < x0 - 0.01 or px > x1 + 0.01 or py < y0 - 0.01 or py > y1 + 0.01
         else:
             b = p["box"]
-            outside = b[0] < x0 - 0.01 or b[1] < y0 - 0.01 or b[2] > x1 + 0.01 or b[3] > y1 + 0.01
+            outside = b[0] < x0 - 0.5 or b[1] < y0 - 0.5 or b[2] > x1 + 0.5 or b[3] > y1 + 0.5
         if outside:
             viol += 1
     r = _rule("dxf_out_of_frame", len(checked), viol)
@@ -448,30 +469,7 @@ def _rule_hatches(msp):
         scale = float(h.dxf.get("pattern_scale", 0.0) or 0.0)
         if not solid and (not name or scale <= 0):
             defined_viol += 1
-    rows = {"dxf_hatch_defined": _rule("dxf_hatch_defined", len(hs), defined_viol)}
-    pairs = 0
-    consistency_viol = 0
-    keys = [
-        (
-            str(h.dxf.get("pattern_name") or ""),
-            round(float(h.dxf.get("pattern_angle", 0.0) or 0.0), 3),
-            round(float(h.dxf.get("pattern_scale", 0.0) or 0.0), 3),
-        )
-        for h in hs
-    ]
-    for i in range(len(keys)):
-        for j in range(i + 1, len(keys)):
-            pairs += 1
-            if (
-                keys[i][0] != keys[j][0]
-                or abs(keys[i][1] - keys[j][1]) > 0.01
-                or abs(keys[i][2] - keys[j][2]) > 0.01
-            ):
-                consistency_viol += 1
-    rows["dxf_section_hatch_consistency"] = _rule(
-        "dxf_section_hatch_consistency", pairs, consistency_viol
-    )
-    return rows
+    return {"dxf_hatch_defined": _rule("dxf_hatch_defined", len(hs), defined_viol)}
 
 
 def _dim_block(doc, e):
@@ -536,9 +534,14 @@ def _rule_dims(doc, msp):
                 if len(pts) >= 3:
                     xs = [q[0] for q in pts]
                     ys = [q[1] for q in pts]
-                    area = max(0.0, (max(xs) - min(xs)) * (max(ys) - min(ys)))
+                    scale = abs(float(b.dxf.get("xscale", 1.0) or 1.0)) * abs(
+                        float(b.dxf.get("yscale", 1.0) or 1.0)
+                    )
+                    area = max(0.0, (max(xs) - min(xs)) * (max(ys) - min(ys))) * scale
                 areas.append(area if area > 1e-6 else 1.0)  # tick-mark arrowheads have no fill area
-        if not areas:
+        dimtype = int(e.dxf.get("dimtype", 0) or 0) & 0x0F
+        expected = 1 if dimtype in (3, 4, 6) else 2  # radius/diameter/ordinate may use one arrow
+        if len(areas) < expected:
             arrow_viol += 1
         elif len(areas) >= 2 and max(areas) / min(areas) > 1.25:
             arrow_viol += 1
@@ -592,8 +595,8 @@ def score_doc(doc, name="<memory>") -> dict:
 
 
 def score_file(path) -> dict:
-    doc = ezdxf.readfile(str(path))
     try:
+        doc = ezdxf.readfile(str(path))
         return score_doc(doc, Path(path).name)
     except Exception as e:  # noqa: BLE001 - one bad DXF is reported, not fatal
         return {
