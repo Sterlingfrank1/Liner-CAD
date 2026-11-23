@@ -1950,9 +1950,17 @@ class _ViewLayout:
         # single source of the minimum gap δ: the same [placement] value the E5 rule reads
         step = 2 * r + float(place_cfg.get("balloon_clearance", 1.0))
         B = union([prims_bbox(p) for p in self.parts.values() if p] + [self.G])
-        numbered = sorted(((e.number, self.P(e._intent["anchor"])) for e in bs), key=lambda t: t[0])
         sides = ("top", "right", "bottom", "left")
-        written = {e.number: e._layout["side"] for e in bs if e._layout.get("side") in sides}
+        # merged BOM rows can give several instances the same number: index-keyed plan keeps each
+        # balloon distinct
+        ordered = sorted(bs, key=lambda x: (x.number or 0, x._id))
+        numbered = [(i, e.number, self.P(e._intent["anchor"])) for i, e in enumerate(ordered)]
+        by_index = {i: e for i, e in enumerate(ordered)}
+        written = {
+            i: by_index[i]._layout["side"]
+            for i in by_index
+            if by_index[i]._layout.get("side") in sides
+        }
         obstacle_boxes = []
         for o in self.d._els.values():
             if o.kind == "balloon" or o._intent.get("view") != self.name:
@@ -1964,8 +1972,8 @@ class _ViewLayout:
         if _can_plan_balloons(len(bs)):
             plan = _balloon_plan(B, numbered, step, offset, r, written, tuple(obstacle_boxes))
         if plan is not None:
-            for e in bs:
-                side, c = plan[e.number]
+            for i, e in by_index.items():
+                side, c = plan[i]
                 e._resolved["side"] = side
                 if e._layout.get("side") is None:
                     e._auto.append("side")
@@ -2078,14 +2086,15 @@ def _balloon_plan(B, numbered, step, offset, r, written=None, obstacles=()):
     clockwise (or counter-clockwise) walk, spacing is kept by the standard gap, and the local
     search minimises leader crossings first, then annotation-text hits, then leader length.
 
-    Returns {number: (side, circle_centre)} or None (caller falls back to the legacy packing).
-    Hand-written sides are fixed; only automatic balloons participate in the search.
+    ``numbered`` is [(index, BOM number, anchor)]; merged rows may repeat the BOM number, so
+    the plan is keyed by index.  Returns {index: (side, circle_centre)} or None (caller falls
+    back to the legacy packing).  Hand-written sides are fixed.
     """
     written = written or {}
     # exact inputs only: a lossy rounding key could reuse a plan for slightly different geometry
     key = (
         tuple(B),
-        tuple((n_, a[0], a[1]) for n_, a in numbered),
+        tuple((i, n_, a[0], a[1]) for i, n_, a in numbered),
         step,
         offset,
         r,
@@ -2115,16 +2124,16 @@ def _balloon_plan(B, numbered, step, offset, r, written=None, obstacles=()):
 
     def evaluate(assign, cw):
         groups = {}
-        for num, a in numbered:
-            groups.setdefault(assign[num], []).append((num, a))
+        for idx, num, a in numbered:
+            groups.setdefault(assign[idx], []).append((num, idx, a))
         leaders = []
         total = 0.0
         for side, items in groups.items():
             k = along[side]
-            items.sort()
-            mean = sum(a[k] for _n, a in items) / len(items)
+            items.sort(key=lambda t: (t[0], t[1]))
+            mean = sum(t[2][k] for t in items) / len(items)
             sign = cw * cw_sign[side]
-            for j, (_num, a) in enumerate(items):
+            for j, (_num, _idx, a) in enumerate(items):
                 t = mean + (j - (len(items) - 1) / 2) * step * sign
                 c = centre(side, t)
                 leaders.append((a, c))
@@ -2145,22 +2154,22 @@ def _balloon_plan(B, numbered, step, offset, r, written=None, obstacles=()):
     best = None
     for cw in (1.0, -1.0):
         assign = {}
-        for num, a in numbered:
-            if num in written:
-                assign[num] = written[num]
+        for idx, _num, a in numbered:
+            if idx in written:
+                assign[idx] = written[idx]
             else:
-                assign[num] = min(sides, key=lambda s: perp[s](a))
+                assign[idx] = min(sides, key=lambda s: perp[s](a))
         cur = evaluate(assign, cw)
         for _ in range(max(2, n)):
             improved = False
-            for num, _a in numbered:
-                if num in written:
+            for idx, _num, _a in numbered:
+                if idx in written:
                     continue
                 for side in sides:
-                    if side == assign[num]:
+                    if side == assign[idx]:
                         continue
-                    old = assign[num]
-                    assign[num] = side
+                    old = assign[idx]
+                    assign[idx] = side
                     trial = evaluate(assign, cw)
                     if (trial[0], trial[1], round(trial[2], 6)) < (
                         cur[0],
@@ -2170,7 +2179,7 @@ def _balloon_plan(B, numbered, step, offset, r, written=None, obstacles=()):
                         cur = trial
                         improved = True
                     else:
-                        assign[num] = old
+                        assign[idx] = old
             if not improved:
                 break
         if best is None or (cur[0], cur[1], round(cur[2], 6)) < (
@@ -2184,16 +2193,16 @@ def _balloon_plan(B, numbered, step, offset, r, written=None, obstacles=()):
         cur, assign, cw = best
         result = {}
         groups = {}
-        for num, a in numbered:
-            groups.setdefault(assign[num], []).append((num, a))
+        for idx, num, a in numbered:
+            groups.setdefault(assign[idx], []).append((num, idx, a))
         for side, items in groups.items():
             k = along[side]
-            items.sort()
-            mean = sum(a[k] for _n, a in items) / len(items)
+            items.sort(key=lambda t: (t[0], t[1]))
+            mean = sum(t[2][k] for t in items) / len(items)
             sign = cw * cw_sign[side]
-            for j, (num, _a) in enumerate(items):
+            for j, (_num, idx, _a) in enumerate(items):
                 t = mean + (j - (len(items) - 1) / 2) * step * sign
-                result[num] = (side, centre(side, t))
+                result[idx] = (side, centre(side, t))
     if len(_BALLOON_PLAN_CACHE) >= 256:  # deterministic, bounded memo
         _BALLOON_PLAN_CACHE.pop(next(iter(_BALLOON_PLAN_CACHE)))
     _BALLOON_PLAN_CACHE[key] = result
@@ -2660,36 +2669,85 @@ def _seg_cross(a, b, c, d):
     return d1 * d2 < 0 and d3 * d4 < 0
 
 
+BOM_TEXT_H = 3.5  # GB/T 10609.2: parts-list text height (within the 2.5/3.5/5 series)
+BOM_PAD_X = 1.2  # mm between the cell border and the wrapped text
+BOM_PAD_Y = 1.0
+BOM_LINE_GAP = 0.8  # mm between wrapped lines
+
+
+def _wrap_cell(text, width, h, std):
+    """Greedy character wrap of one table cell; CJK and Latin both break between glyphs.
+
+    Returns the lines (never wider than width - 2*BOM_PAD_X except for one glyph that cannot
+    fit at all, which the caller's row height still contains)."""
+    s = str(text).strip()
+    if not s:
+        return []
+    avail = max(width - 2 * BOM_PAD_X, BOM_TEXT_H)
+    lines, cur = [], ""
+    for ch in s:
+        if ch == "\n":
+            if cur:
+                lines.append(cur)
+            cur = ""
+            continue
+        if cur and text_size(cur + ch, h, std)[0] > avail:
+            lines.append(cur.rstrip())
+            cur = ch.lstrip()
+        else:
+            cur += ch
+    if cur:
+        lines.append(cur.rstrip())
+    return lines or [s]
+
+
 def bom_prims(rows, TB, std):
-    """Parts list on top of the title block: header row at the bottom, item 1 just above it."""
+    """Parts list on top of the title block: header row at the bottom, item 1 just above it.
+
+    Each cell wraps long text at BOM_TEXT_H; a row is as tall as its tallest cell (variable row
+    height, GB/T 10609.2), and every text box stays inside its cell border."""
     x0, x1, y0 = TB[0], TB[2], TB[3]
     cols = list(BOM_COLS) + [("备注", (x1 - x0) - sum(w for _, w in BOM_COLS))]
     xs = [x0]
     for _, w in cols:
         xs.append(xs[-1] + w)
-    n = len(rows)
-    top = y0 + BOM_ROW * (n + 1)
+    keys = ("no", "code", "name", "qty", "material", "remark")
+
+    def cell_lines(value, j):
+        return _wrap_cell(value, xs[j + 1] - xs[j], BOM_TEXT_H, std)
+
+    def line_sizes(lines):
+        return [text_size(line, BOM_TEXT_H, std)[1] for line in lines]
+
+    def content_h(lines):
+        hs = line_sizes(lines)
+        return sum(hs) + BOM_LINE_GAP * max(0, len(hs) - 1)
+
+    layout_rows = [([cell_lines(label, j) for j, (label, _w) in enumerate(cols)], BOM_ROW)]
+    for r in rows:
+        cells = [cell_lines(r[key], j) for j, key in enumerate(keys)]
+        h = max(BOM_ROW, max(content_h(c) for c in cells) + 2 * BOM_PAD_Y)
+        layout_rows.append((cells, h))
+
+    bounds = [y0]
+    for _cells, h in layout_rows:
+        bounds.append(bounds[-1] + h)
+    top = bounds[-1]
     # GB/T 10609.2: vertical lines thick, horizontal lines thin (the top one too)
     prims = [Line((x, y0), (x, top), "thick") for x in xs]
-    prims += [Line((x0, y0 + BOM_ROW * k), (x1, y0 + BOM_ROW * k), "thin") for k in range(1, n + 2)]
+    prims += [Line((x0, y), (x1, y), "thin") for y in bounds[1:]]
 
-    def cell(text, k, j):
-        if text in ("", None):
-            return
-        w = xs[j + 1] - xs[j]
-        hs = [h for h in std["text"]["heights"] if h <= 3.5 + 1e-9]
-        h = max([s for s in hs if text_size(str(text), s, std)[0] <= w - 1] or [hs[0]])
-        prims.append(
-            make_text(
-                str(text), ((xs[j] + xs[j + 1]) / 2, y0 + BOM_ROW * (k + 0.5)), h, std, layer="text"
-            )
-        )
-
-    for j, (label, _) in enumerate(cols):
-        cell(label, 0, j)
-    for r in rows:
-        for j, key in enumerate(("no", "code", "name", "qty", "material", "remark")):
-            cell(r[key], r["no"], j)
+    for k, (cells, _h) in enumerate(layout_rows):
+        yb, yt = bounds[k], bounds[k + 1]
+        for j, lines in enumerate(cells):
+            if not lines:
+                continue
+            hs = line_sizes(lines)
+            y = (yb + yt) / 2 + content_h(lines) / 2
+            cx = (xs[j] + xs[j + 1]) / 2
+            for line, lh in zip(lines, hs):
+                prims.append(make_text(line, (cx, y - lh / 2), BOM_TEXT_H, std, layer="text"))
+                y -= lh + BOM_LINE_GAP
     return prims
 
 

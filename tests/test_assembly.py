@@ -215,7 +215,8 @@ def test_l3_cases_present():
 
 @pytest.mark.parametrize("case", L3_CASES)
 def test_l3_assembly_case(case, tmp_path):
-    """L3 evals: zero errors, a parts list of at least 4 rows, one balloon per row."""
+    """L3 evals: zero errors, a merged parts list of at least 4 rows, one balloon per component;
+    every row owns at least one balloon and every balloon number is an existing row number."""
     work = tmp_path / case  # build in a copy: nothing generated lands in evals/
     shutil.copytree(
         L3 / case, work, ignore=shutil.ignore_patterns(".linercad", "__pycache__", "*.jsonl")
@@ -225,10 +226,19 @@ def test_l3_assembly_case(case, tmp_path):
     assert not errs, errs
     rows = r.d["T.bom"].rows
     assert len(rows) >= 4
+    components = [e for e in r.d._els.values() if e.kind == "component"]
     balloons = [e for e in r.d._els.values() if e.kind == "balloon"]
-    assert len(balloons) == len(rows)
-    assert {b.component for b in balloons} == {row["id"] for row in rows}
-    assert sorted(b.number for b in balloons) == list(range(1, len(rows) + 1))
+    assert len(balloons) == len(components)
+    assert {b.component for b in balloons} == {c.id for c in components}
+    nums = [b.number for b in balloons]
+    assert sorted(set(nums)) == list(range(1, len(rows) + 1))
+    for row in rows:
+        assert any(n == row["no"] for n in nums), row
+    table = r.d["T.bom"]
+    for prim in table._prims:
+        if hasattr(prim, "box"):
+            assert prim.box[0] >= table._resolved["bbox"][0] - 1e-6
+            assert prim.box[2] <= table._resolved["bbox"][2] + 1e-6
 
 
 def test_every_instance_of_a_multi_placed_part_is_drawn(tmp_path):
