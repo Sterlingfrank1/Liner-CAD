@@ -482,9 +482,7 @@ def spline_end(view, name, c, spec):
     return _feat(view, name, "spline", intent, edges)
 
 
-def thread_mesh(
-    view, name, spec, screw, hole, axis=0, outer=None, cls_ext=None, cls_int=None, cut=True
-):
+def thread_mesh(view, name, spec, screw, hole, axis=0, outer=None, cls_ext=None, cls_int=None):
     """GB/T 4459.1 screwed connection in an assembly section (a screw threaded into a tapped
     hole).  screw=(x0, x1) is the external-thread extent, hole=(x0, x1) the tapped-hole extent;
     the engaged length is their axial overlap (also exposed by assembly.thread_engagement).
@@ -569,7 +567,6 @@ def thread_mesh(
         "cls": cls_ext,
         "cls_ext": cls_ext,
         "cls_int": cls_int,
-        "cut": bool(cut),
         "mask": None,
     }
     return _feat(view, name, "thread_mesh", intent, edges)
