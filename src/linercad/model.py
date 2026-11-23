@@ -454,7 +454,8 @@ class Drawing:
     @mutator("bom")
     def bom(self, view="front"):
         """Assembly: the parts list ``T.bom`` above the title block, and one balloon ``B.<k>`` per
-        component in ``view`` (balloon numbers = parts-list rows)."""
+        component in ``view``.  Identical parts share one parts-list row, so balloon numbers are
+        the merged row numbers (several balloons may repeat one number)."""
         from .assembly import drawing_bom
 
         return drawing_bom(self, view)

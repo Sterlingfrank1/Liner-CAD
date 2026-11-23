@@ -252,6 +252,7 @@ def test_l3_vise_bom_merges_jaw_plates_and_screws(tmp_path):
     rows = {r["code"]: r for r in d["T.bom"].rows}
     assert len([r for r in d["T.bom"].rows if r["code"] == "LC-VS-03"]) == 1
     assert rows["LC-VS-03"]["qty"] == 2
+    assert rows["LC-VS-03"]["ids"] == ["A.plate_fixed", "A.plate_mov"]
     assert rows["GB/T 68-2016"]["qty"] == 4
     assert rows["GB/T 68-2016"]["ids"] == ["A.csk_fixed", "A.csk_mov"]
 

@@ -88,3 +88,23 @@ def test_long_cell_text_wraps_inside_its_cell(text):
         boxes = sorted((p.box for p in lines), key=lambda b: (b[1], b[0]))
         for a, b in zip(boxes, boxes[1:]):
             assert b[1] >= a[3] - 1e-6, (a, b)
+
+
+def test_long_standard_code_wraps_inside_the_code_column():
+    rows = [
+        {
+            "no": 1,
+            "id": "A.std",
+            "code": "GB/T 5782-2016-M10×75-10.9-超长标准件代号",
+            "name": "六角头螺栓",
+            "qty": 1,
+            "material": "Q235",
+            "remark": "",
+        }
+    ]
+    xs, horizontal, _vertical, texts = _table(rows)
+    code_cell = [p for p in texts if xs[1] <= (p.box[0] + p.box[2]) / 2 <= xs[2]]
+    assert len(code_cell) >= 2  # the standard designation wrapped into several lines
+    for p in code_cell:
+        assert p.box[0] >= xs[1] - 1e-6 and p.box[2] <= xs[2] + 1e-6
+    assert horizontal[-1] - horizontal[0] > 2 * BOM_ROW
