@@ -563,8 +563,10 @@ def compare_baseline(report, base):
         elif not isinstance(now, (int, float)) or not math.isfinite(now) or now < before - 1e-9:
             out.append(f"{label}: {now} < baseline {before:g}")
     exp_base = base.get("expect") if isinstance(base.get("expect"), dict) else None
+    exp_now = s.get("expect") or {}
+    if exp_now.get("cases") and exp_base is None:
+        out.append("expect: baseline has no expect block (fail-closed)")
     if exp_base:
-        exp_now = s.get("expect") or {}
         if isinstance(exp_base.get("cases"), int) and exp_now.get("cases", 0) < exp_base["cases"]:
             out.append(f"expect: cases {exp_now.get('cases')} < baseline {exp_base['cases']}")
         before = exp_base.get("pass_rate")

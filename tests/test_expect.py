@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import sys
 import tempfile
@@ -219,6 +220,69 @@ def test_face_binding_follows_the_referenced_geometry(tmp_path):
         encoding="utf-8",
     )
     assert not expect.evaluate(bad, d)["pass"]
+
+
+def test_unrelated_dimension_does_not_change_a_feature_side():
+    pytest.importorskip("build123d")
+    case = next(c for c in L2 if c["id"] == "L2/shaft/pump_shaft")
+    d = _build(case)
+    obs = expect.observed(d)
+    dims = [x for x in obs["dims"] if x["type"] == "dia" and x["value"] == 20.0]
+    assert len(dims) == 2
+    before = [expect._dim_side(x, obs) for x in dims]
+    extra = {
+        "id": "D.unrelated",
+        "type": "linear",
+        "value": 99.0,
+        "measured": 99.0,
+        "values": [99.0],
+        "p1": [0.0, 0.0],
+        "p2": [500.0, 0.0],
+        "tolerance": None,
+        "tol": None,
+        "text": "",
+        "suffix": "",
+        "prefix": "",
+        "designation": None,
+        "view": None,
+    }
+    obs2 = dict(obs)
+    obs2["dims"] = obs["dims"] + [extra]
+    after = [expect._dim_side(x, obs2) for x in dims]
+    assert before == after
+
+
+def test_any_of_accepts_a_dim_alternative(tmp_path):
+    pytest.importorskip("build123d")
+    case, d = _one_case()
+    mod = tmp_path / "expect.py"
+    mod.write_text(
+        "def expect(e):\n    e.any_of(e.dim(value=40), e.note(contains='不存在'))\n",
+        encoding="utf-8",
+    )
+    assert expect.evaluate(mod, d)["pass"]
+    mod.write_text(
+        "def expect(e):\n    e.any_of(e.dim(value=999), e.note(contains='不存在'))\n",
+        encoding="utf-8",
+    )
+    assert not expect.evaluate(mod, d)["pass"]
+
+
+def test_missing_expect_block_in_the_baseline_is_a_regression():
+    import run as evals
+
+    base = json.loads((REPO / "evals" / "baseline.json").read_text(encoding="utf-8"))
+    base.pop("expect", None)
+    report = {"summary": evals.summary([]), "cases": []}
+    report["summary"]["expect"] = {
+        "cases": 20,
+        "checks": 1,
+        "violations": 0,
+        "warnings": 0,
+        "pass_rate": 1.0,
+    }
+    problems = evals.compare_baseline(report, base)
+    assert any("expect" in msg for msg in problems), problems
 
 
 def test_every_l2_case_mutation_is_detected():

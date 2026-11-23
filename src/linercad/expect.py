@@ -76,10 +76,10 @@ class Expect:
                     continue
                 if not _target_matches_dim(target, dim, obs):
                     continue
-                if want_value is not None and not any(
-                    abs(v - want_value) <= TOL for v in _dim_values_here(dim)
-                ):
-                    continue
+                if want_value is not None:
+                    ann = dim.get("value") if dim.get("value") is not None else dim.get("measured")
+                    if ann is None or abs(ann - want_value) > TOL:
+                        continue
                 if fit and not _dim_has_fit(dim, fit):
                     continue
                 return True, dim["id"]
@@ -240,10 +240,10 @@ class Expect:
 
     def any_of(self, *constraints, must=True):
         subs = [c for c in constraints if isinstance(c, Constraint)]
-        if not subs:
-            # the API methods return None today; take the constraints their argument calls just
-            # appended (the alternatives), so they are not also counted as separate musts
-            n = sum(1 for c in constraints if c is None)
+        if len(subs) < len(constraints):
+            # each argument call appended exactly one constraint (dim returns a Target, the
+            # others return None), so the alternatives are the last len(constraints) constraints
+            n = len(constraints)
             subs = self.constraints[-n:] if n else []
         drop = {id(c) for c in subs}
         self.constraints = [c for c in self.constraints if id(c) not in drop]
@@ -303,33 +303,66 @@ def _dim_values(obs):
 
 
 def _dim_side(dim, obs):
+    """Geometry signature used for duplicate features: rank among dims with the same value."""
     if not dim.get("p1") or not dim.get("p2"):
         return None
-    anchors = [d for d in obs["dims"] if d.get("p1") and d.get("p2")]
-    if not anchors:
+    ann = dim.get("value") if dim.get("value") is not None else dim.get("measured")
+    if ann is None:
         return None
-    xs = [d["p1"][0] for d in anchors] + [d["p2"][0] for d in anchors]
-    ys = [d["p1"][1] for d in anchors] + [d["p2"][1] for d in anchors]
-    ref = (min(xs), min(ys), max(xs), max(ys))
-    box = (
-        min(dim["p1"][0], dim["p2"][0]),
-        min(dim["p1"][1], dim["p2"][1]),
-        max(dim["p1"][0], dim["p2"][0]),
-        max(dim["p1"][1], dim["p2"][1]),
-    )
-    return _side_of_box(box, ref)
+    peers = [
+        d
+        for d in obs["dims"]
+        if d.get("p1")
+        and d.get("p2")
+        and abs((d.get("value") if d.get("value") is not None else d.get("measured", 0)) - ann)
+        <= TOL
+    ]
+    if len(peers) >= 2:
+        xs = sorted((x["p1"][0] + x["p2"][0]) / 2 for x in peers)
+        median = xs[len(xs) // 2]
+        cx = (dim["p1"][0] + dim["p2"][0]) / 2
+        return "left" if cx < median else "right"
+    d = obs.get("_d")
+    view = dim.get("view")
+    eboxes = []
+    if d is not None:
+        for e in d._els.values():
+            if e.kind in ("edge", "feature") and (view is None or e._intent.get("view") == view):
+                eboxes.extend(getattr(pr, "box", None) for pr in getattr(e, "_prims", ()))
+    eboxes = [b for b in eboxes if b]
+    if eboxes:
+        ref = (
+            min(b[0] for b in eboxes),
+            min(b[1] for b in eboxes),
+            max(b[2] for b in eboxes),
+            max(b[3] for b in eboxes),
+        )
+    else:
+        anchors = [x for x in obs["dims"] if x.get("p1") and x.get("p2")]
+        xs = [x["p1"][0] for x in anchors] + [x["p2"][0] for x in anchors]
+        ys = [x["p1"][1] for x in anchors] + [x["p2"][1] for x in anchors]
+        ref = (min(xs), min(ys), max(xs), max(ys))
+    x0, y0 = min(dim["p1"][0], dim["p2"][0]), min(dim["p1"][1], dim["p2"][1])
+    x1, y1 = max(dim["p1"][0], dim["p2"][0]), max(dim["p1"][1], dim["p2"][1])
+    if dim.get("type") in ("dia", "rad") or abs(x1 - x0) >= abs(y1 - y0):
+        return "left" if (x0 + x1) / 2 < (ref[0] + ref[2]) / 2 else "right"
+    return "bottom" if (y0 + y1) / 2 < (ref[1] + ref[3]) / 2 else "top"
 
 
 def _target_matches_dim(target, dim, obs):
     if target.kind == "cyl":
+        geom = [v for v in (dim.get("value"), dim.get("measured")) if v is not None]
         return (
             _diameterish(dim)
-            and any(abs(v - target.value) <= TOL for v in _dim_values_here(dim))
+            and any(abs(v - target.value) <= TOL for v in geom)
             and (target.side is None or _dim_side(dim, obs) == target.side)
         )
     if target.kind == "value":
-        return any(abs(v - target.value) <= TOL for v in _dim_values_here(dim)) and (
-            target.side is None or _dim_side(dim, obs) == target.side
+        ann = dim.get("value") if dim.get("value") is not None else dim.get("measured")
+        return (
+            ann is not None
+            and abs(ann - target.value) <= TOL
+            and (target.side is None or _dim_side(dim, obs) == target.side)
         )
     return True
 
@@ -371,8 +404,10 @@ def _prim_bbox(prims):
 
 def _ref_matches_side(obs, ref, side, view=None):
     """A PMI target matches a named face when its referenced geometry sits on that side."""
-    if not ref or side in (None, "any", "surface"):
+    if side in (None, "any", "surface"):
         return True
+    if not ref:
+        return False  # a named face must have a resolvable reference
     d = obs.get("_d")
     if d is None or ref not in d._els:
         return False
@@ -403,15 +438,17 @@ def observed(d):
                     "id": e.id,
                     "type": i.get("type"),
                     "values": vals,
+                    "value": i.get("value"),
+                    "measured": i.get("measured"),
                     "prefix": i.get("prefix") or "",
                     "text": i.get("text") or "",
                     "suffix": i.get("suffix") or "",
                     "tol": i.get("tol"),
                     "tolerance": i.get("tolerance"),
                     "designation": i.get("designation"),
+                    "view": i.get("view"),
                     "p1": i.get("p1"),
                     "p2": i.get("p2"),
-                    "view": i.get("view"),
                 }
             )
         elif e.kind == "datum":
@@ -448,6 +485,7 @@ def observed(d):
                     "param": i.get("param"),
                     "value": i.get("value"),
                     "ref": i.get("ref"),
+                    "view": i.get("view"),
                     "default": bool(i.get("default")),
                 }
             )

@@ -1,9 +1,9 @@
 def expect(e):
     e.dim(value=120)
-    e.dim(e.feature(cyl=28, where="right"), fit="H7")
+    e.dim(e.feature(cyl=28), fit="H7")
     e.dim(value=8, fit="JS9")
-    e.datum("A", axis=True)
-    e.gtol("circular_runout", datums=["A"], max=0.05)
+    e.datum("A", on=e.feature(cyl=28), axis=True)
+    e.gtol("circular_runout", on=e.face("bottom"), datums=["A"], max=0.05)
     e.rough(e.feature(cyl=28), ra_max=1.6)
     e.note(contains="铸件时效处理。")
     e.view("front", section="full", must=False)

@@ -9,7 +9,7 @@
 
 - src/linercad/expect.py：声明式约束（feature/dim/datum/gtol/rough/note/view/any_of；must/should 两档），按几何签名匹配（直径值、投影位置 side、配合代号、PMI 内容与引用几何侧），不硬编码元素 ID；PMI ref 用于解析其引用几何，而不是作为匹配键。
 - e.feature(cyl=..., where="left/right") 用尺寸投影位置区分同直径多特征；e.face(name) 接受 left/right/top/bottom/end_left 等侧向名，按引用几何相对视图包络的侧向匹配；e.view(..., section=...) 校验 section 元素类型（full/removed 等）。
-- evals/L2/*/expect.py：20 个 L2 用例各一个 expect.py（8–13 行），对参考图全部通过；进入向量：expect_dim→D，expect_datum/gtol/rough/note→T，expect_view→G。
+- evals/L2/*/expect.py：20 个 L2 用例各一个 expect.py（8–14 行），对参考图全部通过；进入向量：expect_dim→D，expect_datum/gtol/rough/note→T，expect_view→G。
 - evals/expect_mutation.py：独立小变异算子——删除一个必需尺寸的全部覆盖（同一值的所有尺寸）、把配合代号整图改错；检出即证明 expect 生效。
 
 ## 20 个 L2 用例的 expect 与变异
