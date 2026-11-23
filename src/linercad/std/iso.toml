@@ -88,3 +88,9 @@ chain_limit = "ISO 129-1:2018"
 rough_syntax = "ISO 1302:2002"
 rough_default = "ISO 1302:2002"
 rough_fit = "ISO 1302:2002"
+
+[assembly]
+basis = "convention：ISO 6433:1981 未给序号圆圈直径数值，取教材通行值；圆圈最小间距 δ 与对齐容差取 [placement].balloon_clearance / balloon_align_tol（单一来源，E5 A.place 同值）"
+balloon_height = 5.0
+balloon_radius = 4.5
+balloon_offset = 8.0  # 视图轮廓到圆圈边缘的引线长度；圆心距离为 offset + radius（convention）

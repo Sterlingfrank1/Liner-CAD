@@ -1931,79 +1931,123 @@ class _ViewLayout:
 
     def balloons(self):
         """Assembly balloons (GB/T 4458.2): a dot on the part, a thin leader, the number in a
-        circle; circles in a column left of / a row above the view, leaders not crossing."""
+        circle; same-side circles form a row / column, the sequence runs clockwise (or counter-
+        clockwise) continuously around the view, and leaders do not cross.
+
+        The order-aware plan is a deterministic per-balloon side-assignment hill-climb: each
+        side keeps its numbers ascending in the same rotation direction, slots are spaced by the
+        standard gap, and switches are accepted only when they reduce leader crossings (then
+        annotation-text hits, then leader length).  Written sides are never re-planned.
+        """
         bs = sorted(self.els("balloon"), key=lambda e: e.number or 0)
         if not bs:
             return
-        h = 5.0
-        r = 0.9 * h
+        cfg = self.std.get("assembly") or {}
+        place_cfg = self.std.get("placement") or {}
+        h = float(cfg.get("balloon_height", 5.0))
+        r = float(cfg.get("balloon_radius", 0.9 * h))
+        offset = float(cfg.get("balloon_offset", 8.0))
+        # single source of the minimum gap δ: the same [placement] value the E5 rule reads
+        step = 2 * r + float(place_cfg.get("balloon_clearance", 1.0))
         B = union([prims_bbox(p) for p in self.parts.values() if p] + [self.G])
-        gap = 8.0
-        sides = {"left": [], "top": [], "right": [], "bottom": []}
+        numbered = sorted(((e.number, self.P(e._intent["anchor"])) for e in bs), key=lambda t: t[0])
+        sides = ("top", "right", "bottom", "left")
+        written = {e.number: e._layout["side"] for e in bs if e._layout.get("side") in sides}
+        obstacle_boxes = []
+        for o in self.d._els.values():
+            if o.kind == "balloon" or o._intent.get("view") != self.name:
+                continue
+            for pr in self.parts.get(o._id) or ():
+                if isinstance(pr, Text):
+                    obstacle_boxes.append(pr.box)
+        plan = None
+        if _can_plan_balloons(len(bs)):
+            plan = _balloon_plan(B, numbered, step, offset, r, written, tuple(obstacle_boxes))
+        if plan is not None:
+            for e in bs:
+                side, c = plan[e.number]
+                e._resolved["side"] = side
+                if e._layout.get("side") is None:
+                    e._auto.append("side")
+                A = self.P(e._intent["anchor"])
+                e._reason = "序号按侧成行/成列、沿旋转方向编号单调（引线不交叉，间距取标准档 δ）"
+                e._resolved["order"] = "side-monotonic"
+                self.put(e, self._balloon_prims(e, A, c, h, r))
+            return
+
+        # legacy / written-position fallback: keep the written side, pack the rest around it
+        by_side = {"left": [], "top": [], "right": [], "bottom": []}
         for e in bs:
             A = self.P(e._intent["anchor"])
             side = e._layout.get("side")
-            if side not in sides:
+            if side not in by_side:
                 dl, dt = A[0] - B[0], B[3] - A[1]
                 side = "left" if dl <= dt else "top"
-            e._auto.append("side")
-            e._resolved["side"] = side
-            sides[side].append((e, A))
-        step = 2 * r + 2
-        for side, items in sides.items():
+            else:
+                e._resolved["side"] = side
+            if e._layout.get("side") is None:
+                e._auto.append("side")
+            e._resolved["order"] = "fallback"
+            by_side[side].append((e, A))
+        for side, items in by_side.items():
             if not items:
                 continue
+            items.sort(key=lambda t: t[0].number or 0)
             vert = side in ("left", "right")
             k = 1 if vert else 0
-            items.sort(key=lambda t: t[1][k])
-            pos = [t[1][k] for t in items]
-            for i in range(1, len(pos)):
-                pos[i] = max(pos[i], pos[i - 1] + step)
-            shift = (sum(t[1][k] for t in items) - sum(pos)) / len(pos)
-            pos = [p + shift for p in pos]
-
-            def centre(p, side=side):
-                return {
-                    "left": (B[0] - gap - r, p),
-                    "right": (B[2] + gap + r, p),
-                    "top": (p, B[3] + gap + r),
-                }.get(side, (p, B[1] - gap - r))
-
-            for _ in range(len(items) ** 2):  # swap slots until no two leaders cross
+            pos = sorted(t[1][k] for t in items)
+            if vert:
+                pos = [min(p, B[1] + step * i + step / 2) for i, p in enumerate(pos)]
+            centre = [p for p in pos]
+            for i in range(1, len(centre)):
+                centre[i] = max(centre[i], centre[i - 1] + step)
+            shift = (sum(t[1][k] for t in items) - sum(centre)) / len(centre)
+            centre = [p + shift for p in centre]
+            # bounded deterministic swaps: the fallback is only used for very large BOMs where the
+            # exhaustive order plan is not attempted, so cap the O(k^4) loop
+            for _ in range(min(len(items) ** 2, 8 * len(items))):
                 done = True
                 for i in range(len(items)):
                     for j in range(i + 1, len(items)):
-                        if _seg_cross(items[i][1], centre(pos[i]), items[j][1], centre(pos[j])):
-                            pos[i], pos[j] = pos[j], pos[i]
+                        ci = self._balloon_centre(B, side, centre[i], offset, r)
+                        cj = self._balloon_centre(B, side, centre[j], offset, r)
+                        if _seg_cross(items[i][1], ci, items[j][1], cj):
+                            centre[i], centre[j] = centre[j], centre[i]
                             done = False
                 if done:
                     break
-            for (e, A), p in zip(items, pos):
-                if side == "left":
-                    c = (B[0] - gap - r, p)
-                elif side == "right":
-                    c = (B[2] + gap + r, p)
-                elif side == "top":
-                    c = (p, B[3] + gap + r)
-                else:
-                    c = (p, B[1] - gap - r)
-                L_ = math.dist(A, c)
-                q = (c[0] + (A[0] - c[0]) * r / L_, c[1] + (A[1] - c[1]) * r / L_) if L_ > r else c
-                w = 0.7
-                n_, s_, e_, w_ = (
-                    (A[0], A[1] + w),
-                    (A[0], A[1] - w),
-                    (A[0] + w, A[1]),
-                    (A[0] - w, A[1]),
-                )
-                prims = [
-                    Circle(c, r, "thin"),
-                    Line(A, q, "thin"),
-                    Solid((w_, n_, e_), "thin"),  # the dot: two triangles (DXF SOLID)
-                    Solid((w_, s_, e_), "thin"),
-                    make_text(str(e.number), c, h, self.std, layer="text"),
-                ]
-                self.put(e, prims)
+            for (e, A), p in zip(items, centre):
+                c = self._balloon_centre(B, side, p, offset, r)
+                e._resolved["side"] = side
+                self.put(e, self._balloon_prims(e, A, c, h, r))
+
+    @staticmethod
+    def _balloon_centre(B, side, p, offset, r):
+        if side == "left":
+            return (B[0] - offset - r, p)
+        if side == "right":
+            return (B[2] + offset + r, p)
+        if side == "top":
+            return (p, B[3] + offset + r)
+        return (p, B[1] - offset - r)
+
+    def _balloon_prims(self, e, A, c, h, r):
+        L_ = math.dist(A, c)
+        q = (c[0] + (A[0] - c[0]) * r / L_, c[1] + (A[1] - c[1]) * r / L_) if L_ > r else c
+        w = 0.7
+        n_, s_, e_, w_ = (
+            (A[0], A[1] + w),
+            (A[0], A[1] - w),
+            (A[0] + w, A[1]),
+            (A[0] - w, A[1]),
+        )
+        return [
+            Circle(c, r, "thin"),
+            Line(A, q, "thin"),
+            Solid((w_, n_, e_), "thin"),  # the dot: two triangles (DXF SOLID)
+            Solid((w_, s_, e_), "thin"),
+            make_text(str(e.number), c, h, self.std, layer="text"),
+        ]
 
 
 def _clip_line(a, u, G):
@@ -2020,6 +2064,143 @@ def _clip_line(a, u, G):
     if t0 > t1:
         return None, None
     return t0, t1
+
+
+BALLOON_PLAN_LIMIT = 12
+
+
+def _can_plan_balloons(n):
+    return 2 <= n <= BALLOON_PLAN_LIMIT
+
+
+def _balloon_plan(B, numbered, step, offset, r, written=None, obstacles=()):
+    """Side plan for the assembly balloons: same-side numbers ascend along the chosen
+    clockwise (or counter-clockwise) walk, spacing is kept by the standard gap, and the local
+    search minimises leader crossings first, then annotation-text hits, then leader length.
+
+    Returns {number: (side, circle_centre)} or None (caller falls back to the legacy packing).
+    Hand-written sides are fixed; only automatic balloons participate in the search.
+    """
+    written = written or {}
+    # exact inputs only: a lossy rounding key could reuse a plan for slightly different geometry
+    key = (
+        tuple(B),
+        tuple((n_, a[0], a[1]) for n_, a in numbered),
+        step,
+        offset,
+        r,
+        tuple(sorted(written.items())),
+        tuple(tuple(box) for box in obstacles),
+    )
+    if key in _BALLOON_PLAN_CACHE:
+        return _BALLOON_PLAN_CACHE[key]
+    n = len(numbered)
+    sides = ("top", "right", "bottom", "left")
+    cw_sign = {"top": 1.0, "right": -1.0, "bottom": -1.0, "left": 1.0}
+    along = {"top": 0, "bottom": 0, "left": 1, "right": 1}
+    perp = {
+        "top": lambda p: B[3] - p[1],
+        "bottom": lambda p: p[1] - B[1],
+        "left": lambda p: p[0] - B[0],
+        "right": lambda p: B[2] - p[0],
+    }
+
+    def centre(side, t):
+        return {
+            "top": (t, B[3] + offset + r),
+            "bottom": (t, B[1] - offset - r),
+            "left": (B[0] - offset - r, t),
+            "right": (B[2] + offset + r, t),
+        }[side]
+
+    def evaluate(assign, cw):
+        groups = {}
+        for num, a in numbered:
+            groups.setdefault(assign[num], []).append((num, a))
+        leaders = []
+        total = 0.0
+        for side, items in groups.items():
+            k = along[side]
+            items.sort()
+            mean = sum(a[k] for _n, a in items) / len(items)
+            sign = cw * cw_sign[side]
+            for j, (_num, a) in enumerate(items):
+                t = mean + (j - (len(items) - 1) / 2) * step * sign
+                c = centre(side, t)
+                leaders.append((a, c))
+                total += math.dist(a, c)
+        crosses = 0
+        for i in range(len(leaders)):
+            for j in range(i + 1, len(leaders)):
+                if _seg_cross(leaders[i][0], leaders[i][1], leaders[j][0], leaders[j][1]):
+                    crosses += 1
+        hits = 0
+        if obstacles:
+            for a, c in leaders:
+                for box in obstacles:
+                    if seg_in_box(a, c, box) > 0.05:
+                        hits += 1
+        return crosses, hits, total, assign
+
+    best = None
+    for cw in (1.0, -1.0):
+        assign = {}
+        for num, a in numbered:
+            if num in written:
+                assign[num] = written[num]
+            else:
+                assign[num] = min(sides, key=lambda s: perp[s](a))
+        cur = evaluate(assign, cw)
+        for _ in range(max(2, n)):
+            improved = False
+            for num, _a in numbered:
+                if num in written:
+                    continue
+                for side in sides:
+                    if side == assign[num]:
+                        continue
+                    old = assign[num]
+                    assign[num] = side
+                    trial = evaluate(assign, cw)
+                    if (trial[0], trial[1], round(trial[2], 6)) < (
+                        cur[0],
+                        cur[1],
+                        round(cur[2], 6),
+                    ):
+                        cur = trial
+                        improved = True
+                    else:
+                        assign[num] = old
+            if not improved:
+                break
+        if best is None or (cur[0], cur[1], round(cur[2], 6)) < (
+            best[0][0],
+            best[0][1],
+            round(best[0][2], 6),
+        ):
+            best = (cur, dict(assign), cw)
+    result = None
+    if best is not None and best[0][0] == 0:
+        cur, assign, cw = best
+        result = {}
+        groups = {}
+        for num, a in numbered:
+            groups.setdefault(assign[num], []).append((num, a))
+        for side, items in groups.items():
+            k = along[side]
+            items.sort()
+            mean = sum(a[k] for _n, a in items) / len(items)
+            sign = cw * cw_sign[side]
+            for j, (num, _a) in enumerate(items):
+                t = mean + (j - (len(items) - 1) / 2) * step * sign
+                result[num] = (side, centre(side, t))
+    if len(_BALLOON_PLAN_CACHE) >= 256:  # deterministic, bounded memo
+        _BALLOON_PLAN_CACHE.pop(next(iter(_BALLOON_PLAN_CACHE)))
+    _BALLOON_PLAN_CACHE[key] = result
+    return result
+
+
+_BALLOON_PLAN_CACHE: dict = {}
 
 
 class _Layout:
