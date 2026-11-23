@@ -17,7 +17,7 @@ from .errors import InvalidArgument, LinerError, NotFound
 from .hlr import _t
 from .model import DRAW_DIR, Element, check_name
 
-CACHE_VERSION = 5
+CACHE_VERSION = 6  # 6: edges are named by 3D topology, not projection order
 TOL = 0.01  # curve fitting, mm
 MATCH = 0.05  # projected edge ↔ model edge, mm
 
@@ -235,7 +235,11 @@ def _edge_hash(e):
 
 
 def _model_index(shape, view):
-    """Projected polylines of the model's own edges + their adjacent face indices."""
+    """Projected polylines of the model's own edges + their adjacent faces and a topology key.
+
+    The topology key (adjacent face index + the edge's ordinal in that face) survives parameter
+    changes that only move geometry, so it can name the projected edge independently of the
+    hidden-line output order."""
     from .hlr import to_view
 
     faces = list(shape.faces())
@@ -243,6 +247,7 @@ def _model_index(shape, view):
     for j, f in enumerate(faces):
         for e in f.edges():
             fmap.setdefault(e, []).append(j)
+    face_edges = [list(f.edges()) for f in faces]
     idx = []
     for i, e in enumerate(shape.edges()):
         L = e.length
@@ -250,19 +255,25 @@ def _model_index(shape, view):
         pl = [to_view(view, _t(e @ (k / n))) for k in range(n + 1)]
         xs, ys = [p[0] for p in pl], [p[1] for p in pl]
         bb = (min(xs) - MATCH, min(ys) - MATCH, max(xs) + MATCH, max(ys) + MATCH)
-        idx.append((i, pl, bb, sorted(set(fmap.get(e, []))), e))
+        fs = sorted(set(fmap.get(e, [])))
+        if fs:
+            ordinal = face_edges[fs[0]].index(e)
+            topo = "f" + "_".join(str(j) for j in fs) + f"_e{ordinal}"
+        else:
+            topo = f"e{i}"  # a free edge: no adjacent face, keep the topological edge index
+        idx.append((i, pl, bb, fs, e, topo))
     return idx
 
 
 def _match(pts, idx):
     probe = [pts[len(pts) * k // 4] for k in (1, 2, 3)] + [pts[0], pts[-1]]
     best = None
-    for cid, i, pl, bb, faces, e in idx:
+    for cid, i, pl, bb, faces, e, topo in idx:
         if not all(bb[0] <= p[0] <= bb[2] and bb[1] <= p[1] <= bb[3] for p in probe):
             continue
         dd = max(min(_seg_dist(p, a, b) for a, b in zip(pl, pl[1:])) for p in probe)
         if dd <= MATCH and (best is None or dd < best[0]):
-            best = (dd, (cid, i, faces, e))
+            best = (dd, (cid, i, faces, e, topo))
     return best[1] if best else None
 
 
@@ -335,6 +346,50 @@ def _sources(d, model):
 
         return parts(d)
     return [(None, load_shape(d, model), False)]
+
+
+def _edge_geometry_key(ei):
+    """Canonical projected geometry of one edge intent (for deterministic sibling ordering and
+    for the visible-over-hidden coincident-edge tie-break; direction does not matter)."""
+    keys = ("shape", "p1", "p2", "c", "r", "start", "end")
+    d = {k: ei.get(k) for k in keys}
+    if d.get("shape") == "line":
+        d["p1"], d["p2"] = sorted([d.get("p1"), d.get("p2")])
+    return json.dumps(d, sort_keys=True)
+
+
+def _projection_edge_base(ei):
+    """Stable ID stem from the 3D topology; projection order never enters it."""
+    s3 = ei.get("src3d") or {}
+    comp = str(s3.get("component") or "").replace(".", "_")
+    if s3.get("topo"):
+        return f"{comp}_{s3['topo']}" if comp else s3["topo"]
+    if s3.get("outline"):
+        return f"{comp}_outline" if comp else "outline"
+    if s3.get("unmatched"):
+        return f"{comp}_unmatched" if comp else "unmatched"
+    if "rib" in (ei.get("tags") or ()):
+        return "rib"
+    return "edge"
+
+
+def _name_projection_edges(edges):
+    """Give every projected edge an explicit name derived from its source topology.
+
+    Siblings that share one source edge (an arc split by HLR, an outline class with several
+    curves) get a deterministic suffix after sorting by projected geometry, so the result does
+    not depend on the order the hidden-line algorithm returns its edges in."""
+    for (
+        ei
+    ) in edges:  # line direction carries no meaning; keep the visible diff canonically oriented
+        if ei.get("shape") == "line":
+            ei["p1"], ei["p2"] = sorted([ei.get("p1"), ei.get("p2")])
+    ordered = sorted(edges, key=lambda ei: (_projection_edge_base(ei), _edge_geometry_key(ei)))
+    counts = {}
+    for ei in ordered:
+        base = _projection_edge_base(ei)
+        counts[base] = counts.get(base, 0) + 1
+        ei["name"] = base if counts[base] == 1 else f"{base}_{counts[base]}"
 
 
 def compute(d, view, model, cut, depth, region, ribs, hidden, half="right"):
@@ -425,7 +480,7 @@ def compute(d, view, model, cut, depth, region, ribs, hidden, half="right"):
         src = Compound([pc for _, pc in pieces])  # never Compound(children=): it re-parents
     owners = _owner_index(pieces, view, hidden) if len(pieces) > 1 else None
     model_id = "assembly" if multi else model
-    edges, wavy, seen = [], [], set()
+    edges, wavy = [], []
     for cls, vis, e in hlr.project_classes(src, view, hidden=hidden):
         if not vis and cls == "smooth":
             continue
@@ -436,8 +491,14 @@ def compute(d, view, model, cut, depth, region, ribs, hidden, half="right"):
             continue
         hit = _match(pts, idx) if cls != "outline" else None
         if hit:
-            cid, i, faces, me = hit
-            s3 = {"model": model_id, "edge": i, "faces": faces, "hash": _edge_hash(me)}
+            cid, i, faces, me, topo = hit
+            s3 = {
+                "model": model_id,
+                "edge": i,
+                "faces": faces,
+                "topo": topo,
+                "hash": _edge_hash(me),
+            }
         else:
             cid = _owner(pts, owners) if owners else srcs[0][0]
             if cls == "outline":
@@ -448,10 +509,6 @@ def compute(d, view, model, cut, depth, region, ribs, hidden, half="right"):
             s3["component"] = cid
         role = "hidden" if not vis else ("thin" if cls == "smooth" else "thick")
         for sh in fit(pts):
-            kk = _key(sh)
-            if kk in seen:  # visible first; coincident edges of touching parts drawn once
-                continue
-            seen.add(kk)
             tags = (["approx"] if sh.pop("approx", False) else []) + (
                 ["conv"] if cls == "smooth" else []
             )
@@ -459,6 +516,22 @@ def compute(d, view, model, cut, depth, region, ribs, hidden, half="right"):
             if cid is not None:
                 ei["component"] = cid
             edges.append(ei)
+    # Coincident candidates: visible beats hidden; among equals the 3D topology (then projected
+    # geometry) decides, so the retained edge does not depend on the hidden-line output order.
+    chosen = {}
+    for ei in edges:
+        rank = (
+            ei.get("role") == "hidden",
+            _projection_edge_base(ei),
+            _edge_geometry_key(ei),
+            ei.get("component") or "",
+        )
+        kk = _edge_geometry_key(ei)
+        if kk not in chosen or rank < chosen[kk][0]:
+            chosen[kk] = (rank, ei)
+    edges = [ei for _rank, ei in chosen.values()]
+    edges.sort(key=lambda ei: (_projection_edge_base(ei), _edge_geometry_key(ei)))
+    seen = set(chosen)  # projected-geometry keys already drawn
     for rp in ribs or ():
         rp = [[_r(float(x)), _r(float(y))] for x, y in rp]
         if hatch:
@@ -468,7 +541,9 @@ def compute(d, view, model, cut, depth, region, ribs, hidden, half="right"):
             if _key(sh) not in seen:
                 seen.add(_key(sh))
                 edges.append({**sh, "role": "thick", "tags": ["rib"]})
-    out = {"edges": _merge_arcs(edges), "hatch": hatch, "wavy": wavy}
+    merged = _merge_arcs(edges)
+    _name_projection_edges(merged)
+    out = {"edges": merged, "hatch": hatch, "wavy": wavy}
     _save(cdir, cfile, out)
     return out
 
