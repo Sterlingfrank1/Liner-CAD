@@ -30,6 +30,20 @@ def test_case(case):
     assert r["passed"], r
 
 
+def test_l2_expect_mutations_are_detected(tmp_path):
+    """E3: CI 3D job already runs this file, so keep expect mutation coverage here too."""
+    pytest.importorskip("build123d")
+    import expect_mutation
+
+    l2 = [c for c in CASES if c["level"] == "L2"]
+    for case in l2:
+        mod = Path(case["dir"]) / "expect.py"
+        d = expect_mutation._build_case(case)
+        rep = expect_mutation.run_case(mod, d)
+        assert rep["base_pass"], case["id"]
+        assert rep["detection_rate"] == 1.0, (case["id"], rep)
+
+
 def undercut_problems(d):
     """What is off GB/T 3-1997 in the undercuts that sit against an external thread of drawing ``d``."""
     feats = [e for e in d.elements if e.kind == "feature"]
