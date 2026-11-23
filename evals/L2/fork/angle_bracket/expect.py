@@ -1,0 +1,11 @@
+def expect(e):
+    e.dim(value=80)
+    e.dim(value=60)
+    e.datum("A", on=e.face("bottom"), axis=False)
+    e.gtol("angularity", on=e.face("left"), datums=["A"], max=0.1)
+    e.rough(e.face("left"), ra_max=3.2)
+    e.note(contains="铸件不得有砂眼、")
+    e.view("front", must=False)
+    e.view("top", must=False)
+    e.view("left", must=False)
+    e.view("B", must=False)

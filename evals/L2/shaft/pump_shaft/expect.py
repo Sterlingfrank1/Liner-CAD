@@ -1,0 +1,13 @@
+def expect(e):
+    e.dim(value=136)
+    e.dim(e.feature(cyl=20, where="left"), fit="k6")
+    e.dim(e.feature(cyl=20, where="right"), fit="k6")
+    e.dim(e.feature(cyl=18), fit="k6")
+    e.dim(value=6, fit="N9")
+    e.datum("A", on=e.feature(cyl=20, where="left"), axis=True)
+    e.datum("B", on=e.feature(cyl=20, where="right"), axis=True)
+    e.gtol("circular_runout", on=e.face("right"), datums=["A", "B"], max=0.02)
+    e.rough(e.face("left"), ra_max=0.8)
+    e.note(contains="调质处理 217")
+    e.view("front", must=False)
+    e.view("B", section="removed", must=False)

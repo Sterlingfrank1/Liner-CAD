@@ -1,0 +1,12 @@
+def expect(e):
+    e.dim(value=100)
+    e.dim(e.feature(cyl=22), fit="H7")
+    e.dim(value=24, fit="H12")
+    e.datum("A", on=e.feature(cyl=22), axis=True)
+    e.gtol("symmetry", on=e.feature(cyl=24), datums=["A"], max=0.1)
+    e.rough(e.feature(cyl=22), ra_max=1.6)
+    e.note(contains="铸件不得有砂眼、")
+    e.view("front", must=False)
+    e.view("top", section="full", must=False)
+    e.view("left", must=False)
+    e.view("C", section="removed", must=False)
