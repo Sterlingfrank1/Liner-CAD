@@ -83,21 +83,24 @@ def test_release_notes_have_the_required_sections():
 
 
 def test_docs_point_at_existing_evidence_files():
-    pattern = re.compile(r"docs/milestones/v0\.1\.1/evidence/[A-Za-z0-9._-]+\.(?:md|json)")
+    pattern = re.compile(
+        r"(?:docs/milestones/v0\.1\.1/|(?:\.\./)+milestones/v0\.1\.1/)?"
+        r"evidence/[A-Za-z0-9._-]+\.(?:md|json)"
+    )
+    evidence_dir = ROOT / "docs/milestones/v0.1.1"
     for rel in ("docs/releases/v0.1.1.md", "docs/milestones/v0.1.1/HANDOVER.md"):
         refs = set(pattern.findall(read(rel)))
         assert refs, rel
         for ref in refs:
-            assert (ROOT / ref).is_file(), (rel, ref)
+            candidates = [(ROOT / rel).parent / ref, evidence_dir / ref, ROOT / ref]
+            assert any(path.is_file() for path in candidates), (rel, ref)
 
 
 def test_handover_lists_all_33_cards_with_issue_numbers():
     text = read("docs/milestones/v0.1.1/HANDOVER.md")
     for card, issue in CARDS.items():
         assert re.search(rf"^\| {card} \|.*#{issue}\b", text, re.MULTILINE), (card, issue)
-    rows = re.findall(
-        r"^\| (?:E\d|C\d|D\d|A\d|B\d|H\d|F1|V1) \|", text, re.MULTILINE
-    )
+    rows = re.findall(r"^\| (?:E\d|C\d|D\d|A\d|B\d|H\d|F1|V1) \|", text, re.MULTILINE)
     assert len(rows) == 33, len(rows)
 
 
