@@ -47,8 +47,6 @@ from linercad import Drawing, importdxf  # noqa: E402
 EDGE_TYPES = tuple(importdxf.EDGE_TYPES)
 RAW_TYPES = tuple(importdxf.RAW_TYPES)
 NOTE_TYPES = tuple(importdxf.NOTE_TYPES)
-TITLE_BLOCK_WORDS = ("TITLE", "FRAME", "\u56fe\u6846", "\u6807\u9898", "MXB")
-TITLE_LAYER_WORDS = ("TITLE", "FRAME", "\u56fe\u6846", "\u6807\u9898")
 TITLE_FIELD_WORDS = (
     "\u56fe\u53f7",
     "\u540d\u79f0",

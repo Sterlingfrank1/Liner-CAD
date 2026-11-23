@@ -64,7 +64,7 @@ def make_bad_dxf(path):
     # break the dimension: no text, no arrowheads
     block = doc.blocks.get(dim.dimension.dxf.geometry)
     for e in list(block):
-        if e.dxftype() in ("SOLID", "TEXT", "MTEXT"):
+        if e.dxftype() in ("SOLID", "TEXT", "MTEXT", "INSERT"):
             block.delete_entity(e)
     dim.dimension.dxf.text = ""
     doc.saveas(path)
