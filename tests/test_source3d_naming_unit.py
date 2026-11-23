@@ -9,6 +9,8 @@ from __future__ import annotations
 import copy
 import itertools
 
+import pytest
+
 from linercad.source3d import (
     _edge_geometry_key,
     _name_projection_edges,
@@ -56,3 +58,47 @@ def test_names_are_canonical_lines_and_component_qualified():
     assert _projection_edge_base(_line("f0_1_e0", (0, 0), (1, 0), component="A.base")) == (
         "A_base_f0_1_e0"
     )
+
+
+def test_old_edge_id_candidates_stay_inside_its_feature_scope():
+    from linercad import Drawing
+    from linercad.errors import NotFound
+    from linercad.geometry import Edge
+
+    d = Drawing()
+    for k in (1, 2, 3):
+        d._add(
+            Edge(
+                d,
+                f"E.front.model.f{k}_e1",
+                {"view": "front", "shape": "line", "p1": [0, k], "p2": [1, k]},
+            )
+        )
+    d._add(
+        Edge(
+            d, "E.front.other.x_e0", {"view": "front", "shape": "line", "p1": [0, 0], "p2": [1, 0]}
+        )
+    )
+    with pytest.raises(NotFound) as ei:
+        d["E.front.model.1"]
+    assert ei.value.candidates
+    assert all(c.startswith("E.front.model.") for c in ei.value.candidates)
+    assert all(c in d for c in ei.value.candidates)
+
+
+def test_diff_intent_ignores_only_3d_provenance_fields():
+    from linercad.versions import _diff_intent
+
+    a = {"kind": "edge", "intent": {"shape": "line", "role": "thick", "src3d": {"edge": 1}}}
+    b = {
+        "kind": "edge",
+        "intent": {
+            "shape": "line",
+            "role": "thick",
+            "src3d": {"edge": 2},
+            "src3d_refs": [{"edge": 2}],
+        },
+    }
+    assert _diff_intent(a) == _diff_intent(b)
+    b["intent"]["role"] = "hidden"
+    assert _diff_intent(a) != _diff_intent(b)

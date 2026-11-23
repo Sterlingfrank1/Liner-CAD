@@ -38,7 +38,7 @@
 - `test_repeated_projection_keeps_the_same_ids`：同模型清缓存重复投影 ID 不变。
 - `test_gear_cover_parameter_change_only_touches_actually_changed_edges`：改 L，断言投影几何未变的边 ID 不变、且不出现在 diff 的 E.* intent/layout/added/removed 中。
 - `test_projected_edges_have_topological_names_and_candidates_for_old_ids`：拓扑名存在；旧顺序 ID 触发 NotFound，candidates 全部是当前存在、同 feature 的 edge ID（`_close_ids` 对 E.* 已限定到 edge scope）。
-- `tests/test_source3d_naming_unit.py`（新，无需 3D，普通 CI job 会跑）：线方向规范化、同拓扑拆分后缀与输入顺序无关、组件前缀。
+- `tests/test_source3d_naming_unit.py`（新，无需 3D，普通 CI job 会跑）：线方向规范化、同拓扑拆分后缀与输入顺序无关、组件前缀；以及 `_close_ids` 的 edge/feature 限定、`_diff_intent` 只剔除 `src3d*` 的单元断言。
 - 既有 `tests/test_source3d.py`（provenance/剖切/参数重投影等 12 条）全部通过。
 
 Codex R1 后续（无 blocker）：① 最终保留的 line intent 统一规范化为 `p1<=p2`（方向无几何意义），并把顺序反转测试加强为完整 intent / `compare()` 无 E.* 变化；② gear_cover 回归改为断言 72 条未变几何边全部保留且不被 diff 上报、24 条上报均为实际变化、added/removed=0；③ 旧 ID 候选限定同 feature 的 edge；④ 新增 `test_source3d_naming_unit.py` 让命名核心在非 3D CI job 也有覆盖（3D 集成测试仍受 `test-3d` 只跑 hlr/evals 的既有 CI 限制，改 workflow 需 workflow scope）。
@@ -49,7 +49,8 @@ Codex R1 后续（无 blocker）：① 最终保留的 line intent 统一规范�
 - outline / unmatched / rib 没有模型边，仍用规范化投影几何命名；纯移动这类边可能换 ID（属实际投影变化）。
 - `versions.compare` 忽略 `src3d`/`src3d_refs` 是全局语义变化：纯 3D 来源变化不再被当成图纸变化；若后续需要追踪来源变化，需要单独的 provenance diff（本卡不做）。
 - 装配图投影的拓扑名带组件前缀，避免不同组件同面号撞名。
-- `tests/test_source3d_stable.py` 需要 `linercad[3d]`，与既有 source3d 测试一样在非 3D CI job 跳过；CI `test-3d` job 目前只跑 hlr/evals（同 D5 记录的限制，改 workflow 需 workflow scope）。
+- `tests/test_source3d_stable.py` 需要 `linercad[3d]`，与既有 source3d 测试一样在非 3D CI job 跳过；`test_source3d_naming_unit.py` 与纯逻辑断言留在普通 CI。CI `test-3d` job 目前只跑 hlr/evals（同 D5 记录的限制，改 workflow 需 workflow scope）。
+- 残余（minor）：同 base 的多段边 / outline 同类边仍按规范化几何排序加后缀；若其中一个 sibling 移动并跨过未变同类的排序位置，未变 sibling 也可能换后缀。当前 gear_cover 参数用例未触发；后续可用更稳定的 sub-topology 键改进。
 
 ## 门禁（最终数字见 PR/CI）
 

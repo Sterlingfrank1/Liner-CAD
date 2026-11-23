@@ -99,7 +99,7 @@ def test_repeated_projection_keeps_the_same_ids(tmp_path):
 def test_projected_edges_have_topological_names_and_candidates_for_old_ids(tmp_path):
     d = make(tmp_path).d
     ids = {e.id for e in _edges(d)}
-    assert any("f" in i for i in ids), ids  # new names encode the source face/edge ordinal
+    assert any(i.rsplit(".", 1)[-1].startswith("f") and "_e" in i for i in ids), ids
     with pytest.raises(NotFound) as ei:
         d["E.front.model.1"]  # M3 sequential child id is gone
     assert ei.value.candidates
@@ -126,7 +126,7 @@ def test_gear_cover_parameter_change_only_touches_actually_changed_edges(tmp_pat
 
     a, b = by_geom(r1), by_geom(r2)
     unchanged = {a[g] for g in set(a) & set(b) if a[g] == b[g]}
-    # 63 edges keep their projected geometry under L: their IDs must stay and diff must not report them
+    # 72 edges keep their projected geometry under L: their IDs must stay and diff must not report them
     assert len(unchanged) == 72, len(unchanged)
     cmp = compare(snapshot(r1.d), snapshot(r2.d))
     reported = {i for i in cmp["intent_changed"] + cmp["layout_changed"] if i.startswith("E.")}
