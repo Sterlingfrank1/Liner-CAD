@@ -1,0 +1,660 @@
+{
+ "summary": {
+  "cases": 3,
+  "built": 3,
+  "geometry_cases": 0,
+  "completeness_cases": 0,
+  "expect": {
+   "cases": 0,
+   "checks": 0,
+   "violations": 0,
+   "warnings": 0,
+   "pass_rate": null
+  },
+  "zero_error_rate": 1.0,
+  "geometry_pass_rate": null,
+  "completeness_pass_rate": null,
+  "violations": 1,
+  "first_pass_rate": null,
+  "mean_rounds": null,
+  "passed": 3,
+  "families": {
+   "G": {
+    "score": 1.0,
+    "opportunities": 720,
+    "violations": 0,
+    "rules": {
+     "center_mark": {
+      "opportunities": 3,
+      "violations": 0
+     },
+     "conv_dim": {
+      "opportunities": 0,
+      "violations": 0
+     },
+     "line_width": {
+      "opportunities": 30,
+      "violations": 0
+     },
+     "out_of_frame": {
+      "opportunities": 540,
+      "violations": 0
+     },
+     "overlap": {
+      "opportunities": 68,
+      "violations": 0
+     },
+     "scale": {
+      "opportunities": 3,
+      "violations": 0
+     },
+     "section_ref": {
+      "opportunities": 0,
+      "violations": 0
+     },
+     "sheet": {
+      "opportunities": 3,
+      "violations": 0
+     },
+     "text_height": {
+      "opportunities": 68,
+      "violations": 0
+     },
+     "view_align": {
+      "opportunities": 5,
+      "violations": 0
+     }
+    }
+   },
+   "D": {
+    "score": 0.99,
+    "opportunities": 100,
+    "violations": 1,
+    "rules": {
+     "closed_loop": {
+      "opportunities": 10,
+      "violations": 0
+     },
+     "duplicate": {
+      "opportunities": 11,
+      "violations": 0
+     },
+     "missing": {
+      "opportunities": 0,
+      "violations": 0
+     },
+     "param_cover": {
+      "opportunities": 3,
+      "violations": 0
+     },
+     "place_arrow": {
+      "opportunities": 12,
+      "violations": 0
+     },
+     "place_dim_cross": {
+      "opportunities": 12,
+      "violations": 0
+     },
+     "place_dim_outline": {
+      "opportunities": 11,
+      "violations": 0
+     },
+     "place_ext_line": {
+      "opportunities": 11,
+      "violations": 1
+     },
+     "place_leader_cross": {
+      "opportunities": 1,
+      "violations": 0
+     },
+     "place_nesting": {
+      "opportunities": 3,
+      "violations": 0
+     },
+     "place_row_spacing": {
+      "opportunities": 3,
+      "violations": 0
+     },
+     "place_text_direction": {
+      "opportunities": 11,
+      "violations": 0
+     },
+     "place_text_overlap": {
+      "opportunities": 12,
+      "violations": 0
+     }
+    }
+   },
+   "T": {
+    "score": 1.0,
+    "opportunities": 3,
+    "violations": 0,
+    "rules": {
+     "chain_limit": {
+      "opportunities": 0,
+      "violations": 0
+     },
+     "datum_letter": {
+      "opportunities": 0,
+      "violations": 0
+     },
+     "dev_order": {
+      "opportunities": 0,
+      "violations": 0
+     },
+     "general_tol": {
+      "opportunities": 3,
+      "violations": 0
+     },
+     "gtol_syntax": {
+      "opportunities": 0,
+      "violations": 0
+     },
+     "rough_default": {
+      "opportunities": 0,
+      "violations": 0
+     },
+     "rough_fit": {
+      "opportunities": 0,
+      "violations": 0
+     },
+     "rough_syntax": {
+      "opportunities": 0,
+      "violations": 0
+     }
+    }
+   },
+   "A": {
+    "score": 1.0,
+    "opportunities": 116,
+    "violations": 0,
+    "rules": {
+     "place_balloon_align": {
+      "opportunities": 12,
+      "violations": 0
+     },
+     "place_balloon_cross": {
+      "opportunities": 23,
+      "violations": 0
+     },
+     "place_balloon_spacing": {
+      "opportunities": 81,
+      "violations": 0
+     }
+    }
+   }
+  },
+  "P": {
+   "first_pass_rate": null,
+   "mean_rounds": null,
+   "rules": {
+    "stale_op": {
+     "opportunities": 0,
+     "violations": 0
+    }
+   }
+  }
+ },
+ "cases": [
+  {
+   "id": "L3/bearing",
+   "level": "L3",
+   "family": "assembly",
+   "errors": 0,
+   "warnings": 0,
+   "rules": {
+    "center_mark": {
+     "opportunities": 1,
+     "violations": 0
+    },
+    "chain_limit": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "closed_loop": {
+     "opportunities": 3,
+     "violations": 0
+    },
+    "conv_dim": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "datum_letter": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "dev_order": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "duplicate": {
+     "opportunities": 4,
+     "violations": 0
+    },
+    "general_tol": {
+     "opportunities": 1,
+     "violations": 0
+    },
+    "gtol_syntax": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "line_width": {
+     "opportunities": 10,
+     "violations": 0
+    },
+    "missing": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "out_of_frame": {
+     "opportunities": 229,
+     "violations": 0
+    },
+    "overlap": {
+     "opportunities": 22,
+     "violations": 0
+    },
+    "param_cover": {
+     "opportunities": 1,
+     "violations": 0
+    },
+    "place_arrow": {
+     "opportunities": 4,
+     "violations": 0
+    },
+    "place_balloon_align": {
+     "opportunities": 4,
+     "violations": 0
+    },
+    "place_balloon_cross": {
+     "opportunities": 7,
+     "violations": 0
+    },
+    "place_balloon_spacing": {
+     "opportunities": 21,
+     "violations": 0
+    },
+    "place_dim_cross": {
+     "opportunities": 4,
+     "violations": 0
+    },
+    "place_dim_outline": {
+     "opportunities": 3,
+     "violations": 0
+    },
+    "place_ext_line": {
+     "opportunities": 3,
+     "violations": 0
+    },
+    "place_leader_cross": {
+     "opportunities": 1,
+     "violations": 0
+    },
+    "place_nesting": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "place_row_spacing": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "place_text_direction": {
+     "opportunities": 3,
+     "violations": 0
+    },
+    "place_text_overlap": {
+     "opportunities": 4,
+     "violations": 0
+    },
+    "rough_default": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "rough_fit": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "rough_syntax": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "scale": {
+     "opportunities": 1,
+     "violations": 0
+    },
+    "section_ref": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "sheet": {
+     "opportunities": 1,
+     "violations": 0
+    },
+    "stale_op": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "text_height": {
+     "opportunities": 22,
+     "violations": 0
+    },
+    "view_align": {
+     "opportunities": 3,
+     "violations": 0
+    }
+   },
+   "findings": [],
+   "passed": true
+  },
+  {
+   "id": "L3/jack",
+   "level": "L3",
+   "family": "assembly",
+   "errors": 0,
+   "warnings": 0,
+   "rules": {
+    "center_mark": {
+     "opportunities": 1,
+     "violations": 0
+    },
+    "chain_limit": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "closed_loop": {
+     "opportunities": 3,
+     "violations": 0
+    },
+    "conv_dim": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "datum_letter": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "dev_order": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "duplicate": {
+     "opportunities": 3,
+     "violations": 0
+    },
+    "general_tol": {
+     "opportunities": 1,
+     "violations": 0
+    },
+    "gtol_syntax": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "line_width": {
+     "opportunities": 10,
+     "violations": 0
+    },
+    "missing": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "out_of_frame": {
+     "opportunities": 122,
+     "violations": 0
+    },
+    "overlap": {
+     "opportunities": 21,
+     "violations": 0
+    },
+    "param_cover": {
+     "opportunities": 1,
+     "violations": 0
+    },
+    "place_arrow": {
+     "opportunities": 4,
+     "violations": 0
+    },
+    "place_balloon_align": {
+     "opportunities": 4,
+     "violations": 0
+    },
+    "place_balloon_cross": {
+     "opportunities": 6,
+     "violations": 0
+    },
+    "place_balloon_spacing": {
+     "opportunities": 15,
+     "violations": 0
+    },
+    "place_dim_cross": {
+     "opportunities": 4,
+     "violations": 0
+    },
+    "place_dim_outline": {
+     "opportunities": 4,
+     "violations": 0
+    },
+    "place_ext_line": {
+     "opportunities": 4,
+     "violations": 0
+    },
+    "place_leader_cross": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "place_nesting": {
+     "opportunities": 3,
+     "violations": 0
+    },
+    "place_row_spacing": {
+     "opportunities": 3,
+     "violations": 0
+    },
+    "place_text_direction": {
+     "opportunities": 4,
+     "violations": 0
+    },
+    "place_text_overlap": {
+     "opportunities": 4,
+     "violations": 0
+    },
+    "rough_default": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "rough_fit": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "rough_syntax": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "scale": {
+     "opportunities": 1,
+     "violations": 0
+    },
+    "section_ref": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "sheet": {
+     "opportunities": 1,
+     "violations": 0
+    },
+    "stale_op": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "text_height": {
+     "opportunities": 21,
+     "violations": 0
+    },
+    "view_align": {
+     "opportunities": 1,
+     "violations": 0
+    }
+   },
+   "findings": [],
+   "passed": true
+  },
+  {
+   "id": "L3/vise",
+   "level": "L3",
+   "family": "assembly",
+   "errors": 0,
+   "warnings": 1,
+   "rules": {
+    "center_mark": {
+     "opportunities": 1,
+     "violations": 0
+    },
+    "chain_limit": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "closed_loop": {
+     "opportunities": 4,
+     "violations": 0
+    },
+    "conv_dim": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "datum_letter": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "dev_order": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "duplicate": {
+     "opportunities": 4,
+     "violations": 0
+    },
+    "general_tol": {
+     "opportunities": 1,
+     "violations": 0
+    },
+    "gtol_syntax": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "line_width": {
+     "opportunities": 10,
+     "violations": 0
+    },
+    "missing": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "out_of_frame": {
+     "opportunities": 189,
+     "violations": 0
+    },
+    "overlap": {
+     "opportunities": 25,
+     "violations": 0
+    },
+    "param_cover": {
+     "opportunities": 1,
+     "violations": 0
+    },
+    "place_arrow": {
+     "opportunities": 4,
+     "violations": 0
+    },
+    "place_balloon_align": {
+     "opportunities": 4,
+     "violations": 0
+    },
+    "place_balloon_cross": {
+     "opportunities": 10,
+     "violations": 0
+    },
+    "place_balloon_spacing": {
+     "opportunities": 45,
+     "violations": 0
+    },
+    "place_dim_cross": {
+     "opportunities": 4,
+     "violations": 0
+    },
+    "place_dim_outline": {
+     "opportunities": 4,
+     "violations": 0
+    },
+    "place_ext_line": {
+     "opportunities": 4,
+     "violations": 1
+    },
+    "place_leader_cross": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "place_nesting": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "place_row_spacing": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "place_text_direction": {
+     "opportunities": 4,
+     "violations": 0
+    },
+    "place_text_overlap": {
+     "opportunities": 4,
+     "violations": 0
+    },
+    "rough_default": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "rough_fit": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "rough_syntax": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "scale": {
+     "opportunities": 1,
+     "violations": 0
+    },
+    "section_ref": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "sheet": {
+     "opportunities": 1,
+     "violations": 0
+    },
+    "stale_op": {
+     "opportunities": 0,
+     "violations": 0
+    },
+    "text_height": {
+     "opportunities": 25,
+     "violations": 0
+    },
+    "view_align": {
+     "opportunities": 1,
+     "violations": 0
+    }
+   },
+   "findings": [
+    {
+     "rule": "place_ext_line",
+     "id": "D.L",
+     "severity": "warn",
+     "message": "D.L 的尺寸界线不合规（超出应约 2 mm，起点应落在轮廓 / 轴线 / 中心线上）"
+    }
+   ],
+   "passed": true
+  }
+ ]
+}

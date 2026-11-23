@@ -28,8 +28,8 @@
 | diff 中「投影几何未变的边」被上报 | **19 条误报** | **0 条** |
 | diff 上报的边（intent/layout） | 44 | 24（都对应投影几何实际变化） |
 | diff 新增/删除边 ID | 0 | 0 |
-| 40 例评测 / 几何 | 40/40、geometry 1.0 | **40/40、geometry 1.0 不变** |
-| `--baseline` | regressions [] | **regressions []（D 0.986572 不变）** |
+| 40 例评测 / 几何 | 40/40、geometry 1.0 | **40/40、geometry 1.0 不变（E3 后 198 条 expect 全过）** |
+| `--baseline` | regressions [] | **regressions []（merge E3 后 D 0.986906，与当前 baseline 一致）** |
 | L3 | A 1.0、D 0.99、G 1.0 | **不变** |
 
 ## 回归用例（G2 首个 commit 见 git log；`tests/test_source3d_stable.py`）
@@ -54,4 +54,5 @@ Codex R1 后续（无 blocker）：① 最终保留的 line intent 统一规范�
 
 ## 门禁（最终数字见 PR/CI）
 
-- 全量 `uv run pytest -q`：**1435 passed / 1 skipped（10m47s）**；`uv run ruff check .` 绿；`ruff format --check src tests` 绿（99 files）；40 例评测 40/40、geometry 1.0、`--baseline` regressions []；CI 四项绿后由 lead 合并。
+- 全量 `uv run pytest -q`（merge E3 + R2 回归后）：**1475 passed / 1 skipped（11m53s）**；`uv run ruff check .` 绿；`ruff format --check src tests` 绿（99 files）；40 例评测 40/40、geometry 1.0、`--baseline` regressions []（D 0.986906，E3 后 baseline 同值）；CI 四项绿后由 lead 合并。
+- Codex R2：无 blocker/major；minor（sibling 后缀边界、纯逻辑 CI 覆盖）已补非 3D 单元测试并在证据记录残余，nit 已修。
