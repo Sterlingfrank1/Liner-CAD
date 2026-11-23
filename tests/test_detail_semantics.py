@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import math
 
+import pytest
+
 from linercad import Drawing
+from linercad.errors import InvalidArgument
 from linercad.layout import Line
 
 
@@ -50,5 +53,27 @@ def test_detail_hatch_keeps_the_parent_angle_and_spacing():
     layout(d)
     angles = _hatch_angles(det._prims)
     assert angles and all(abs(a - 30.0) <= 1e-6 for a in angles), angles
+    # the parent spacing is 4 mm: project midpoints on the hatch normal and check the gaps
+    normal = (-math.sin(math.radians(30.0)), math.cos(math.radians(30.0)))
+    offsets = sorted(
+        {
+            round(
+                ((p.p[0] + p.q[0]) / 2) * normal[0] + ((p.p[1] + p.q[1]) / 2) * normal[1],
+                6,
+            )
+            for p in det._prims
+            if isinstance(p, Line) and p.layer == "hatch"
+        }
+    )
+    gaps = [round(b - a, 6) for a, b in zip(offsets, offsets[1:])]
+    assert gaps and all(abs(g - 4.0) <= 0.02 for g in gaps), gaps
     src = d.q.detail_sources("II")
     assert "H.front.s" in src.ids()
+
+
+def test_detail_sources_before_layout_raises_a_helpful_error():
+    d = Drawing()
+    d.view("front").line((0, 0), (10, 0), name="base")
+    d.detail("I", parent="front", center=(5, 0), r=4, scale="2:1")
+    with pytest.raises(InvalidArgument, match="build/layout|没有裁剪结果"):
+        d.q.detail_sources("I")

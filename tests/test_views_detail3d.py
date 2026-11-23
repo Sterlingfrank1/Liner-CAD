@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import textwrap
 
 import pytest
@@ -67,6 +68,8 @@ def test_gear_cover_and_an_assembly_have_working_detail_views(tmp_path):
     src = r.d.q.detail_sources("I")
     assert any(e.id.startswith("E.front.") and e._intent.get("src3d") for e in src)
     assert any(e.kind == "hatch" for e in src)
+    assert len(src) == 12
+    assert len(r.d["V.I"]._prims) == 48
 
     # an L3 assembly view: clipped edges keep their component attribution
     l3 = Path(__file__).resolve().parents[1] / "evals" / "L3" / "bearing"
@@ -75,7 +78,7 @@ def test_gear_cover_and_an_assembly_have_working_detail_views(tmp_path):
     drawing = work / "drawing.py"
     drawing.write_text(
         drawing.read_text(encoding="utf-8")
-        + '\nd.detail("I", parent="front", center=(42, 0), r=12, scale="4:1")\nd["V.I"].place(at=(170, 180))\n',
+        + '\nd.detail("I", parent="front", center=(42, 15), r=18, scale="3:1")\nd["V.I"].place(at=(170, 150))\n',
         encoding="utf-8",
     )
     r = runtime.build(work)
@@ -84,3 +87,19 @@ def test_gear_cover_and_an_assembly_have_working_detail_views(tmp_path):
     assert any(e._intent.get("component") for e in src if e.kind == "edge")
     assert any(e.kind == "hatch" and e._intent.get("component") for e in src)
     assert r.d["V.I"]._intent["detail_sources"]
+    assert len(r.d["V.I"]._prims) == 82
+    assert len(src) == 17
+    from collections import Counter
+
+    from linercad.layout import Line
+
+    angles = Counter()
+    for prim in r.d["V.I"]._prims:
+        if isinstance(prim, Line) and prim.layer == "hatch":
+            angles[
+                round(
+                    math.degrees(math.atan2(prim.q[1] - prim.p[1], prim.q[0] - prim.p[0])) % 180,
+                    1,
+                )
+            ] += 1
+    assert angles == {45.0: 8, 135.0: 53}, angles

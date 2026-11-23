@@ -46,6 +46,19 @@
 装配前后最明显的差别是放大图剖面线方向：前全部 45°，后 135°/45° 与父组件一致；另外 after 的
 `d.q.detail_sources("I")` 能列出源边/组件（渲染图元本身形状不变）。
 
+## Codex R1 回应
+
+- **blocker（已修）**：新增 3D 集成测试原先不会被 CI 跑（普通 job 无 `3d` extra，`test-3d` 只跑 hlr/evals）。
+  已把两条 3D/装配 detail 回归加进 `tests/test_hlr.py`（该文件本来就在 `test-3d` job 里），因此不改 workflow
+  也进 CI；普通 job 继续跑非 3D 的 `tests/test_detail_semantics.py`。
+- **major（已修）**：`d.q.detail_sources()` 在 layout 前静默返回空 Query；改为抛 `InvalidArgument` 并给
+  “build/layout 之后使用”的 hint，新增回归测试。
+- **major（已修）**：hatch 测试只断言角度、没断言 spacing；新增法向偏移差断言（父 spacing=4 mm，相邻 hatch 线
+  法向间隔 4.0±0.02）。
+- **major（已修）**：装配测试改用证据同一 region（center=(42,15), r=18, 3:1）并锁定 82 图元 / 17 源 /
+  45° 8 + 135° 53 的角度分布；gear_cover 也锁定 48 图元 / 12 源。
+- **minor（已修）**：`d.q.__dir__` 加入 `detail_sources`；证据措辞改为“边/剖面线归属于 3 个组件”，不声称返回
+  `A.*` 组件元素。
 ## 回归用例
 
 - `tests/test_detail_semantics.py`：`detail_sources` 可查询且指回父边；detail 剖面线保留父 hatch 的

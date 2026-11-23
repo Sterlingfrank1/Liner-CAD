@@ -159,6 +159,12 @@ def detail_sources(d, letter):
             id=v.id,
             candidates=[x.id for x in d.views() if x._intent.get("aux") == "detail"],
         )
+    if "detail_sources" not in v._intent:
+        raise InvalidArgument(
+            f"V.{letter} 还没有裁剪结果：query 应在 build/layout 之后使用",
+            id=v.id,
+            hint="局部放大的源映射在 layout 阶段生成；先在 drawing.py 里 build，再查询",
+        )
     out = []
     for rec in v._intent.get("detail_sources", ()):
         el = d._els.get(rec.get("id"))

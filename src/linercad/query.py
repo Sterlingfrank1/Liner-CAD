@@ -236,7 +236,7 @@ class QueryRoot:
         return run
 
     def __dir__(self):
-        return list(KINDS)
+        return [*KINDS, "detail_sources"]
 
 
 def near_sheet(d, x, y, r):
