@@ -112,6 +112,52 @@ def test_no_frame_file_reports_the_rule_as_not_applicable(tmp_path):
     assert r["families"]["G"]["score"] == 1.0  # text overlap still judges
 
 
+def test_invisible_and_off_layer_primitives_are_not_judged(tmp_path):
+    doc = _doc()
+    msp = doc.modelspace()
+    _frame(msp, w=100, h=50)
+    msp.add_line((10, 10), (20, 10))
+    outside = msp.add_line((500, 500), (510, 510))
+    outside.dxf.invisible = 1
+    hidden = doc.layers.add("HIDDEN_FRAME")
+    hidden.off()
+    msp.add_line((600, 600), (610, 610), dxfattribs={"layer": "HIDDEN_FRAME"})
+    src = tmp_path / "hidden.dxf"
+    doc.saveas(src)
+    r = dxfonly.score_file(src)
+    rule = r["rules"]["dxf_out_of_frame"]
+    assert rule["opportunities"] == 1 and rule["violations"] == 0
+
+
+def test_bulged_polyline_is_not_a_frame(tmp_path):
+    doc = _doc()
+    msp = doc.modelspace()
+    msp.add_lwpolyline([(0, 0, 1), (100, 0, 1), (100, 50, 1), (0, 50, 1)], format="xyb", close=True)
+    msp.add_text("文字", height=5).set_placement((500, 500))
+    src = tmp_path / "bulged.dxf"
+    doc.saveas(src)
+    r = dxfonly.score_file(src)
+    assert "no sheet frame" in r["rules"]["dxf_out_of_frame"]["note"].lower()
+
+
+def test_dimension_with_empty_text_is_missing(tmp_path):
+    doc = _doc()
+    msp = doc.modelspace()
+    dim = msp.add_linear_dim(base=(0, 50), p1=(0, 0), p2=(100, 0))
+    dim.render()
+    dim.dimension.dxf.text = ""
+    block = doc.blocks.get(dim.dimension.dxf.geometry)
+    for b in list(block):
+        if b.dxftype() in ("TEXT", "MTEXT"):
+            b.dxf.text = ""
+            if b.dxftype() == "MTEXT":
+                b.text = ""
+    src = tmp_path / "emptytext.dxf"
+    doc.saveas(src)
+    r = dxfonly.score_file(src)
+    assert r["rules"]["dxf_dim_text_present"]["violations"] == 1
+
+
 def test_hatch_defined_negative(tmp_path):
     doc = _doc()
     msp = doc.modelspace()

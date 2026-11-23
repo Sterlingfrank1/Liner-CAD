@@ -10,8 +10,9 @@ Judgeable part of the vector:
   dxf_text_overlap (text boxes do not substantially overlap each other; text-on-line needs dimension semantics).
 * G.conv: dxf_hatch_defined (section fill has a usable pattern) and
   dxf_section_hatch_consistency (all hatches in one DXF share pattern / angle / scale).
-* D.place: dxf_dim_text_present (DIMENSION carries a text) and dxf_dim_arrows
-  (dimension geometry block carries two consistent arrowheads).
+* D.place: dxf_dim_text_present (DIMENSION carries a non-empty text) and dxf_dim_arrows
+  (linear/aligned/angular need both arrowheads, radius/diameter/ordinate may use one; when >=2
+  arrowheads are present their areas must agree within 25%).
 
 Everything that needs the semantic model (G.geo/align/express, D.complete/value/fit/chain, the
 intent-level D.place rules, T.*, A.*, P.*) is reported as unavailable, not silently scored.
@@ -112,6 +113,17 @@ def unavailable_rules() -> list:
 
 
 # --------------------------------------------------------------------------- primitives
+
+
+def _visible(e) -> bool:
+    """Entity visible: not invisible and its layer is on / not frozen (same rule the importer uses)."""
+    try:
+        if int(e.dxf.get("invisible", 0) or 0):
+            return False
+        layer = e.doc.layers.get(e.dxf.layer)
+        return bool(layer.is_on() and not layer.is_frozen())
+    except Exception:  # noqa: BLE001 - a missing layer table is not a reason to drop the entity
+        return True
 
 
 def _flat_text(e) -> str:
@@ -250,6 +262,8 @@ def _entity_bbox(e):
 def _entities(msp) -> list:
     out = []
     for e in msp:
+        if not _visible(e):
+            continue
         t = e.dxftype()
         if t in ("LINE", "LWPOLYLINE", "POLYLINE", "CIRCLE", "ARC", "ELLIPSE", "SPLINE"):
             segs = _segments_of(e)
@@ -336,13 +350,19 @@ def _detect_frame(msp):
     cands = []
     segs = []
     for e in msp:
+        if not _visible(e):
+            continue
         t = e.dxftype()
         if t == "LWPOLYLINE" and e.closed and len(list(e.get_points("xy"))) == 4:
+            if any(abs(float(q[2])) > 1e-9 for q in e.get_points("xyb")):
+                continue  # curved edge: not an axis-aligned rectangle
             pts = [(float(p[0]), float(p[1])) for p in e.get_points("xy")]
             r = _rect_from_4pts(pts)
             if r and (r[2] - r[0]) * (r[3] - r[1]) > 100:
                 cands.append((r, {str(e.dxf.handle)}))
         elif t == "POLYLINE" and e.is_closed and len(list(e.vertices)) == 4:
+            if any(abs(float(v.dxf.get("bulge", 0.0) or 0.0)) > 1e-9 for v in e.vertices):
+                continue
             pts = [(float(v.dxf.location[0]), float(v.dxf.location[1])) for v in e.vertices]
             r = _rect_from_4pts(pts)
             if r and (r[2] - r[0]) * (r[3] - r[1]) > 100:
@@ -464,7 +484,7 @@ def _rule_text_overlap(prims):
 
 
 def _rule_hatches(msp):
-    hs = list(msp.query("HATCH"))
+    hs = [h for h in msp.query("HATCH") if _visible(h)]
     defined_viol = 0
     for h in hs:
         solid = int(h.dxf.get("solid_fill", 0) or 0)
@@ -486,7 +506,7 @@ def _dim_block(doc, e):
 
 
 def _rule_dims(doc, msp):
-    dims = list(msp.query("DIMENSION"))
+    dims = [d for d in msp.query("DIMENSION") if _visible(d)]
     missing_text = 0
     arrow_viol = 0
     arrow_checked = 0
@@ -494,7 +514,9 @@ def _rule_dims(doc, msp):
         text = str(e.dxf.get("text", "") or "")
         block = _dim_block(doc, e)
         block_texts = (
-            [] if block is None else [b for b in block if b.dxftype() in ("TEXT", "MTEXT")]
+            []
+            if block is None
+            else [b for b in block if b.dxftype() in ("TEXT", "MTEXT") and _flat_text(b).strip()]
         )
         if text.strip() == "" and not block_texts:
             missing_text += 1
