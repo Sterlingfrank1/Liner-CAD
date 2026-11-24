@@ -19,13 +19,27 @@ Liner-CAD 是一个 2D 工程图 harness：你写 Python，它负责画法、布
    - **参数值、视图、几何结构** → 直接改 `drawing.py`。
    - **标注、布局、公差文字、加删注释** → 写临时脚本 `.linercad/tmp/<名字>.py`，定义 `apply(d)`。
    - 一轮里两者都改也可以：先改 drawing.py，再 `lcad edit`，它们进同一个 commit。
-3. 执行：临时脚本 `lcad edit .linercad/tmp/x.py -m "<用户原话>"`；**先试改**可加 `--dry-run`：返回 changed / warnings / 预览图（`.linercad/tmp/dry-run-eN.png` + DXF），不写日志、不改源文件、不提交，确认后再去掉 `--dry-run` 真跑。只改了 drawing.py：`lcad build -m "<用户原话>"`。
-4. 读输出：`ok`、`edit`（本轮编号 eN）、`changed`、`errors`、`warnings`（`new: true` 是本轮新出现的）。有问题就改，再跑一轮。
-5. 自检：`lcad render` → `.linercad/tmp/render.png`；`lcad render --focus D.L` 把该元素画成红色。用你的看图能力检查重叠、越界、表达是否合理。
+3. 执行（修改 + 检查 + 出图放在同一次调用）：
+   - 临时脚本：`lcad edit .linercad/tmp/x.py --png -m "<用户原话>"`；只改 drawing.py：`lcad build --png -m "<用户原话>"`。
+   - `--png` 在同一个事务里顺带渲染，JSON 多一个 `png` 路径；修改、动作日志、commit 与不带 `--png` 时完全一致。当前版本没有 `--png` 时，在同一回合紧跟一次 `lcad render`，不要拖到下一轮。
+   - `--dry-run` 仍可用于试改（不写日志、不改源文件、不提交，返回预览），但正常交付轮直接 `--png`。
+4. 读输出：`ok`、`edit`（本轮编号 eN）、`changed`、`errors`、`warnings`（全部 finding）、`png`。**一次收齐全部问题**，不要边看边逐条改。
+5. 看图：看 `png` 一次；`lcad render --focus D.L` 只用于定位某个元素。用你的看图能力检查重叠、越界、表达是否合理。
 6. 撤销某一轮：`lcad undo e3 -m "<用户原话>"`。历史：`lcad log`；两版对比：`lcad diff e2 e5`。
 
 失败时（退出码 1）**什么都没改**：日志不变、没有 commit。按 `error.message / candidates / hint / where` 改脚本重试。
 不要自己 `git commit`、不要改 `.linercad/build/`。每次成功的 build / edit / undo 自动 commit 一次，标题 `eN · 用户原话`。
+
+## 1.1 交付轮与内层迭代（硬规则）
+
+- **交付轮**：一次用户请求 = 1 个交付轮；达标才交付。
+- **内层迭代**：收齐全部 finding → 先思考规划 → 写**一个**批量脚本（或一次改完 `drawing.py`）→ `edit --png` / `build --png` → 看一次图；未达标再来一次。**不设迭代次数上限**。
+- 硬约束只有三条：每次修改必须**批量**（一个脚本装下本轮全部修复，不逐条改）；写之前必须**先收集全部 finding 并规划**；**达标才停**，不因为“看着差不多”就交付。
+- **达标定义**：`errors` = 0；`warnings` 全部修复，或 `d.accept(rule, id, "理由")` 并在交付说明里逐条列出理由；图面完整（视图、尺寸、PMI、技术要求、参数表、标题栏、未注公差）。
+- **首图一次写全**：视图方案、尺寸、公差、形位公差、粗糙度、技术要求、参数表、标题栏、未注公差全部在第一次 build 前写进 `drawing.py`；不要留“收尾阶段”。
+- **不自行抛光**：不做用户没要求、也不属于达标必需的改动；但达标所需的修复必须做完。
+- **Viewer**：出图/改图时设 `LCAD_NO_VIEW=1`，不要弹系统浏览器；需要交互时 `lcad view --no-open` 起后台 Viewer，把 URL 给用户（DSH 里点链接默认在右侧边栏打开），用户点选后 `lcad context "@sel"` 读取。
+- **工作目录**：在图纸目录里直接 `lcad ...`，不要读 Liner-CAD 源码仓库，也不要 `uv run`（除非本机没有全局 `lcad`）。
 
 ## 2. 临时脚本
 

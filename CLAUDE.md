@@ -10,7 +10,7 @@ Liner-CAD v0.1：通用 2D 工程图 **Harness 层**（包 `linercad`，命令�
 | `DRAFTING-COVERAGE.md` | 制图专业度、覆盖矩阵、评测集、公开资源 |
 | `docs/ROADMAP.md` | 里程碑看板、开发流程、质量门禁、交接记录 |
 | `docs/milestones/Mx/` | 当前里程碑的 BRIEF → SPEC → HANDOVER |
-| `AGENT.md` | 开发素养（参考） |
+| `AGENTS.md` | Agent 在本仓库开发时的行为纪律（思考先行、最小改动、上下文治理、质量门禁） |
 
 ## 核心竞争力（设计取舍都向这四点看齐）
 

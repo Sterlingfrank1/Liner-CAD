@@ -11,7 +11,7 @@ Liner-CAD 本身不是 Agent。推理、理解需求、写代码交给宿主 Cod
 | [DESIGN.md](DESIGN.md) | 设计（v1.0），唯一的设计真相源 |
 | [DRAFTING-COVERAGE.md](DRAFTING-COVERAGE.md) | 机械制图专业度、覆盖矩阵、评测集 |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | 里程碑、开发流程、质量门禁、交接记录 |
-| [AGENT.md](AGENT.md) | 开发素养（参考） |
+| [AGENTS.md](AGENTS.md) | Agent 行为纪律（开发本仓库时加载） |
 
 ## v0.1.1 新增
 
