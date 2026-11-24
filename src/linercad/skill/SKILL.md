@@ -40,7 +40,7 @@ Liner-CAD 是一个 2D 工程图 harness：你写 Python，它负责画法、布
 - **零试探起步**：只读 `lcad skill api` 与当前零件族对应的**那 1 张**卡片，禁止遍读无关零件族、禁止在图纸目录建临时参考目录、禁止翻 `.linercad/build/drawing.dxf` 或在首图前跑试探脚本。需画参数表时直接用 `d.raw_add("LINE", ...)` / `d.raw_add("TEXT", ...)` 画在右上角空白区（A3 图框 `[25, 5, 415, 292]`、标题栏 `[235, 5, 415, 61]`，图层 `THICK`/`THIN`/`TEXT`）。
 - **不重复调用**：`build --png` / `edit --png` 已返回全部 `errors` 与 `warnings`，内层迭代不重复跑 `lcad check`（仅交付前核验一次）；每轮用**一次**写全 `drawing.py` 或**一个**批量脚本完成修改，不拆成多次零散修改。
 - **不自行抛光**：不做用户没要求、也不属于达标必需的改动；但达标所需的修复必须做完。
-- **Viewer**：出图/改图时设 `LCAD_NO_VIEW=1`，不要弹系统浏览器；需要交互时后台起 `lcad view --no-open`（防前台阻塞），把 URL 给用户（DSH 里点链接默认在右侧边栏打开），用户点选后 `lcad context "@sel"` 读取。
+- **Viewer**：出图/改图时设 `LCAD_NO_VIEW=1`，不要弹系统浏览器；需要交互时用后台进程（daemon / PowerShell `Start-Process lcad -ArgumentList "view","--no-open" -WindowStyle Hidden`；直接运行 `lcad view --no-open` 会阻塞前台）启动 Viewer 并从 `.linercad/viewer.json` 取 URL 给用户（DSH 里点链接默认在右侧边栏打开），用户点选后 `lcad context "@sel"` 读取。
 - **工作目录**：在图纸目录里直接 `lcad ...`，不要读 Liner-CAD 源码仓库，也不要 `uv run`（除非本机没有全局 `lcad`）。
 
 ## 2. 临时脚本

@@ -29,7 +29,8 @@
       "edit_file": 12,
       "send_message": 1
     },
-    "lcad_cmd_calls": 37,
+    "lcad_cmd_invocations": 45,
+    "lcad_shell_calls": 37,
     "lcad_cmd_seconds": 152.0,
     "lcad_subcommands": {
       "--help": 1,
@@ -67,7 +68,8 @@
       "edit_file": 8,
       "send_message": 1
     },
-    "lcad_cmd_calls": 19,
+    "lcad_cmd_invocations": 22,
+    "lcad_shell_calls": 19,
     "lcad_cmd_seconds": 63.0,
     "lcad_subcommands": {
       "--version": 1,

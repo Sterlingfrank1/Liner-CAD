@@ -17,7 +17,7 @@
 | --- | --- | --- | --- | --- |
 | 总墙钟时间 | 2269.6 s (37.8 min) | 728.0 s (12.13 min) [^r1_note] | **623.0 s (10.38 min)** | 相对 DSH 降 **72.5%** |
 | 模型轮次 / 工具调用 | 148 步 / 174 tool calls | 47 turns / 75 tool calls | **35 turns / 41 tool calls** | 工具调用降 **76.4%** |
-| `lcad` CLI 调用 / 耗时 | 55 calls / 235.0 s | 37 calls / 152.0 s | **19 calls / 63.0 s** | 命令调用降 **65.5%** |
+| `lcad` CLI 调用 / 耗时 | 55 calls / 235.0 s | 45 invocations (37 shell) / 152.0 s | **22 invocations (19 shell) / 63.0 s** | 命令调用降 **60.0%** |
 | 看图次数（PNG） | 17 次 | 6 次 | **4 次**（e1/e2/e3/e4 各 1 次） | 降 76.5% |
 | 失败命令数 | 26 次 | 9 次 | **7 次** | 降 73.1% |
 | **源码读取次数** | 读仓库考古（33 步内含） | **0** | **0** | **达标（0 次）** |
@@ -31,7 +31,7 @@
 
 ## 3. Run 2 命令细节、`accept` 清单与失败分布
 
-### 3.1 `lcad` 子命令分布（Run 2 共 19 次 CLI 调用，累计耗时 63.0 s）
+### 3.1 `lcad` 子命令分布（Run 2 共 22 次子命令调用，分布于 19 次 shell 调用，累计耗时 63.0 s）
 
 - `--version`：1、`--help`：1、`skill`：4、`init`：1、`build`：5（含 4 次校验失败重试 + 1 次通过）、`context`：2、`edit`：5（含 2 次脚本错误重试 + 3 次批量提交）、`check`：1、`view`：1、`log`：1。
 - 独立 `check` 结果（`lcad -C %TEMP%\v012-planetary-r2 check`）：`{"ok": true, "errors": 0, "warnings": 0}`；后台 `lcad view --no-open --port 8765` 返回 HTTP 200。
