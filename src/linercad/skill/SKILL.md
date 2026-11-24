@@ -21,7 +21,7 @@ Liner-CAD 是一个 2D 工程图 harness：你写 Python，它负责画法、布
    - 一轮里两者都改也可以：先改 drawing.py，再 `lcad edit`，它们进同一个 commit。
 3. 执行（修改 + 检查 + 出图放在同一次调用）：
    - 临时脚本：`lcad edit .linercad/tmp/x.py --png -m "<用户原话>"`；只改 drawing.py：`lcad build --png -m "<用户原话>"`。
-   - `--png` 在同一个事务里顺带渲染，JSON 多一个 `png` 路径；修改、动作日志、commit 与不带 `--png` 时完全一致。当前版本没有 `--png` 时，在同一回合紧跟一次 `lcad render`，不要拖到下一轮。
+   - `--png` 在同一个事务里顺带渲染，JSON 多一个 `png` 路径；修改、动作日志、commit 与不带 `--png` 时完全一致。
    - `--dry-run` 仍可用于试改（不写日志、不改源文件、不提交，返回预览），但正常交付轮直接 `--png`。
 4. 读输出：`ok`、`edit`（本轮编号 eN）、`changed`、`errors`、`warnings`（全部 finding）、`png`。**一次收齐全部问题**，不要边看边逐条改。
 5. 看图：看 `png` 一次；`lcad render --focus D.L` 只用于定位某个元素。用你的看图能力检查重叠、越界、表达是否合理。
