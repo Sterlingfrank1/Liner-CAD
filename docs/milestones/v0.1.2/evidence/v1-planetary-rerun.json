@@ -10,7 +10,7 @@
     "wall_seconds": 2269.6,
     "model_steps": 148,
     "tool_calls": 174,
-    "lcad_cmd_calls": 55,
+    "lcad_cmd_invocations": 55,
     "lcad_cmd_seconds": 235.0,
     "image_reads": 17,
     "failed_commands": 26
@@ -57,7 +57,8 @@
   },
   "run2": {
     "subagent_id": "45bcf02c-dff5-4720-b357-586adac715d4",
-    "skill_loading": "native_discovered (C:\\Users\\XU\\.gemini\\antigravity-cli\\skills\\linercad\\SKILL.md; sha256=A9C1AD22439EB62096B4FCF12AC710116DD02B2E5F159B86B093EEE6BA299F94)",
+    "skill_loading": "native_discovered (C:\\Users\\XU\\.gemini\\antigravity-cli\\skills\\linercad\\SKILL.md)",
+    "tested_skill_sha256": "A9C1AD22439EB62096B4FCF12AC710116DD02B2E5F159B86B093EEE6BA299F94",
     "wall_seconds": 623.0,
     "model_turns": 35,
     "tool_calls": 41,
@@ -123,6 +124,13 @@
       "full first build including views, dims, PMI, tech_notes, table, title block",
       "batch edit scripts in e1->e2->e3->e4 (4 image reads total in Run 2)",
       "final lcad check 0 errors / 0 warnings (with 1 documented accept)"
-    ]
+    ],
+    "post_run2_doc_clarification": {
+      "file": "src/linercad/skill/SKILL.md:43",
+      "reason": "PR review R1 P1 noted `lcad view --no-open` still blocks foreground unless started as a background process; clarified Start-Process/daemon launch + reading `.linercad/viewer.json`.",
+      "tested_skill_sha256": "A9C1AD22439EB62096B4FCF12AC710116DD02B2E5F159B86B093EEE6BA299F94",
+      "pr_head_skill_sha256": "DCCD94968249CEBC9D83B31C78F25CB6D1B4A9A19DA54C3287BF59D04707723A",
+      "re_run_performed": false
+    }
   }
 }

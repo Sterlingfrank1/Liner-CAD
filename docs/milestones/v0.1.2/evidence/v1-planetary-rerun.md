@@ -1,15 +1,15 @@
 # V1 计时复跑证据：行星齿轮全自动端到端验证（Issue #155）
 
 > **裁定结论**：**通过（带偏离 17）**。
-> **口径说明（跨 harness 对照，仅方向性参考）**：历史基线（`2269.6 s = 37.8 min`、`148` 步、`174` 次工具调用）与 `PLAN.md` 中 V1 分阶段数字门槛（初稿 `≤ 12 步 / ≤ 5 min`、单轮迭代 `≤ 6 步 / ≤ 2 min`）均由 **DSH + `deepseek-v4.1-flash`** 标定。本次 Run 1 与 Run 2 运行在 **agy** 环境并按工具调用次数计步，跨 harness / 模型不做硬性等值门槛判定，而以过程行为合同为准：**0 次源码读取、首图一次写全、每次迭代批量脚本、共看图 4 次、终态 0 error / 0 warning**——全部达标；未达的数字门槛按**偏离 17** 原样留存全部实测原始数字，不做任何美化或篡改。
+> **口径说明（跨 harness 对照，仅方向性参考）**：历史基线（`2269.6 s = 37.8 min`、`148` 步、`174` 次工具调用）与 `PLAN.md` 中 V1 分阶段数字门槛（初稿 `≤ 12 步 / ≤ 5 min`、单轮迭代 `≤ 6 步 / ≤ 2 min`）均由 **DSH + `deepseek-v4.1-flash`** 标定。本次 Run 1 与 Run 2 运行在 **agy** 环境并按工具调用次数计步，跨 harness / 模型不做硬性等值门槛判定，而以过程行为合同为准：**Run 1 / Run 2 均做到 0 次源码读取、终态 0 error / 0 warning；Run 2 做到首图一次写全、每次迭代批量脚本、看图 4 次（Run 1 看图 6 次）**——全部达标；未达的数字门槛按**偏离 17** 原样留存全部实测原始数字，不做任何美化或篡改。
 
 ## 1. 测试条件与 Skill 加载方式
 
 - **输入原话**（与 `retro-dsh-planetary.md` 完全一致）：
   > 现在我想做一次测试，利用lcad，生成一个行星齿轮的图纸，尺寸合适即可。Viewer直接在dsh里打开，进行交互。
 - **执行环境**：隔离临时图纸目录（Run 1：`%TEMP%\v012-planetary`；Run 2：`%TEMP%\v012-planetary-r2`），全局安装最新 `lcad`（含 C1 `--target dsh` 与 C2 `build/edit --png`），不进开发仓库且禁止读取源码。
-- **Skill 加载机制**：子代理通过系统 `<skills>` **原生发现并加载 `linercad`**（非提示词附件注入）；Run 2 开始前三端 `SKILL.md` SHA256 一致为 `A9C1AD22439EB62096B4FCF12AC710116DD02B2E5F159B86B093EEE6BA299F94`。
-- **随卡最小文档修订**（Run 1 → Run 2 间执行 1 轮）：[SKILL.md](../../../../src/linercad/skill/SKILL.md) 补充「零试探起步」「不重复调用」与后台 `lcad view --no-open` 提示；[api.md](../../../../src/linercad/skill/pages/api.md) 补充 `dim.chamfer(edge)`、`note(dir=角度)` 与 `datum/rough(ref=)` 说明。
+- **Skill 加载机制**：子代理通过系统 `<skills>` **原生发现并加载 `linercad`**（非提示词附件注入）；Run 2 实测时三端 `SKILL.md` SHA256 一致为 `A9C1AD22439EB62096B4FCF12AC710116DD02B2E5F159B86B093EEE6BA299F94`。
+- **随卡文档修订与 Run 2 后澄清**：Run 1 → Run 2 间修订 [SKILL.md](../../../../src/linercad/skill/SKILL.md)（「零试探起步」「不重复调用」与后台 `lcad view --no-open` 提示）及 [api.md](../../../../src/linercad/skill/pages/api.md)（`dim.chamfer(edge)`、`note(dir=角度)`、`datum/rough(ref=)`）；Run 2 完成后，按 PR 评审第 1 轮意见仅更新 `SKILL.md` 第 43 行以明确 `lcad view --no-open` 需通过 `Start-Process` / daemon 后台启动并读 `.linercad/viewer.json`（更新后 SHA256 为 `DCCD94968249CEBC9D83B31C78F25CB6D1B4A9A19DA54C3287BF59D04707723A`），按裁定不再重跑第 3 轮 V1，该第 43 行末尾文字澄清标注为 **Run 2 后文档修正（未单独复跑 V1）**。
 
 ## 2. 全量对比数据（原始实测，仅方向性参考）
 

@@ -73,8 +73,22 @@ def test_v1_evidence_artifacts_and_unbeautified_metrics():
     assert r2["lcad_check_errors"] == 0
     assert r2["lcad_check_warnings"] == 0
     assert r2["accept_count"] == 1
+    assert (
+        r2["tested_skill_sha256"]
+        == "A9C1AD22439EB62096B4FCF12AC710116DD02B2E5F159B86B093EEE6BA299F94"
+    )
+    clar = data["deviation_17"]["post_run2_doc_clarification"]
+    assert clar["tested_skill_sha256"] == r2["tested_skill_sha256"]
+    assert (
+        clar["pr_head_skill_sha256"]
+        == "DCCD94968249CEBC9D83B31C78F25CB6D1B4A9A19DA54C3287BF59D04707723A"
+    )
+    assert clar["re_run_performed"] is False
 
     md = md_path.read_text(encoding="utf-8")
+    assert "Run 2 做到首图一次写全、每次迭代批量脚本、看图 4 次（Run 1 看图 6 次）" in md
+    assert clar["pr_head_skill_sha256"] in md
+    assert "未单独复跑 V1" in md
     table = _parse_md_table(md)
     assert "2269.6 s" in table["总墙钟时间"][0]
     assert "623.0 s" in table["总墙钟时间"][2]
