@@ -17,7 +17,13 @@
   },
   "run1": {
     "subagent_id": "8db76458-3712-4199-b7f5-a35fd9e095a6",
-    "skill_loading": "native_discovered (C:\\Users\\XU\\.gemini\\antigravity-cli\\skills\\linercad\\SKILL.md)",
+    "skill_loading": {
+      "method": "native_discovered",
+      "agy_discovered_path": "~/.gemini/antigravity-cli/skills/linercad/SKILL.md",
+      "c1_dsh_install_path": "~/.agents/skills/linercad/SKILL.md",
+      "hashes_identical_at_run_time": true,
+      "note": "harness 路径替代，不影响结论"
+    },
     "wall_seconds": 728.0,
     "wall_seconds_with_viewer_restart": 960.0,
     "model_turns": 47,
@@ -57,7 +63,14 @@
   },
   "run2": {
     "subagent_id": "45bcf02c-dff5-4720-b357-586adac715d4",
-    "skill_loading": "native_discovered (C:\\Users\\XU\\.gemini\\antigravity-cli\\skills\\linercad\\SKILL.md)",
+    "skill_loading": {
+      "method": "native_discovered",
+      "agy_discovered_path": "~/.gemini/antigravity-cli/skills/linercad/SKILL.md",
+      "c1_dsh_install_path": "~/.agents/skills/linercad/SKILL.md",
+      "sha256": "A9C1AD22439EB62096B4FCF12AC710116DD02B2E5F159B86B093EEE6BA299F94",
+      "hashes_identical_at_run_time": true,
+      "note": "harness 路径替代，不影响结论"
+    },
     "tested_skill_sha256": "A9C1AD22439EB62096B4FCF12AC710116DD02B2E5F159B86B093EEE6BA299F94",
     "wall_seconds": 623.0,
     "model_turns": 35,
@@ -112,8 +125,10 @@
     "render_png": "docs/milestones/v0.1.2/evidence/v1-planetary-r2-render.png"
   },
   "deviation_17": {
-    "rule": "PLAN §4 V1 digital caps vs cross-harness reality",
-    "threshold_origin": "DSH + deepseek-v4.1-flash (<=12 步 / <=5 min first build; <=6 步 / <=2 min per iteration)",
+    "rule": "PLAN §9 偏离 17（跨 harness 数字门槛未达；2026-11-24 用户裁定按过程行为通过，v0.1.3 在 DSH 侧重新校准）",
+    "approved_in_repo": "docs/milestones/v0.1.2/PLAN.md#9-偏离记录",
+    "threshold_origin": "DSH + deepseek-v4.1-flash (median 11.1 s/step; <=12 步 / <=5 min first build; <=6 步 / <=2 min per iteration)",
+    "rerun_environment": "agy + Orchestrator (planner Gemini 4 Neon (XHigh) / executor Gemini 4 Hydrogen (XHigh)); steps counted by tool calls",
     "unmet_raw_numbers_run2": [
       "init->e1: 18 tool calls / 286.0 s to build (19 tool calls / 295.0 s incl. first PNG) > 12",
       "e1->e2: 7 tool calls / 151.0 s > 6 calls / 120.0 s",
@@ -126,10 +141,13 @@
       "final lcad check 0 errors / 0 warnings (with 1 documented accept)"
     ],
     "post_run2_doc_clarification": {
-      "file": "src/linercad/skill/SKILL.md:43",
-      "reason": "PR review R1 P1 noted `lcad view --no-open` still blocks foreground unless started as a background process; clarified Start-Process/daemon launch + reading `.linercad/viewer.json`.",
+      "files": [
+        "src/linercad/skill/SKILL.md:40",
+        "src/linercad/skill/SKILL.md:43"
+      ],
+      "reason": "PR review clarified (1) raw table frame/title_block bounds come from d.template with GB A3 coords only as default example, and (2) `lcad view --no-open` blocks foreground unless started as a background process + read `.linercad/viewer.json`.",
       "tested_skill_sha256": "A9C1AD22439EB62096B4FCF12AC710116DD02B2E5F159B86B093EEE6BA299F94",
-      "pr_head_skill_sha256": "DCCD94968249CEBC9D83B31C78F25CB6D1B4A9A19DA54C3287BF59D04707723A",
+      "pr_head_skill_sha256": "B257208849D635D88CD8248F4745430AC75CE222B4F6BEE1D0B6A3691F3E19DD",
       "re_run_performed": false
     }
   }

@@ -77,16 +77,44 @@ def test_v1_evidence_artifacts_and_unbeautified_metrics():
         r2["tested_skill_sha256"]
         == "A9C1AD22439EB62096B4FCF12AC710116DD02B2E5F159B86B093EEE6BA299F94"
     )
+    sl = r2["skill_loading"]
+    assert sl["agy_discovered_path"] == "~/.gemini/antigravity-cli/skills/linercad/SKILL.md"
+    assert sl["c1_dsh_install_path"] == "~/.agents/skills/linercad/SKILL.md"
+    assert sl["sha256"] == r2["tested_skill_sha256"]
+    assert sl["hashes_identical_at_run_time"] is True
+    assert "harness 路径替代，不影响结论" in sl["note"]
     clar = data["deviation_17"]["post_run2_doc_clarification"]
     assert clar["tested_skill_sha256"] == r2["tested_skill_sha256"]
     assert (
         clar["pr_head_skill_sha256"]
-        == "DCCD94968249CEBC9D83B31C78F25CB6D1B4A9A19DA54C3287BF59D04707723A"
+        == "B257208849D635D88CD8248F4745430AC75CE222B4F6BEE1D0B6A3691F3E19DD"
     )
     assert clar["re_run_performed"] is False
 
+    plan_text = (ROOT / "docs" / "milestones" / "v0.1.2" / "PLAN.md").read_text(encoding="utf-8")
+    for needle in (
+        "## 9. 偏离记录",
+        "17.",
+        "11.1",
+        "Gemini 4 Neon",
+        "Gemini 4 Hydrogen",
+        "2026-11-24",
+        "v0.1.3",
+        "286.0",
+        "295.0",
+        "151.0",
+        "96.0",
+    ):
+        assert needle in plan_text, needle
+
+    skill_text = (ROOT / "src" / "linercad" / "skill" / "SKILL.md").read_text(encoding="utf-8")
+    assert 'd.template["frame"]' in skill_text
+    assert 'd.template["title_block"]' in skill_text
+    assert "GB 档 A3 默认" in skill_text
+
     md = md_path.read_text(encoding="utf-8")
     assert "Run 2 做到首图一次写全、每次迭代批量脚本、看图 4 次（Run 1 看图 6 次）" in md
+    assert "harness 路径替代，不影响结论" in md
     assert clar["pr_head_skill_sha256"] in md
     assert "未单独复跑 V1" in md
     table = _parse_md_table(md)
