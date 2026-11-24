@@ -16,7 +16,7 @@ from importlib import resources
 from pathlib import Path
 
 from . import record
-from .errors import DirtySource, GitError, InvalidArgument, NoOps, UndoError
+from .errors import BuildError, DirtySource, GitError, InvalidArgument, NoOps, UndoError
 from .runtime import BUILD_DIR, LOG, SRC, TMP_DIR, build, edit_number, run_script, write_artifacts
 
 REF_DXF = "ref.dxf"  # what `lcad init --from-dxf` copies in
@@ -382,17 +382,38 @@ def changed_ids(before, d):
     return sorted(i for i in set(before) | set(after) if before.get(i) != after.get(i))
 
 
-def _render_txn_png(dir, res) -> dict:
-    """Render ``res.doc`` to ``.linercad/tmp/render.png`` after a committed build/edit."""
+def _stage_txn_png(dir, res) -> Path:
+    """Render ``res.doc`` to a staging file before committing so render failures roll back."""
     from .render import render_png
 
     tmp = Path(dir) / TMP_DIR
-    tmp.mkdir(parents=True, exist_ok=True)
-    path = tmp / "render.png"
-    W, H = res.d.template["size"]
-    render_png(res.doc, (W, H), path)
+    staged = tmp / f".render-{os.getpid()}-{id(res)}.png"
+    try:
+        tmp.mkdir(parents=True, exist_ok=True)
+        W, H = res.d.template["size"]
+        render_png(res.doc, (W, H), staged)
+        return staged
+    except Exception as e:
+        try:
+            staged.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise BuildError(f"渲染 PNG 失败：{type(e).__name__}: {e}") from e
+
+
+def _commit_txn_png(dir, staged: Path) -> dict:
+    """Publish a staged PNG as ``.linercad/tmp/render.png`` after the commit succeeds."""
+    final = Path(dir) / TMP_DIR / "render.png"
+    try:
+        os.replace(staged, final)
+    except OSError as e:
+        staged.unlink(missing_ok=True)
+        return {
+            "png_error": f"{type(e).__name__}: {e}",
+            "hint": "关闭占用 render.png 的程序后 lcad render",
+        }
     prune_tmp(dir)
-    return {"png": str(path)}
+    return {"png": str(final)}
 
 
 def build_commit(dir, msg=None, png=False):
@@ -408,20 +429,26 @@ def build_commit(dir, msg=None, png=False):
         "errors": _errors(res.findings),
         "warnings": _warnings(res.findings),
     }
-    dirty = dirty_sources(dir)
-    if msg:
-        if dirty:
-            out["commit"] = commit(dir, f"{edit} · {msg}")
-            out["edit"] = edit
-        else:
-            out["note"] = "源文件没有改动，未提交"
-    elif dirty:
-        out["uncommitted"] = dirty
-        out["hint"] = '源文件有未提交改动；用 lcad build -m "<原话>" 提交'
-    current = out["edit"] or f"e{int(edit[1:]) - 1}"  # model.json records the version it shows
-    out.update(write_artifacts(dir, res, current))
-    if png:
-        out.update(_render_txn_png(dir, res))
+    staged = _stage_txn_png(dir, res) if png else None
+    try:
+        dirty = dirty_sources(dir)
+        if msg:
+            if dirty:
+                out["commit"] = commit(dir, f"{edit} · {msg}")
+                out["edit"] = edit
+            else:
+                out["note"] = "源文件没有改动，未提交"
+        elif dirty:
+            out["uncommitted"] = dirty
+            out["hint"] = '源文件有未提交改动；用 lcad build -m "<原话>" 提交'
+        current = out["edit"] or f"e{int(edit[1:]) - 1}"  # model.json records the version it shows
+        out.update(write_artifacts(dir, res, current))
+    except Exception:
+        if staged is not None:
+            staged.unlink(missing_ok=True)
+        raise
+    if staged is not None:
+        out.update(_commit_txn_png(dir, staged))
     return out
 
 
@@ -500,6 +527,7 @@ def edit_full(dir, script, msg, dry_run=False, png=False):
         if png:
             out["png"] = str(dir / previews["preview"])
         return out, r2
+    staged = _stage_txn_png(dir, r2) if png else None
     old = log_path.read_bytes() if log_path.exists() else b""
     lines = "".join(record.dumps(op) + "\n" for op in filled)
     prefix = old.decode("utf-8")
@@ -509,12 +537,14 @@ def edit_full(dir, script, msg, dry_run=False, png=False):
     try:
         h = commit(dir, f"{edit_id} · {msg}")
     except Exception:
+        if staged is not None:
+            staged.unlink(missing_ok=True)
         log_path.write_bytes(old)
         _unstage(dir)
         raise
     arts = _artifacts(dir, r2, edit_id)
-    if png:
-        arts.update(_render_txn_png(dir, r2))
+    if staged is not None:
+        arts.update(_commit_txn_png(dir, staged))
     else:
         prune_tmp(dir)
     changed = []

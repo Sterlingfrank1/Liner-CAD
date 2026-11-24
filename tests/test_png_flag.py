@@ -152,3 +152,36 @@ def test_cli_help_documents_png_and_has_no_review_command():
     assert "--png" in out["commands"]["build"]
     assert "--png" in out["commands"]["edit"]
     assert "review" not in out["commands"]
+
+
+def test_render_failure_rolls_back_without_committing_head_or_log(shaft, monkeypatch):
+    import linercad.render as render_mod
+    from linercad.errors import LinerError
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("simulated render failure")
+
+    monkeypatch.setattr(render_mod, "render_png", boom)
+
+    # 1. Failing render in build_commit --png does not commit modified drawing.py
+    good_bytes = (shaft / "drawing.py").read_bytes()
+    before = repo_state(shaft)
+    (shaft / "drawing.py").write_text(
+        good_bytes.decode("utf-8") + "\n# dirty for render failure\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    with pytest.raises(LinerError) as berr:
+        txn.build_commit(shaft, "renders fail", png=True)
+    assert berr.value.code == "build"
+    (shaft / "drawing.py").write_bytes(good_bytes)
+    assert repo_state(shaft) == before
+
+    # 2. Failing render in edit --png does not write drawing.actions.jsonl or commit HEAD
+    script = write_script(shaft, '    d["D.L"].place(side="top")\n')
+    with pytest.raises(LinerError) as eerr:
+        txn.edit(shaft, script, "renders fail edit", png=True)
+    assert eerr.value.code == "build"
+    assert repo_state(shaft) == before
+    assert not (shaft / ".linercad" / "tmp" / "render.png").exists()
+    assert not list((shaft / ".linercad" / "tmp").glob(".render-*.png"))
