@@ -450,7 +450,7 @@ def skill(family=None):
 
 MARK_BEGIN = "<!-- linercad:begin (lcad skill install) -->"
 MARK_END = "<!-- linercad:end -->"
-TARGETS = ("claude", "codex", "opencode", "generic")
+TARGETS = ("claude", "codex", "opencode", "generic", "dsh")
 
 
 def _body(text):
@@ -465,14 +465,15 @@ def _body(text):
 def skill_install(target, dir="."):
     """Install the skill where an agent finds it (SPEC M3 §1.7): claude → .claude/skills/linercad/,
     opencode → .opencode/skills/linercad/, codex → a marked section of AGENTS.md, generic →
-    LINERCAD.md. Pages stay reachable with ``lcad skill <page>``."""
+    LINERCAD.md, dsh → ~/.agents/skills/linercad/SKILL.md. Pages stay reachable with
+    ``lcad skill <page>``."""
     from .errors import InvalidArgument
 
     if target not in TARGETS:
         raise InvalidArgument(
             f"--target {target!r} 不对", candidates=list(TARGETS), values={"target": target}
         )
-    root = Path(dir)
+    root = Path.home() if target == "dsh" else Path(dir)
     files = _skill_files()
     written = []
 
@@ -482,7 +483,9 @@ def skill_install(target, dir="."):
         p.write_text(text, encoding="utf-8", newline="\n")
         written.append(Path(rel).as_posix())
 
-    if target in ("claude", "opencode"):
+    if target == "dsh":
+        put(".agents/skills/linercad/SKILL.md", files["SKILL.md"])
+    elif target in ("claude", "opencode"):
         base = ".claude/skills/linercad" if target == "claude" else ".opencode/skills/linercad"
         for rel, text in files.items():
             put(f"{base}/{rel}", text)
