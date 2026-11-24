@@ -62,9 +62,9 @@ front = d.view("front")      # 基本视图：front top bottom left right rear�
 | `v.dim.linear(name, p1, p2, dir=None, value=, tol=, role="size", datum=, side=, row=, offset=, reference=False)` | 水平 `dir="h"` 量 Δx，竖直 `dir="v"` 量 Δy；`reference=True` 参考尺寸（加括号） |
 | `v.dim.aligned(name, p1, p2, ...)` / `v.dim.angle(name, line1, line2)` | 对齐尺寸 / 角度（数字水平） |
 | `v.dim.dia(name, p1, p2, ...)` / `v.dim.dia(name, circle=..., at=45, prefix="4×", suffix=" EQS")` / `v.dim.rad(name, circle=)` | 直径（非圆 / 圆视图）、半径 |
-| `v.dim.chamfer(name, edge)` | 倒角：45° 注 `C1`，否则 `2×30°` |
+| `v.dim.chamfer(name, edge)` | 倒角：45° 注 `C1`，否则 `2×30°`；`edge` 传直线边 `E.<v>.<f>.1`（不传特征 `F.*`） |
 | `v.dim.thread(name, feat)` / `v.dim.groove(name, groove, fmt="wd")` / `v.dim.hole(name, feat, n=4)` / `v.dim.spline(name, feat)` / `sec.dim.keyway(name, "F.B.s", what="b"/"depth")` | 规定画法的代号和必需尺寸 |
-| `v.note(name, "text", anchor=, dir=, length=)` / `d.notes.tech([...])` / `d.title(name=, drawing_no=, material=, ...)` | 引线注释 / 技术要求 / 标题栏 |
+| `v.note(name, "text", anchor=, dir=, length=)` / `d.notes.tech([...])` / `d.title(name=, drawing_no=, material=, ...)` | 引线注释（`dir` 为角度制数字如 `135`，不是向量） / 技术要求 / 标题栏 |
 
 - `value=P.L - P.l1` 让尺寸显示参数值并记录 `covers`；不给就显示几何实测值。`role="position"` 必须给 `datum=`。
 - **公差**：`tol="k6"`（查 GB/T 1800 得偏差）、`"±0.1"`、`"+0.021/0"`；`tol_show="code"/"dev"/"both"` 三种注法；`envelope=True` 包容要求；`el.fit = "g6"` 同 `tol`。
@@ -73,10 +73,10 @@ front = d.view("front")      # 基本视图：front top bottom left right rear�
 **PMI**（语义元素，字段分存，关联被测几何）：
 
 ```python
-front.datum("A", ref="D.d1")                 # DT.A；ref 是尺寸 → 轴线基准，是边 → 表面基准
-front.gtol("run", "circular_runout", 0.02, datums=["A-B"], ref="E.front.body.d3")   # G.run
+front.datum("A", ref="D.d1")                 # DT.A；ref 是尺寸 → 轴线基准，是边 → 表面基准（不传中心线 C.*）
+front.gtol("run", "circular_runout", 0.02, datums=["A-B"], ref="E.front.body.d3")   # G.run；轴向图可引圆面边或端视图圆边
 front.gtol("cyl", "cylindricity", 0.005, ref="D.d1", zone=None, modifiers=[])
-front.rough("j", 0.8, ref="E.front.body.d1", process="磨")   # R.j，Ra；removal="required/forbidden/any"
+front.rough("j", 0.8, ref="E.front.body.d1", process="磨")   # R.j，Ra；ref 用边/尺寸/特征，不传 C.*；removal="required/forbidden/any"
 d.rough_default(6.3)                          # 标题栏附近的“通用符号 (√)”
 d.general_tol("m")                            # 技术要求：未注尺寸公差按 GB/T 1804-m
 d.chain("axial", closing="l5", increase=["D.L"], decrease=["D.l1", "D.l2"], require=(-0.2, 0.2))   # K.axial：极值法 / 均方根法
