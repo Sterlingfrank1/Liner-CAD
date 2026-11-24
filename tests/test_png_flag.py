@@ -64,14 +64,21 @@ def png_size(path: Path) -> tuple[int, int]:
 
 
 def test_build_and_edit_with_png_render_in_same_transaction(shaft):
+    code, ref = cli("-C", str(shaft), "render")
+    assert code == 0 and ref["ok"]
+    expected_size = png_size(Path(ref["png"]))
+    assert expected_size[0] > 0 and expected_size[1] > 0
+    Path(ref["png"]).unlink()
+
     src = shaft / "drawing.py"
-    src.write_text(src.read_text(encoding="utf-8") + "\n# C2 build test\n", encoding="utf-8")
+    src.write_text(
+        src.read_text(encoding="utf-8") + "\n# C2 build test\n", encoding="utf-8", newline="\n"
+    )
     code, bout = cli("-C", str(shaft), "build", "--png", "-m", "更新并出图")
     assert code == 0 and bout["ok"] and bout["commit"] and bout["edit"] == "e1", bout
     bpng = Path(bout["png"])
     assert bpng.is_file() and bpng.stat().st_size > 0
-    w, h = png_size(bpng)
-    assert abs(w - round(420 / 25.4 * 150)) <= 2 and abs(h - round(297 / 25.4 * 150)) <= 2
+    assert png_size(bpng) == expected_size
 
     bpng.unlink()
     script = write_script(shaft, '    d["D.L"].place(side="top")\n')
@@ -80,8 +87,7 @@ def test_build_and_edit_with_png_render_in_same_transaction(shaft):
     assert "D.L" in eout["changed"] and eout["ops"]
     epng = Path(eout["png"])
     assert epng.is_file() and epng.stat().st_size > 0
-    ew, eh = png_size(epng)
-    assert abs(ew - round(420 / 25.4 * 150)) <= 2 and abs(eh - round(297 / 25.4 * 150)) <= 2
+    assert png_size(epng) == expected_size
 
     # dry-run with --png also yields png pointing at the preview without committing
     before = repo_state(shaft)
@@ -96,7 +102,9 @@ def test_build_and_edit_without_png_flag_keep_existing_behavior(shaft):
     render_path = shaft / ".linercad" / "tmp" / "render.png"
     render_path.unlink(missing_ok=True)
     src = shaft / "drawing.py"
-    src.write_text(src.read_text(encoding="utf-8") + "\n# no png build\n", encoding="utf-8")
+    src.write_text(
+        src.read_text(encoding="utf-8") + "\n# no png build\n", encoding="utf-8", newline="\n"
+    )
     code, bout = cli("-C", str(shaft), "build", "-m", "无图构建")
     assert code == 0 and bout["ok"] and "png" not in bout
     assert not render_path.exists()
@@ -112,14 +120,16 @@ def test_build_and_edit_png_do_not_render_on_failure_and_roll_back(shaft):
     render_path.unlink(missing_ok=True)
 
     # 1. Failing build --png
-    good_src = (shaft / "drawing.py").read_text(encoding="utf-8")
+    good_bytes = (shaft / "drawing.py").read_bytes()
     before = repo_state(shaft)
-    (shaft / "drawing.py").write_text("raise RuntimeError('build fail')\n", encoding="utf-8")
+    (shaft / "drawing.py").write_text(
+        "raise RuntimeError('build fail')\n", encoding="utf-8", newline="\n"
+    )
     code, bout = cli("-C", str(shaft), "build", "--png", "-m", "坏构建")
     assert code == 1 and not bout["ok"] and bout["rolled_back"] is True
     assert "png" not in bout and not render_path.exists()
     # restore working-tree drawing.py for subsequent edit failure checks
-    (shaft / "drawing.py").write_text(good_src, encoding="utf-8")
+    (shaft / "drawing.py").write_bytes(good_bytes)
     assert repo_state(shaft) == before
 
     # 2. Failing edit --png (script error, NoOps, missing -m)

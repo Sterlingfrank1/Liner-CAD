@@ -382,7 +382,20 @@ def changed_ids(before, d):
     return sorted(i for i in set(before) | set(after) if before.get(i) != after.get(i))
 
 
-def build_commit(dir, msg=None):
+def _render_txn_png(dir, res) -> dict:
+    """Render ``res.doc`` to ``.linercad/tmp/render.png`` after a committed build/edit."""
+    from .render import render_png
+
+    tmp = Path(dir) / TMP_DIR
+    tmp.mkdir(parents=True, exist_ok=True)
+    path = tmp / "render.png"
+    W, H = res.d.template["size"]
+    render_png(res.doc, (W, H), path)
+    prune_tmp(dir)
+    return {"png": str(path)}
+
+
+def build_commit(dir, msg=None, png=False):
     dir = Path(dir)
     before = _model_sig(dir)
     res = build(dir)
@@ -407,11 +420,13 @@ def build_commit(dir, msg=None):
         out["hint"] = '源文件有未提交改动；用 lcad build -m "<原话>" 提交'
     current = out["edit"] or f"e{int(edit[1:]) - 1}"  # model.json records the version it shows
     out.update(write_artifacts(dir, res, current))
+    if png:
+        out.update(_render_txn_png(dir, res))
     return out
 
 
-def edit(dir, script, msg, dry_run=False):
-    return edit_full(dir, script, msg, dry_run=dry_run)[0]
+def edit(dir, script, msg, dry_run=False, png=False):
+    return edit_full(dir, script, msg, dry_run=dry_run, png=png)[0]
 
 
 def _dry_run_previews(dir, res, edit_id):
@@ -432,7 +447,7 @@ def _dry_run_previews(dir, res, edit_id):
     }
 
 
-def edit_full(dir, script, msg, dry_run=False):
+def edit_full(dir, script, msg, dry_run=False, png=False):
     """edit plus the final BuildResult (lcad export writes its files from it).
 
     dry_run runs the same build / script / replay / check pipeline but writes only a preview DXF
@@ -464,7 +479,7 @@ def edit_full(dir, script, msg, dry_run=False):
         for op in filled:
             if op.get("id") and op["id"] not in changed:
                 changed.append(op["id"])
-        return {
+        out = {
             "ok": True,
             "dry_run": True,
             "edit": edit_id,
@@ -481,7 +496,10 @@ def edit_full(dir, script, msg, dry_run=False):
                 if not msg
                 else "确认后去掉 --dry-run 重跑同一脚本即可提交"
             ),
-        }, r2
+        }
+        if png:
+            out["png"] = str(dir / previews["preview"])
+        return out, r2
     old = log_path.read_bytes() if log_path.exists() else b""
     lines = "".join(record.dumps(op) + "\n" for op in filled)
     prefix = old.decode("utf-8")
@@ -495,7 +513,10 @@ def edit_full(dir, script, msg, dry_run=False):
         _unstage(dir)
         raise
     arts = _artifacts(dir, r2, edit_id)
-    prune_tmp(dir)
+    if png:
+        arts.update(_render_txn_png(dir, r2))
+    else:
+        prune_tmp(dir)
     changed = []
     for op in filled:
         if op.get("id") and op["id"] not in changed:
