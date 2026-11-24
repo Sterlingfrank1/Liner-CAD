@@ -69,3 +69,12 @@ C3 可并行（热点 annotate/layout/rules/viewer，不与 C1/C2 冲突）
 - `d.table` 默认位置需要避让标题栏、技术要求、明细栏；v1 只保证“标题栏上方 + at 覆盖”，复杂版式用 `at`。
 - 全局 `lcad` 是发布快照；开发期改了源码要重新 `uv tool install --force` 才生效。
 - DSH 的 skill 在会话启动时加载；安装后新会话生效（本次会话已手动刷新，属例外）。
+
+## 9. 偏离记录
+
+17. **V1 跨 harness 数字门槛未达（2026-11-24 用户裁定通过，重定与校准留 v0.1.3）**：
+    - **门槛来源**：§4 / `retro-dsh-planetary.md` §6 中 V1 分阶段数字门槛（首次出图 `≤12 步 / ≤5 min`、单轮内层迭代 `≤6 步 / ≤2 min`）由 **DSH + `deepseek-v4.1-flash`** 的历史基线步时（总长 `2269.6 s = 37.8 min`、`148` 模型步、`174` 次工具调用，中位 `11.1 s/步`）标定。
+    - **复跑环境与量纲差异**：V1 复跑执行环境为 **`agy` + Orchestrator**（planner `Gemini 4 Neon (XHigh)` / executor `Gemini 4 Hydrogen (XHigh)`），"步"按**工具调用次数**统计，与 DSH 的"模型步"量纲不同，且单轮生成耗时不可跨 harness/模型直接等值比较。
+    - **用户裁定（2026-11-24）**：跨 harness 不作硬数字门槛判定，V1 以**过程行为合同**判定通过——Run 1 / Run 2 均做到 **0 次源码读取**、终态 **`lcad check` 0 error / 0 warning**（Run 2 含 1 条 `F.front.body` `missing` 合理 `d.accept`）；Run 2 做到首图一次写全、每次内层迭代均为批量修改、全流程看图 **4 次**（Run 1 为 **6 次**）——全部达标，判 V1 通过，并将暴露出的三项 CLI / API 摩擦点另立 v0.1.3 issue `#156`。
+    - **原始实测数字（原样保留，不得改写）**：Run 2 总计 **`623.0 s`（`10.38 min`）/ `41` tool calls（`35` model turns）**、`22` 次 `lcad` 子命令调用（`19` shell calls，耗时 `63.0 s`）、`7` 次失败命令；分阶段 Run 2 为 `init → e1` **`18` 步 / `286.0 s`**（含首轮看图 **`19` 步 / `295.0 s`**）、`e1 → e2` **`7` 步 / `151.0 s`**、`e2 → e3` **`7` 步 / `96.0 s`**、`e3 → e4` **`4` 步 / `33.0 s`**；Run 1 首次完成 **`728.0 s`（`12.13 min`）/ `75` tool calls（`47` model turns）**，其中 `init → e1` `47` 步 / `359.0 s`。
+    - **后续**：门槛重定与同 harness（DSH 侧）复跑校准留 **v0.1.3** 处理（见 `docs/milestones/v0.1.2/evidence/v1-planetary-rerun.md`）。

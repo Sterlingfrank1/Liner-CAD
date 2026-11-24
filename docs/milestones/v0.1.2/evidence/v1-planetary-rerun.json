@@ -1,0 +1,154 @@
+{
+  "card": "V1",
+  "issue": 155,
+  "v013_friction_issue": 156,
+  "deviation": 17,
+  "ruling": "PASS_WITH_DEVIATION_17",
+  "cross_harness_note": "跨 harness 对照，仅方向性参考：基线（2269.6 s = 37.8 min / 148 步 / 174 tool calls）与分阶段数字门槛（首次出图 <=12 步 / <=5 min，单轮迭代 <=6 步 / <=2 min）均源自 DSH + deepseek-v4.1-flash。本次 Run 1 / Run 2 在 agy 环境下按工具调用次数计步，跨 harness/模型不适用硬数字门槛，按过程行为合同判定通过并保留全部原始数字（偏离 17）。",
+  "baseline_dsh_deepseek_v4_1_flash": {
+    "source": "docs/milestones/v0.1.2/evidence/retro-dsh-planetary.md",
+    "wall_seconds": 2269.6,
+    "model_steps": 148,
+    "tool_calls": 174,
+    "lcad_cmd_invocations": 55,
+    "lcad_cmd_seconds": 235.0,
+    "image_reads": 17,
+    "failed_commands": 26
+  },
+  "run1": {
+    "subagent_id": "8db76458-3712-4199-b7f5-a35fd9e095a6",
+    "skill_loading": {
+      "method": "native_discovered",
+      "agy_discovered_path": "~/.gemini/antigravity-cli/skills/linercad/SKILL.md",
+      "c1_dsh_install_path": "~/.agents/skills/linercad/SKILL.md",
+      "hashes_identical_at_run_time": true,
+      "note": "harness 路径替代，不影响结论"
+    },
+    "wall_seconds": 728.0,
+    "wall_seconds_with_viewer_restart": 960.0,
+    "model_turns": 47,
+    "tool_calls": 75,
+    "tool_breakdown": {
+      "read_file": 17,
+      "run_command": 42,
+      "write_file": 3,
+      "edit_file": 12,
+      "send_message": 1
+    },
+    "lcad_cmd_invocations": 45,
+    "lcad_shell_calls": 37,
+    "lcad_cmd_seconds": 152.0,
+    "lcad_subcommands": {
+      "--help": 1,
+      "skill": 12,
+      "template": 1,
+      "init": 7,
+      "context": 5,
+      "edit": 2,
+      "build": 8,
+      "check": 5,
+      "view": 2,
+      "log": 2
+    },
+    "image_reads": 6,
+    "failed_commands": 9,
+    "source_repo_reads": 0,
+    "init_to_e1_calls": 47,
+    "init_to_e1_seconds": 359.0,
+    "e1_to_e2_seconds": 180.0,
+    "lcad_check_ok": true,
+    "lcad_check_errors": 0,
+    "lcad_check_warnings": 0,
+    "accept_count": 0
+  },
+  "run2": {
+    "subagent_id": "45bcf02c-dff5-4720-b357-586adac715d4",
+    "skill_loading": {
+      "method": "native_discovered",
+      "agy_discovered_path": "~/.gemini/antigravity-cli/skills/linercad/SKILL.md",
+      "c1_dsh_install_path": "~/.agents/skills/linercad/SKILL.md",
+      "sha256": "A9C1AD22439EB62096B4FCF12AC710116DD02B2E5F159B86B093EEE6BA299F94",
+      "hashes_identical_at_run_time": true,
+      "note": "harness 路径替代，不影响结论"
+    },
+    "tested_skill_sha256": "A9C1AD22439EB62096B4FCF12AC710116DD02B2E5F159B86B093EEE6BA299F94",
+    "wall_seconds": 623.0,
+    "model_turns": 35,
+    "tool_calls": 41,
+    "tool_breakdown": {
+      "read_file": 7,
+      "run_command": 19,
+      "write_file": 6,
+      "edit_file": 8,
+      "send_message": 1
+    },
+    "lcad_cmd_invocations": 22,
+    "lcad_shell_calls": 19,
+    "lcad_cmd_seconds": 63.0,
+    "lcad_subcommands": {
+      "--version": 1,
+      "--help": 1,
+      "skill": 4,
+      "init": 1,
+      "build": 5,
+      "context": 2,
+      "edit": 5,
+      "check": 1,
+      "view": 1,
+      "log": 1
+    },
+    "image_reads": 4,
+    "failed_commands": 7,
+    "source_repo_reads": 0,
+    "init_to_e1_build_calls": 18,
+    "init_to_e1_build_seconds": 286.0,
+    "init_to_e1_incl_png_calls": 19,
+    "init_to_e1_incl_png_seconds": 295.0,
+    "e1_to_e2_calls": 7,
+    "e1_to_e2_seconds": 151.0,
+    "e2_to_e3_calls": 7,
+    "e2_to_e3_seconds": 96.0,
+    "e3_to_e4_calls": 4,
+    "e3_to_e4_seconds": 33.0,
+    "lcad_check_ok": true,
+    "lcad_check_errors": 0,
+    "lcad_check_warnings": 0,
+    "accept_count": 1,
+    "accept_items": [
+      {
+        "edit": "e2",
+        "rule": "missing",
+        "id": "F.front.body",
+        "reason": "右端对称倒角 x=33..34 与左端 C1 相同，按 GB/T 4458.4-2003 及盘盖类规范仅标注一处 C1，其余未注倒角 C1 已在技术要求中说明"
+      }
+    ],
+    "render_png": "docs/milestones/v0.1.2/evidence/v1-planetary-r2-render.png"
+  },
+  "deviation_17": {
+    "rule": "PLAN §9 偏离 17（跨 harness 数字门槛未达；2026-11-24 用户裁定按过程行为通过，v0.1.3 在 DSH 侧重新校准）",
+    "approved_in_repo": "docs/milestones/v0.1.2/PLAN.md#9-偏离记录",
+    "threshold_origin": "DSH + deepseek-v4.1-flash (median 11.1 s/step; <=12 步 / <=5 min first build; <=6 步 / <=2 min per iteration)",
+    "rerun_environment": "agy + Orchestrator (planner Gemini 4 Neon (XHigh) / executor Gemini 4 Hydrogen (XHigh)); steps counted by tool calls",
+    "unmet_raw_numbers_run2": [
+      "init->e1: 18 tool calls / 286.0 s to build (19 tool calls / 295.0 s incl. first PNG) > 12",
+      "e1->e2: 7 tool calls / 151.0 s > 6 calls / 120.0 s",
+      "e2->e3: 7 tool calls / 96.0 s > 6 calls"
+    ],
+    "process_behavior_checks_passed": [
+      "source_repo_reads == 0 (both Run 1 and Run 2)",
+      "full first build including views, dims, PMI, tech_notes, table, title block",
+      "batch edit scripts in e1->e2->e3->e4 (4 image reads total in Run 2)",
+      "final lcad check 0 errors / 0 warnings (with 1 documented accept)"
+    ],
+    "post_run2_doc_clarification": {
+      "files": [
+        "src/linercad/skill/SKILL.md:40",
+        "src/linercad/skill/SKILL.md:43"
+      ],
+      "reason": "PR review clarified (1) raw table frame/title_block bounds come from d.template with GB A3 coords only as default example, and (2) `lcad view --no-open` blocks foreground unless started as a background process + read `.linercad/viewer.json`.",
+      "tested_skill_sha256": "A9C1AD22439EB62096B4FCF12AC710116DD02B2E5F159B86B093EEE6BA299F94",
+      "pr_head_skill_sha256": "B257208849D635D88CD8248F4745430AC75CE222B4F6BEE1D0B6A3691F3E19DD",
+      "re_run_performed": false
+    }
+  }
+}
