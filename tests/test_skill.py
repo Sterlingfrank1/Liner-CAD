@@ -100,3 +100,59 @@ def test_skill_api_documents_user_templates():
         "修订层",
     ):
         assert needle in page, needle
+
+
+def test_skill_install_dsh_writes_to_user_home_idempotently(tmp_path):
+    import json
+    import os
+    import subprocess
+    import sys
+
+    home = tmp_path / "home"
+    work = tmp_path / "any_work_dir"
+    home.mkdir()
+    work.mkdir()
+    env = {**os.environ, "USERPROFILE": str(home), "HOME": str(home), "PYTHONIOENCODING": "utf-8"}
+
+    def run_install():
+        return subprocess.run(
+            [sys.executable, "-m", "linercad", "skill", "install", "--target", "dsh"],
+            cwd=work,
+            env=env,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+
+    r = run_install()
+    out = json.loads(r.stdout)
+    assert r.returncode == 0 and out["ok"] and out["target"] == "dsh", out
+    dest = home / ".agents" / "skills" / "linercad" / "SKILL.md"
+    assert dest.is_file()
+    packaged = (resources.files("linercad") / "skill" / "SKILL.md").read_text(encoding="utf-8")
+    content = dest.read_text(encoding="utf-8")
+    assert content.startswith("---") and "name: linercad" in content
+    assert content == packaged
+
+    # Idempotent overwrite on re-install (no duplicate files)
+    dest.write_text("stale content\n", encoding="utf-8")
+    r2 = run_install()
+    out2 = json.loads(r2.stdout)
+    assert r2.returncode == 0 and out2["ok"]
+    assert dest.read_text(encoding="utf-8") == packaged
+    assert list(dest.parent.iterdir()) == [dest]
+
+
+def test_skill_help_lists_dsh():
+    import json
+    import subprocess
+    import sys
+
+    r = subprocess.run(
+        [sys.executable, "-m", "linercad", "--help"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    out = json.loads(r.stdout)
+    assert r.returncode == 0 and "dsh" in out["commands"]["skill"]
