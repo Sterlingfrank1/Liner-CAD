@@ -952,18 +952,163 @@ class NotesNS:
         return d._add(Note(d, nid, {"tech": True, "text": str(text)}))
 
 
+def _cell_parts(value):
+    """Cell input → (rendered text, expr src or None, covered param names)."""
+    if value is None:
+        return "", None, []
+    if hasattr(value, "src") and hasattr(value, "params"):
+        val, expr, covers = _expr_parts(value)
+        return fmt_num(val), expr, covers
+    return str(value), None, []
+
+
 class Cell(Element):
-    """A title-block field."""
+    """A title-block field or semantic table cell."""
 
     kind = "table.cell"
     SETTABLE = ("text",)
-    READ = ("text", "field")
+    READ = ("text", "field", "table", "row", "col", "header")
 
     text = property(lambda s: s._intent["text"])
-    field = property(lambda s: s._intent["field"])
+    field = property(lambda s: s._intent.get("field"))
+    table = property(lambda s: s._intent.get("table"))
+    row = property(lambda s: s._intent.get("row"))
+    col = property(lambda s: s._intent.get("col"))
+    header = property(lambda s: s._intent.get("header"))
 
     def _apply_set(self, fields):
-        self._intent["text"] = "" if fields["text"] is None else str(fields["text"])
+        text, expr, covers = _cell_parts(fields["text"])
+        self._intent["text"] = text
+        if expr is not None:
+            self._intent["expr"] = expr
+        else:
+            self._intent.pop("expr", None)
+        self._covers[:] = covers
+
+    def suppress(self):
+        if "table" in self._intent and "field" not in self._intent:
+            tbl = self._intent["table"]
+            raise InvalidArgument(
+                f'不能单独删除单元格 {self._id}；删除整张表用 d["T.{tbl}"].suppress()，清空内容用 .text = ""',
+                id=self._id,
+                candidates=[f"T.{tbl}"],
+            )
+        return super().suppress()
+
+
+def _check_positive(v, what):
+    if isinstance(v, bool):
+        raise InvalidArgument(f"{what} 不能是布尔值", values={what: repr(v)})
+    val = num(v, what)
+    if val <= 0:
+        raise InvalidArgument(f"{what} 必须大于 0（当前 {val:g}）", values={what: val})
+    return val
+
+
+def _check_table_cols(cols, ncols):
+    if not isinstance(cols, (list, tuple)) or len(cols) != ncols:
+        raise InvalidArgument(
+            f"cols 必须给出 {ncols} 个正数列宽",
+            values={"expected_len": ncols},
+        )
+    return [_check_positive(w, f"cols[{k}]") for k, w in enumerate(cols)]
+
+
+def _check_table_at(at):
+    if at is None:
+        return None
+    if not isinstance(at, (list, tuple)) or len(at) != 2:
+        raise InvalidArgument("at 必须是 (x, y) 二元坐标")
+    if isinstance(at[0], bool) or isinstance(at[1], bool):
+        raise InvalidArgument("at 坐标不能包含布尔值")
+    return [num(at[0], "at[0]"), num(at[1], "at[1]")]
+
+
+class Table(Element):
+    """Semantic sheet table (``d.table``): ``T.<name>`` owns 1-based ``T.<name>.<r>.<c>`` cells."""
+
+    kind = "table"
+    SETTABLE = ("title", "cols", "row_height", "text_height", "wrap")
+    LAYOUT = ("at",)
+    READ = (
+        "name",
+        "title",
+        "cols",
+        "row_height",
+        "text_height",
+        "wrap",
+        "nrows",
+        "ncols",
+        "at",
+        "headers",
+    )
+
+    name = property(lambda s: s._intent["name"])
+    title = property(lambda s: s._intent.get("title"))
+    cols = property(
+        lambda s: (
+            list(s._intent["cols"])
+            if s._intent.get("cols") is not None
+            else (list(s._resolved["cols"]) if "cols" in s._resolved else None)
+        )
+    )
+    row_height = property(lambda s: s._intent.get("row_height"))
+    text_height = property(lambda s: s._intent.get("text_height"))
+    wrap = property(lambda s: s._intent.get("wrap", True))
+    nrows = property(lambda s: s._intent["nrows"])
+    ncols = property(lambda s: s._intent["ncols"])
+    headers = property(lambda s: s._intent.get("headers"))
+
+    @property
+    def at(self):
+        v = self._layout.get("at")
+        if v is not None:
+            ox, oy = self._layout.get("offset", [0.0, 0.0])
+            return [v[0] + ox, v[1] + oy]
+        r = self._resolved.get("at")
+        return list(r) if r is not None else None
+
+    def _children(self):
+        name = self._intent["name"]
+        return [
+            f"T.{name}.{r}.{c}"
+            for r in range(1, self._intent["nrows"] + 1)
+            for c in range(1, self._intent["ncols"] + 1)
+        ]
+
+    def _apply_set(self, fields):
+        if "title" in fields:
+            t = fields["title"]
+            self._intent["title"] = None if t is None else str(t)
+        if "cols" in fields:
+            c = fields["cols"]
+            self._intent["cols"] = (
+                None if c is None else _check_table_cols(c, self._intent["ncols"])
+            )
+        if "row_height" in fields:
+            rh = fields["row_height"]
+            self._intent["row_height"] = None if rh is None else _check_positive(rh, "row_height")
+        if "text_height" in fields:
+            th = fields["text_height"]
+            self._intent["text_height"] = None if th is None else _check_positive(th, "text_height")
+        if "wrap" in fields:
+            if not isinstance(fields["wrap"], bool):
+                raise InvalidArgument("wrap 必须是 bool")
+            self._intent["wrap"] = fields["wrap"]
+
+    def _apply_place(self, fields):
+        if "at" in fields:
+            self._layout["at"] = _check_table_at(fields["at"])
+            self._layout.pop("offset", None)
+            if self._layout["at"] is None:
+                self._resolved.pop("at", None)
+
+    def _apply_move(self, dx, dy):
+        ox, oy = self._layout.get("offset", [0.0, 0.0])
+        self._layout["offset"] = [ox + dx, oy + dy]
+        if self._layout.get("at") is None and "at" in self._resolved:
+            r = self._resolved["at"]
+            self._resolved["at"] = [r[0] + dx, r[1] + dy]
 
 
 class Frame(Element):
@@ -1151,12 +1296,92 @@ def drawing_section(self, letter, view, cut_in, through, look=None):
 
 
 def drawing_title(self, **fields):
-    cells = {e.field: e for e in self._els.values() if e.kind == "table.cell"}
+    cells = {
+        e.field: e for e in self._els.values() if e.kind == "table.cell" and "field" in e._intent
+    }
     bad = [k for k in fields if k not in cells]
     if bad:
         raise InvalidArgument(f"标题栏没有字段 {', '.join(bad)}", candidates=sorted(cells))
     for k, v in fields.items():
         cells[k].set(text=v)
+
+
+RESERVED_TABLE_NAMES = ("title", "bom", "frame")
+
+
+def drawing_table(
+    self,
+    name,
+    rows,
+    *,
+    headers=None,
+    title=None,
+    cols=None,
+    row_height=None,
+    text_height=None,
+    at=None,
+    wrap=True,
+):
+    """Create a semantic parameter/spec table ``T.<name>`` and 1-based cells ``T.<name>.<r>.<c>``."""
+    check_name(name, "表名")
+    if name in RESERVED_TABLE_NAMES:
+        raise InvalidArgument(
+            f'表名不能用 "{name}"（已保留给系统元素 T.{name}）', values={"name": name}
+        )
+    if not isinstance(rows, (list, tuple)) or not rows:
+        raise InvalidArgument("rows 必须是非空二维行序列")
+    if not all(isinstance(r, (list, tuple)) and r for r in rows):
+        raise InvalidArgument("rows 的每一行必须是非空序列")
+    if headers is not None:
+        if not isinstance(headers, (list, tuple)) or not headers:
+            raise InvalidArgument("headers 必须是非空序列")
+        ncols = len(headers)
+    else:
+        ncols = len(rows[0])
+    for idx, row in enumerate(rows, 1):
+        if len(row) != ncols:
+            raise InvalidArgument(
+                f"第 {idx} 行有 {len(row)} 列，与表头/首行 {ncols} 列不一致",
+                values={"row": idx, "got": len(row), "expected": ncols},
+            )
+    if not isinstance(wrap, bool):
+        raise InvalidArgument("wrap 必须是 bool")
+    cols_v = None if cols is None else _check_table_cols(cols, ncols)
+    rh_v = None if row_height is None else _check_positive(row_height, "row_height")
+    th_v = None if text_height is None else _check_positive(text_height, "text_height")
+    at_v = _check_table_at(at)
+
+    all_rows = ([list(headers)] if headers is not None else []) + [list(r) for r in rows]
+    nrows = len(all_rows)
+    intent = {
+        "name": name,
+        "title": None if title is None else str(title),
+        "cols": cols_v,
+        "row_height": rh_v,
+        "text_height": th_v,
+        "wrap": wrap,
+        "nrows": nrows,
+        "ncols": ncols,
+        "headers": bool(headers is not None),
+    }
+    tbl = self._add(Table(self, f"T.{name}", intent))
+    if at_v is not None:
+        tbl._layout["at"] = at_v
+    for r, row in enumerate(all_rows, 1):
+        is_hdr = bool(headers is not None and r == 1)
+        for c, raw_val in enumerate(row, 1):
+            text, expr, covers = _cell_parts(raw_val)
+            cintent = {
+                "table": name,
+                "row": r,
+                "col": c,
+                "header": is_hdr,
+                "text": text,
+            }
+            if expr is not None:
+                cintent["expr"] = expr
+            self._add(Cell(self, f"T.{name}.{r}.{c}", cintent, covers=covers))
+    return tbl
 
 
 def init_sheet(d):
@@ -1169,6 +1394,11 @@ def init_sheet(d):
             Cell(
                 d,
                 f"T.title.{field}",
-                {"field": field, "label": spec.get("label", field), "text": text},
+                {
+                    "table": "title",
+                    "field": field,
+                    "label": spec.get("label", field),
+                    "text": text,
+                },
             )
         )

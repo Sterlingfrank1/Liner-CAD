@@ -353,6 +353,36 @@ class Drawing:
 
         drawing_title(self, **fields)
 
+    @mutator("table")
+    def table(
+        self,
+        name,
+        rows,
+        *,
+        headers=None,
+        title=None,
+        cols=None,
+        row_height=None,
+        text_height=None,
+        at=None,
+        wrap=True,
+    ):
+        """Create a semantic table ``T.<name>`` with 1-based cells ``T.<name>.<r>.<c>``."""
+        from .annotate import drawing_table
+
+        return drawing_table(
+            self,
+            name,
+            rows,
+            headers=headers,
+            title=title,
+            cols=cols,
+            row_height=row_height,
+            text_height=text_height,
+            at=at,
+            wrap=wrap,
+        )
+
     @mutator("section")
     def section(self, letter, view, cut_in, through, look=None):
         from .annotate import drawing_section
@@ -485,8 +515,17 @@ class Drawing:
     def __getitem__(self, id):
         el = self._els.get(id)
         if el is None:
+            msg = f"找不到元素 {id}"
+            s = str(id)
+            if s.startswith("T."):
+                parts = s.split(".")
+                if len(parts) >= 3:
+                    tbl = self._els.get(f"T.{parts[1]}")
+                    if tbl is not None and tbl.kind == "table":
+                        nr, nc = tbl._intent["nrows"], tbl._intent["ncols"]
+                        msg = f"找不到元素 {id}（表格 T.{parts[1]} 有效单元格范围 1..{nr} 行 × 1..{nc} 列，1-based）"
             raise NotFound(
-                f"找不到元素 {id}",
+                msg,
                 id=id,
                 candidates=self._close_ids(id),
                 hint="用 lcad context 查看全部 ID",
@@ -509,6 +548,26 @@ class Drawing:
                 matcher = difflib.SequenceMatcher(None, s)
                 edges.sort(key=lambda i: matcher.set_seq2(i) or matcher.ratio(), reverse=True)
                 return edges[:n]
+        if s.startswith("T."):
+            parts = s.split(".")
+            if len(parts) >= 3:
+                tbl = self._els.get(f"T.{parts[1]}")
+                if tbl is not None and tbl.kind == "table":
+                    nr, nc = tbl._intent["nrows"], tbl._intent["ncols"]
+                    cands = []
+                    if len(parts) == 4:
+                        try:
+                            r = max(1, min(nr, int(parts[2])))
+                            c = max(1, min(nc, int(parts[3])))
+                            cands.append(f"T.{parts[1]}.{r}.{c}")
+                        except ValueError:
+                            pass
+                    for cid in tbl._children():
+                        if len(cands) >= n:
+                            break
+                        if cid not in cands:
+                            cands.append(cid)
+                    return cands
         close = difflib.get_close_matches(s, ids, n=n, cutoff=0.5)
         prefix = s.rsplit(".", 1)[0]
         for i in ids:

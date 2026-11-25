@@ -66,6 +66,7 @@ CREATE_OPS = (
     "component",
     "std_part",
     "bom",
+    "table",
     "import_dxf",
 )
 MODIFY_OPS = ("place", "move", "set", "suppress", "accept", "raw")
@@ -114,6 +115,7 @@ DRAWING_CREATE = (
     "component",
     "std_part",
     "bom",
+    "table",
     "section",
     "raw_add",
     "removed_section",

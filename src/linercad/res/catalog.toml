@@ -480,6 +480,19 @@ positive = "evals/mutate.py:FIXTURES['stale_op']（干净 fixture + 合法日志
 negative = "evals/mutate.py:MUTATORS['stale_op']（注入缺陷后检出率 1.0，target 见报告）"
 
 [[rule]]
+id = "table_overflow"
+pack = "layout"
+family = "G"
+fn = "table_overflow"
+statement = "语义表格单元格及标题文字不应超出其边框边界"
+std = "DESIGN §4.2"
+clause = "DESIGN §4.2"
+clause_status = "design"
+status = "done"
+positive = "evals/mutate.py:FIXTURES['table_overflow']（干净 2×2 语义表格 fixture，0 违规）"
+negative = "evals/mutate.py:MUTATORS['table_overflow'] 与 EXTRA_MUTATORS['table_overflow']（单元格及标题栏超宽溢出，检出率 1.0）"
+
+[[rule]]
 id = "text_height"
 pack = "drafting"
 family = "G"

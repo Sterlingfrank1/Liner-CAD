@@ -16,6 +16,7 @@ STD_OVERLAP = "GB/T 4458.4-2003"
 STD_FRAME = "GB/T 14689-2008"
 STD_ALIGN = "GB/T 4458.1-2002"
 STD_STALE = "DESIGN §3.2"
+STD_TABLE_OVERFLOW = "DESIGN §4.2"
 
 # local axes of each basic view in model axes (SPEC §3.1): (sign, axis) for u and v
 VIEW_AXES = {
@@ -31,6 +32,7 @@ RULES = {
     "overlap": "layout",
     "out_of_frame": "layout",
     "view_align": "layout",
+    "table_overflow": "layout",
     "stale_op": "layout",
 }
 
@@ -49,7 +51,7 @@ def _v1_rules():
 
 AXIS_NAME = {"X": "长对正", "Z": "高平齐", "Y": "宽相等"}
 MAX_CORRIDOR = 50.0
-OWN_ZONE = ("frame", "table.cell")
+OWN_ZONE = ("frame",)
 
 # score family of every rule: G / D / T / A feed the vector, P is listed apart (process metrics)
 PACK_FAMILY = {
@@ -80,6 +82,7 @@ LAYOUT_CLAUSES = {
     "overlap": "尺寸线、尺寸数字不得与其他图线或文字相交",
     "out_of_frame": "图样应布置在图纸幅面内，并避开标题栏和技术要求区域",
     "view_align": "基本视图之间应保持长对正、高平齐、宽相等",
+    "table_overflow": "语义表格单元格及标题文字不应超出其边框边界",
     "stale_op": "动作日志里的操作应能在当前图纸上重放",
 }
 
@@ -147,6 +150,14 @@ def _overlaps(d):
         for o in els:
             if o is e:
                 continue
+            etbl = e._intent.get("table")
+            if e.kind == "table.cell" and "field" not in e._intent and etbl:
+                if (o.kind == "table" and o._id == f"T.{etbl}") or (
+                    o.kind == "table.cell"
+                    and "field" not in o._intent
+                    and o._intent.get("table") == etbl
+                ):
+                    continue
             osegs, oboxes = shapes[o._id]
             for b in boxes:
                 for p, q in osegs:
@@ -199,7 +210,12 @@ def _out_of_frame(d):
     n = 0
     for e in d._els.values():
         b = e._resolved.get("bbox")
-        if not b or e.kind in OWN_ZONE or e.kind in ("view", "feature", "raw") or e in tech:
+        if (
+            not b
+            or e.kind in OWN_ZONE
+            or e.kind in ("view", "feature", "raw", "table.cell")
+            or e in tech
+        ):
             continue
         n += 1
         viol = []
@@ -209,7 +225,51 @@ def _out_of_frame(d):
         for zid, z in (("T.title", TB), ("N.tech", TN)):
             if z and box_overlap(b, z) > 0.01:
                 viol.append({"with": zid, "overlap": round(box_overlap(b, z), 3)})
+        bom_el = d._els.get("T.bom")
+        bom_box = (
+            bom_el._resolved.get("bbox") if bom_el is not None and bom_el.kind == "bom" else None
+        )
+        rd_box = d._els["R.default"]._resolved.get("bbox") if "R.default" in d._els else None
+        if e.kind == "table":
+            for zid, z in (("T.bom", bom_box), ("R.default", rd_box)):
+                if z and box_overlap(b, z) > 0.01:
+                    viol.append({"with": zid, "overlap": round(box_overlap(b, z), 3)})
         if viol:
+            cands = []
+            if e.kind == "table":
+                tw, th = b[2] - b[0], b[3] - b[1]
+                ax0, ay0 = e._resolved.get("at") or (b[0], b[1])
+                dx_lo, dy_lo = ax0 - b[0], ay0 - b[1]
+                gap = d.std["tech_notes"]["gap"]
+                reserved = [z for z in (TB, TN, bom_box, rd_box) if z]
+                stack_y = max(z[3] for z in reserved) + gap
+                top_bx = max(F[0] + 1.0, min(F[2] - tw - 1.0, TB[2] - tw))
+                if (
+                    top_bx >= F[0] + 1.0 - 1e-6
+                    and top_bx + tw <= F[2] - 1.0 + 1e-6
+                    and stack_y + th <= F[3] - 1.0 + 1e-6
+                ):
+                    cands.append(
+                        f'd["{e._id}"].place(at=({round(top_bx + dx_lo, 1)}, {round(stack_y + dy_lo, 1)}))'
+                    )
+                left_bx = min(z[0] for z in reserved) - gap - tw
+                if left_bx >= F[0] + 1.0 and F[1] + 1.0 + th <= F[3] - 1.0:
+                    cands.append(
+                        f'd["{e._id}"].place(at=({round(left_bx + dx_lo, 1)}, {round(F[1] + 1.0 + dy_lo, 1)}))'
+                    )
+                if not cands:
+                    if tw <= F[2] - F[0] - 2.0 and th <= F[3] - F[1] - 2.0:
+                        cx = max(F[0] + 1.0, min(b[0], F[2] - tw - 1.0))
+                        cy = max(F[1] + 1.0, min(b[1], F[3] - th - 1.0))
+                        cand_b = (cx, cy, cx + tw, cy + th)
+                        if all(box_overlap(cand_b, z) <= 0.01 for z in reserved):
+                            cands.append(
+                                f'd["{e._id}"].place(at=({round(cx + dx_lo, 1)}, {round(cy + dy_lo, 1)}))'
+                            )
+                    if not cands:
+                        cands.append(
+                            f'表格或标题过宽，先调整列宽/标题（d["{e._id}"].set(cols=None) 或缩短内容）'
+                        )
             findings.append(
                 {
                     "rule": "out_of_frame",
@@ -224,9 +284,121 @@ def _out_of_frame(d):
                         "zones": {v["with"]: v["overlap"] for v in viol},
                     },
                     "expected": {"outside": 0.0, "zones": 0.0},
-                    "candidates": [],
+                    "candidates": cands,
                 }
             )
+    return findings, n
+
+
+def _table_overflow(d):
+    findings = []
+    n = 0
+    for e in d._els.values():
+        if e.kind != "table.cell" or "field" in e._intent or "cell_box" not in e._resolved:
+            continue
+        n += 1
+        tboxes = [p.box for p in e._prims if isinstance(p, Text)]
+        tbox = union(tboxes)
+        if tbox is None:
+            continue
+        cb = e._resolved["cell_box"]
+        ox = max(cb[0] - tbox[0], tbox[2] - cb[2], 0.0)
+        oy = max(cb[1] - tbox[1], tbox[3] - cb[3], 0.0)
+        if ox <= 0.05 and oy <= 0.05:
+            continue
+        cw, ch = cb[2] - cb[0], cb[3] - cb[1]
+        tw, th = tbox[2] - tbox[0], tbox[3] - tbox[1]
+        tbl = d._els.get(f"T.{e._intent['table']}")
+        cands = []
+        if ox > 0.05 and tbl is not None:
+            need_w = round(tw + 2.4 + 0.5, 1)
+            cols = list(tbl.cols) if tbl.cols else []
+            col_idx = e._intent["col"] - 1
+            if 0 <= col_idx < len(cols):
+                new_cols = [round(w, 1) for w in cols]
+                new_cols[col_idx] = need_w
+                cands.append(f'd["{tbl.id}"].set(cols={new_cols})')
+            if not tbl.wrap:
+                cands.append(f'd["{tbl.id}"].set(wrap=True)')
+        if oy > 0.05 and tbl is not None:
+            need_h = round(th + 2.0 + 0.5, 1)
+            cands.append(f'd["{tbl.id}"].set(row_height={need_h})')
+            if tbl.row_height is not None:
+                cands.append(f'd["{tbl.id}"].set(row_height=None)')
+        cands.append(f'精简 d["{e._id}"] 文字或提高行列空间')
+        findings.append(
+            {
+                "rule": "table_overflow",
+                "severity": "warn",
+                "id": e._id,
+                "message": (
+                    f"{e._id} 文字超出单元格边界（内容 {tw:.1f}×{th:.1f}，格框 {cw:.1f}×{ch:.1f}）"
+                ),
+                "std": STD_TABLE_OVERFLOW,
+                "violations": [],
+                "corridors": {},
+                "measured": {
+                    "overflow_x": round(ox, 3),
+                    "overflow_y": round(oy, 3),
+                    "text_w": round(tw, 3),
+                    "text_h": round(th, 3),
+                },
+                "expected": {"cell_w": round(cw, 3), "cell_h": round(ch, 3)},
+                "candidates": cands,
+            }
+        )
+    for tbl in d._els.values():
+        if tbl.kind != "table" or not tbl._intent.get("title") or "title_box" not in tbl._resolved:
+            continue
+        n += 1
+        tbox = union([p.box for p in tbl._prims if isinstance(p, Text)])
+        if tbox is None:
+            continue
+        tb = tbl._resolved["title_box"]
+        ox = max(tb[0] - tbox[0], tbox[2] - tb[2], 0.0)
+        oy = max(tb[1] - tbox[1], tbox[3] - tb[3], 0.0)
+        if ox <= 0.05 and oy <= 0.05:
+            continue
+        cw, ch = tb[2] - tb[0], tb[3] - tb[1]
+        tw, th = tbox[2] - tbox[0], tbox[3] - tbox[1]
+        cands = []
+        if ox > 0.05:
+            need_w = round(tw + 2.4 + 0.5, 1)
+            cols = list(tbl.cols) if tbl.cols else []
+            if cols:
+                extra = max(0.0, need_w - sum(cols)) / len(cols)
+                new_cols = [round(w + extra, 1) for w in cols]
+                if sum(new_cols) < need_w:
+                    new_cols[-1] = round(new_cols[-1] + (need_w - sum(new_cols)), 1)
+                cands.append(f'd["{tbl._id}"].set(cols={new_cols})')
+            if tbl._intent.get("cols") is not None:
+                cands.append(f'd["{tbl._id}"].set(cols=None)')
+        th_cur = float(tbl.text_height or 3.5)
+        smaller = [s for s in d.std.get("text", {}).get("heights", ()) if s < th_cur - 1e-9]
+        if smaller:
+            cands.append(f'd["{tbl._id}"].set(text_height={max(smaller):g})')
+        cands.append(f'缩短 d["{tbl._id}"] 标题文字（set(title=...)）')
+        findings.append(
+            {
+                "rule": "table_overflow",
+                "severity": "warn",
+                "id": tbl._id,
+                "message": (
+                    f"{tbl._id} 标题文字超出表格边界（内容 {tw:.1f}×{th:.1f}，表框 {cw:.1f}×{ch:.1f}）"
+                ),
+                "std": STD_TABLE_OVERFLOW,
+                "violations": [],
+                "corridors": {},
+                "measured": {
+                    "overflow_x": round(ox, 3),
+                    "overflow_y": round(oy, 3),
+                    "text_w": round(tw, 3),
+                    "text_h": round(th, 3),
+                },
+                "expected": {"table_w": round(cw, 3), "title_h": round(ch, 3)},
+                "candidates": cands,
+            }
+        )
     return findings, n
 
 
@@ -335,6 +507,7 @@ def run(d, stale_ops=(), log_ops=()):
         ("overlap", _overlaps),
         ("out_of_frame", _out_of_frame),
         ("view_align", _view_align),
+        ("table_overflow", _table_overflow),
     ):
         got, n = fn(d)
         raw += got
@@ -362,6 +535,8 @@ def run(d, stale_ops=(), log_ops=()):
         f.setdefault("measured", {})
         f.setdefault("expected", {})
         f.setdefault("candidates", [])
+        f.setdefault("violations", [])
+        f.setdefault("corridors", {})
     accepted = getattr(d, "_accepted", {})
     findings = []
     for e in d._els.values():

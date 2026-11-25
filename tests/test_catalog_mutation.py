@@ -95,7 +95,7 @@ def test_clause_precision_policy():
     for rule, e in by_id.items():
         if rule in READ_CLAUSES:
             continue
-        if rule in ("param_cover", "stale_op"):
+        if rule in ("param_cover", "stale_op", "table_overflow"):
             assert e["clause_status"] == "design", rule
             assert e["clause"].startswith("DESIGN §"), rule
         else:
