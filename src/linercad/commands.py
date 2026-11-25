@@ -21,6 +21,7 @@ BRIEF_KINDS = (
     "note",
     "hatch",
     "section",
+    "table",
     "table.cell",
     "raw",
     "import",
@@ -35,6 +36,11 @@ SNIPPETS = {
     ],
     "note": ['d["{id}"].text = "新文字"', 'd["{id}"].place(dir=135)', 'd["{id}"].suppress()'],
     "edge": ['d["{id}"].role = "hidden"', 'd["{id}"].move(dx=1)'],
+    "table": [
+        'd["{id}"].place(at=(260, 120))      # 指定左下角位置（默认右对齐在标题栏上方）',
+        'd["{id}"].set(cols={cols})         # 调整列宽（或 cols=None 自适应）/ wrap=True / row_height=...',
+        'd["{id}"].suppress()                 # 删除整张表及全部单元格',
+    ],
     "table.cell": ['d["{id}"].text = "新值"'],
     "view": ['d["{id}"].move(dy=-5)'],
 }
@@ -45,7 +51,15 @@ def brief(e) -> dict:
     i = e._intent
     if e.kind == "dim":
         out.update(text=i["text"], type=i["type"], role=i["role"], side=e.side, row=e.row)
-    elif e.kind in ("note", "table.cell"):
+    elif e.kind == "table":
+        out.update(title=i.get("title"), nrows=i.get("nrows"), ncols=i.get("ncols"))
+    elif e.kind == "table.cell":
+        out["text"] = i.get("text")
+        if "table" in i:
+            out["table"] = i["table"]
+        if "row" in i:
+            out.update(row=i["row"], col=i["col"], header=i.get("header"))
+    elif e.kind == "note":
         out["text"] = i.get("text")
     elif e.kind in ("feature", "center"):
         out["type"] = i.get("type")
@@ -298,7 +312,11 @@ def context(dir, ids=()):
             near = [x.id for x in d.near(cx, cy, r=r) if x.id != e.id and x.kind not in ("frame",)][
                 :12
             ]
-        snip = [s.format(id=e.id) for s in SNIPPETS.get(e.kind, [])]
+        fmt = {"id": e.id}
+        if e.kind == "table":
+            cols = e.cols or [24.0] * e.ncols
+            fmt["cols"] = [round(float(w), 1) for w in cols]
+        snip = [s.format(**fmt) for s in SNIPPETS.get(e.kind, [])]
         out.append(
             {
                 "element": e.to_dict(),

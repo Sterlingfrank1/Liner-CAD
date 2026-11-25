@@ -43,6 +43,10 @@ h3 { font-size: 12px; margin: 10px 0 4px; color: var(--muted); }
 #canvas svg g.sel.st-violation, #canvas svg g.hover.st-violation { color: var(--err);
   filter: drop-shadow(0 0 1.4px var(--err)) drop-shadow(0 0 1.4px var(--err)); }
 #canvas svg g.sel line, #canvas svg g.sel path, #canvas svg g.sel circle, #canvas svg g.sel polyline { stroke-width: .6; }
+#canvas svg g.hover rect.cell-hit { fill: rgba(46, 134, 222, .08); stroke: var(--hover); stroke-width: .3; }
+#canvas svg g.sel rect.cell-hit { fill: rgba(21, 101, 192, .12); stroke: var(--sel); stroke-width: .4; }
+#canvas svg g.st-warn rect.cell-hit { stroke: var(--warn); stroke-width: .4; }
+#canvas svg g.st-error rect.cell-hit { stroke: var(--err); stroke-width: .5; }
 /* params */
 .pgroup { margin-bottom: 10px; } .pgroup > .gname { color: var(--muted); font-size: 11px; margin: 6px 0 2px; }
 .param { padding: 4px 0; border-bottom: 1px dashed #eee; }

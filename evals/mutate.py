@@ -216,10 +216,22 @@ def _fx_perp():
     return d
 
 
+def _fx_table():
+    from linercad import Drawing
+
+    d = Drawing(sheet="A3")
+    d.view("front").rect((0, 0), 40, 20, name="body")
+    d.title(name="示例", material="45")
+    d.table("params", [["m", "2"]], headers=["参数", "值"], cols=[20, 20])
+    layout(d)
+    return d
+
+
 FIXTURES = {
     "place_dim_cross": _fx_perp,
     "chain_limit": _fx_chain,
     "stale_op": _fx_plain,
+    "table_overflow": _fx_table,
     "place_balloon_align": _fx_balloons,
     "place_balloon_cross": _fx_balloons,
     "place_balloon_spacing": _fx_balloons,
@@ -547,6 +559,19 @@ def m_out_of_frame(d):
     raise AssertionError("no movable element")
 
 
+def m_table_overflow(d):
+    d["T.params"].set(cols=[20, 8], wrap=False)
+    d["T.params.2.2"].set(text="超长参数数值说明")
+    layout(d)
+    return "T.params.2.2"
+
+
+def m_table_overflow_title(d):
+    d["T.params"].set(title="超长语义表格标题横幅超出总列宽", cols=[12, 12])
+    layout(d)
+    return "T.params"
+
+
 def m_view_align(d):
     for e in d._els.values():
         if e.kind == "edge" and e.view != "front" and e._intent.get("shape") == "line":
@@ -853,6 +878,7 @@ MUTATORS = {
     "overlap": m_overlap,
     "out_of_frame": m_out_of_frame,
     "view_align": m_view_align,
+    "table_overflow": m_table_overflow,
     "stale_op": m_stale_op,
     "place_dim_cross": m_place_dim_cross,
     "place_dim_outline": m_place_dim_outline,
@@ -872,6 +898,7 @@ MUTATORS = {
 #: additional scenarios per rule (a rule may need several shapes of the same defect)
 EXTRA_MUTATORS = {
     "place_leader_cross": [m_place_leader_cross_sphere, m_place_leader_cross_hyphen],
+    "table_overflow": [m_table_overflow_title],
 }
 
 

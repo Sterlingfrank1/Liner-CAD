@@ -37,7 +37,7 @@ Liner-CAD 是一个 2D 工程图 harness：你写 Python，它负责画法、布
 - 硬约束只有三条：每次修改必须**批量**（一个脚本装下本轮全部修复，不逐条改）；写之前必须**先收集全部 finding 并规划**；**达标才停**，不因为“看着差不多”就交付。
 - **达标定义**：`errors` = 0；`warnings` 全部修复，或 `d.accept(rule, id, "理由")` 并在交付说明里逐条列出理由；图面完整（视图、尺寸、PMI、技术要求、参数表、标题栏、未注公差）。
 - **首图一次写全**：视图方案、尺寸、公差、形位公差、粗糙度、技术要求、参数表、标题栏、未注公差全部在第一次 build 前写进 `drawing.py`；不要留“收尾阶段”。
-- **零试探起步**：只读 `lcad skill api` 与当前零件族对应的**那 1 张**卡片，禁止遍读无关零件族、禁止在图纸目录建临时参考目录、禁止翻 `.linercad/build/drawing.dxf` 或在首图前跑试探脚本。需画参数表时直接用 `d.raw_add("LINE", ...)` / `d.raw_add("TEXT", ...)` 画在图框右上角空白区，位置从 `d.template["frame"]` 与 `d.template["title_block"]`（`origin`/`size`）计算；GB 档 A3 默认图框 `[25, 5, 415, 292]`、标题栏 `[235, 5, 415, 61]` 仅作默认示例，非默认图幅或 ISO 档勿照抄，图层 `THICK`/`THIN`/`TEXT`。
+- **零试探起步**：只读 `lcad skill api` 与当前零件族对应的**那 1 张**卡片，禁止遍读无关零件族、禁止在图纸目录建临时参考目录、禁止翻 `.linercad/build/drawing.dxf` 或在首图前跑试探脚本。需画参数表时优先用 `d.table(name, rows, headers=..., title=...)`（默认右对齐叠放在标题栏 / 技术要求上方；需要手写位置 `at=(x, y)` 时从 `d.template["frame"]` 与 `d.template["title_block"]`（`origin`/`size`）计算；GB 档 A3 默认图框 `[25, 5, 415, 292]`、标题栏 `[235, 5, 415, 61]` 仅作默认示例，非默认图幅或 ISO 档勿照抄）；手工附加图元用 `d.raw_add("LINE", ...)` / `d.raw_add("TEXT", ...)`，图层 `THICK`/`THIN`/`TEXT`。
 - **不重复调用**：`build --png` / `edit --png` 已返回全部 `errors` 与 `warnings`，内层迭代不重复跑 `lcad check`（仅交付前核验一次）；每轮用**一次**写全 `drawing.py` 或**一个**批量脚本完成修改，不拆成多次零散修改。
 - **不自行抛光**：不做用户没要求、也不属于达标必需的改动；但达标所需的修复必须做完。
 - **Viewer**：出图/改图时设 `LCAD_NO_VIEW=1`，不要弹系统浏览器；需要交互时用后台进程（daemon / PowerShell `Start-Process lcad -ArgumentList "view","--no-open" -WindowStyle Hidden`；直接运行 `lcad view --no-open` 会阻塞前台）启动 Viewer 并从 `.linercad/viewer.json` 取 URL 给用户（DSH 里点链接默认在右侧边栏打开），用户点选后 `lcad context "@sel"` 读取。

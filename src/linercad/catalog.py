@@ -44,6 +44,7 @@ def rule_functions() -> dict:
             "overlap": checks._overlaps,
             "out_of_frame": checks._out_of_frame,
             "view_align": checks._view_align,
+            "table_overflow": checks._table_overflow,
             "stale_op": checks._stale,
         }
     )

@@ -41,9 +41,19 @@ def svg_groups(d) -> list[tuple[str, str, str]]:
     std, _W, H, P, widths = _ctx(d)
     out = []
     for e in d._els.values():
-        if not e._prims:
+        cb = e._resolved.get("cell_box") if e.kind == "table.cell" else None
+        user_cell = e.kind == "table.cell" and "field" not in e._intent and cb is not None
+        if not e._prims and not user_cell:
             continue
-        parts = [f'<g data-id="{escape(e.id)}" data-kind="{escape(e.kind)}">']
+        tbl = e._intent.get("table")
+        tattr = f' data-table="{escape(tbl)}"' if tbl else ""
+        parts = [f'<g data-id="{escape(e.id)}" data-kind="{escape(e.kind)}"{tattr}>']
+        if user_cell:
+            x0, y0, x1, y1 = cb
+            parts.append(
+                f'<rect data-k="hit" class="cell-hit" x="{_f(x0)}" y="{_f(H - y1)}" '
+                f'width="{_f(x1 - x0)}" height="{_f(y1 - y0)}" fill="transparent" stroke="none"/>'
+            )
         for k, pr in enumerate(e._prims):
             parts.append(_prim(pr, k, std, widths, P, H))
         parts.append("</g>")

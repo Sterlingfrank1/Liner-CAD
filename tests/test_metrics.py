@@ -34,7 +34,8 @@ def run(d, stale=()):
 
 
 def _layout_problems():
-    """overlap (an over-full dimension row), view_align (长对正), out_of_frame (an oversized view)."""
+    """overlap (an over-full dimension row), view_align (长对正), out_of_frame (an oversized view),
+    table_overflow."""
     d = Drawing(sheet="A3")
     fr, tp, lf = d.view("front"), d.view("top"), d.view("left")
     fr.rect((0, 0), 80, 60, name="body")
@@ -43,6 +44,7 @@ def _layout_problems():
     for k in range(8):  # more fixed-row dimensions than the candidates can separate
         fr.dim.linear(f"x{k}", (0, 20), (80, 20), side="top", row=1)
     tp.rect((0, 0), 85, 10, name="extra")  # 长对正 mismatch against front
+    d.table("ov", [["代号", "超长参数内容超出狭窄列宽"]], cols=[16, 12], at=(100, 180), wrap=False)
     return d
 
 

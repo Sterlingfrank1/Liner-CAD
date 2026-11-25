@@ -2276,7 +2276,11 @@ class _Layout:
                 bbox=[full[0] + ox, full[1] + oy, full[2] + ox, full[3] + oy],
             )
         for e in d._els.values():
-            if e._prims and e.kind != "view":
+            if e.kind == "table.cell" and "cell_box" in e._resolved:
+                cb = e._resolved["cell_box"]
+                b = union([cb, prims_bbox(e._prims)]) if e._prims else cb
+                e._resolved["bbox"] = list(b)
+            elif e._prims and e.kind != "view":
                 e._resolved["bbox"] = list(prims_bbox(e._prims))
         self._nudge_texts()
         from .pmi import chain_result
@@ -2359,8 +2363,11 @@ class _Layout:
         for _round in range(2):
             changed = False
             for e in els:
-                if e.kind in ("view", "feature", "raw", "chain", "text") or not e._prims:
-                    continue  # imported text keeps its DXF anchors: never moved by a repair pass
+                if (
+                    e.kind in ("view", "feature", "raw", "chain", "text", "table", "table.cell")
+                    or not e._prims
+                ):
+                    continue  # imported text and tables keep their explicit layout anchors
                 texts = [(i, pr) for i, pr in enumerate(e._prims) if isinstance(pr, Text)]
                 if len(texts) != 1:
                     continue
@@ -2442,7 +2449,7 @@ class _Layout:
         d._els["T.frame"]._prims = prims
         TB = (ox, oy, ox + tb["size"][0], oy + tb["size"][1])
         for e in d._els.values():
-            if e.kind != "table.cell":
+            if e.kind != "table.cell" or "field" not in e._intent:
                 continue
             spec = tb["fields"][e._intent["field"]]
             x0, y0, x1, y1 = spec["box"]
@@ -2462,7 +2469,7 @@ class _Layout:
                 make_text(text, (ox + (x0 + x1) / 2, oy + (y0 + y1) / 2), h, std, layer="text")
             ]
         bom = d._els.get("T.bom")
-        if bom is not None:
+        if bom is not None and bom.kind == "bom":
             from .assembly import bom_rows
 
             bom._prims = bom_prims(bom_rows(d), TB, std)
@@ -2509,7 +2516,8 @@ class _Layout:
             rd._prims = rough_default_prims(rd, std, TB[2] - 2, TB[3] + tn["gap"])
             rd._resolved["bbox"] = list(prims_bbox(rd._prims))
             TN = union([TN, prims_bbox(rd._prims)])
-        return {"F": F, "TB": TB, "TN": TN}
+        TABLES, TABLE_OBSTACLES = _layout_tables(d, F, TB, TN, std)
+        return {"F": F, "TB": TB, "TN": TN, "TABLES": TABLES, "TABLE_OBSTACLES": TABLE_OBSTACLES}
 
     # -- view placement ----------------------------------------------------------------------------
     def arrange(self, vls, sheet):
@@ -2570,25 +2578,35 @@ class _Layout:
             F = sheet["F"]
             dx = (F[0] + F[2]) / 2 - (group[0] + group[2]) / 2
             dy = (F[1] + F[3]) / 2 - (group[1] + group[3]) / 2
-            zone = union([sheet["TB"], sheet["TN"]])
+            base_zone = union([sheet["TB"], sheet["TN"], sheet.get("TABLES")])
+            extra_obs = list(sheet.get("TABLE_OBSTACLES") or ())
             g = (group[0] + dx, group[1] + dy, group[2] + dx, group[3] + dy)
-            if box_overlap(inflate(zone, gap / 2), g) > 0:
-                up = zone[3] + gap - g[1]
-                left = g[2] - (zone[0] - gap)
-                if g[3] + up <= F[3] + 1e-9:
-                    dy += up
-                elif g[0] - left >= F[0] - 1e-9:
-                    dx -= left
-                else:
-                    dy += max(0.0, F[3] - g[3])
-                    dx -= max(0.0, g[0] - F[0])
+            if not extra_obs:
+                if base_zone and box_overlap(inflate(base_zone, gap / 2), g) > 0:
+                    up = base_zone[3] + gap - g[1]
+                    left = g[2] - (base_zone[0] - gap)
+                    if g[3] + up <= F[3] + 1e-9:
+                        dy += up
+                    elif g[0] - left >= F[0] - 1e-9:
+                        dx -= left
+                    else:
+                        dy += max(0.0, F[3] - g[3])
+                        dx -= max(0.0, g[0] - F[0])
+            else:
+                sdx, sdy = _avoid_obstacles(
+                    g, [z for z in (base_zone, *extra_obs) if z], F, gap, 0.0
+                )
+                dx += sdx
+                dy += sdy
         dx, dy = dx + bx, dy + by
         if fv._layout.get("at") is None:
             # automatic layout is clamped into the frame; a written at is absolute and stays
             F = sheet["F"]
-            zone = union([sheet["TB"], sheet["TN"]])
+            base_zone = union([sheet["TB"], sheet["TN"], sheet.get("TABLES")])
+            extra_obs = list(sheet.get("TABLE_OBSTACLES") or ())
+            obstacles = [z for z in (base_zone, *extra_obs) if z]
             margin = 1.0  # keep the drawing inside the frame line, not on it
-            for _ in range(3):
+            for _ in range(max(3, len(obstacles) + 2)):
                 gb = union(
                     [
                         (
@@ -2608,9 +2626,14 @@ class _Layout:
                 if abs(sx) > 1e-9 or abs(sy) > 1e-9:
                     dx, dy = dx + sx, dy + sy
                     moved = True
-                if not moved and zone and box_overlap(inflate(zone, gap / 2), gb) > 0:
-                    up = zone[3] + gap - gb[1]
-                    left = gb[2] - (zone[0] - gap)
+                if (
+                    not moved
+                    and not extra_obs
+                    and base_zone
+                    and box_overlap(inflate(base_zone, gap / 2), gb) > 0
+                ):
+                    up = base_zone[3] + gap - gb[1]
+                    left = gb[2] - (base_zone[0] - gap)
                     if gb[3] + up <= F[3] - margin:
                         dy += up
                     elif gb[0] - left >= F[0] + margin:
@@ -2619,6 +2642,11 @@ class _Layout:
                         dy += max(0.0, F[3] - margin - gb[3])
                         dx -= max(0.0, gb[0] - F[0] - margin)
                     moved = True
+                elif not moved and extra_obs:
+                    sdx, sdy = _avoid_obstacles(gb, obstacles, F, gap, margin)
+                    if abs(sdx) > 1e-9 or abs(sdy) > 1e-9:
+                        dx, dy = dx + sdx, dy + sdy
+                        moved = True
                 if not moved:
                     break
         out = {n: (o[0] + dx, o[1] + dy) for n, o in origins.items()}
@@ -2777,6 +2805,210 @@ def bom_prims(rows, TB, std):
                 prims.append(make_text(line, (cx, y - lh / 2), BOM_TEXT_H, std, layer="text"))
                 y -= lh + BOM_LINE_GAP
     return prims
+
+
+TBL_TEXT_H = 3.5
+TBL_ROW = 7.0
+TBL_PAD_X = 1.2
+TBL_PAD_Y = 1.0
+TBL_LINE_GAP = 0.8
+
+
+def _wrap_table_cell(text, width, h, std, wrap):
+    """Split cell text into rendered lines; wraps at cell padding only when ``wrap`` is True."""
+    s = str(text).strip()
+    if not s:
+        return []
+    raw_lines = [ln for ln in s.splitlines() if ln.strip()]
+    if not wrap:
+        return raw_lines
+    avail = max(width - 2 * TBL_PAD_X, 0.1)
+    lines = []
+    for raw in raw_lines:
+        cur = ""
+        for ch in raw:
+            if cur and text_size(cur + ch, h, std)[0] > avail:
+                lines.append(cur.rstrip())
+                cur = ch.lstrip()
+            else:
+                cur += ch
+        if cur:
+            lines.append(cur.rstrip())
+    return lines or raw_lines
+
+
+def _avoid_obstacles(gb, obstacles, F, gap, margin):
+    """Shift ``gb`` cleanly out of any fixed/default obstacle while staying inside frame ``F``."""
+    dx = dy = 0.0
+    for _ in range(max(4, len(obstacles) * 2)):
+        cur = (gb[0] + dx, gb[1] + dy, gb[2] + dx, gb[3] + dy)
+        hit = next((o for o in obstacles if box_overlap(inflate(o, gap / 2), cur) > 0), None)
+        if hit is None:
+            break
+        dirs = (
+            (0.0, hit[3] + gap - cur[1]),
+            (-(cur[2] - (hit[0] - gap)), 0.0),
+            (0.0, -(cur[3] - (hit[1] - gap))),
+            (hit[2] + gap - cur[0], 0.0),
+        )
+        best = None
+        for idx, (sdx, sdy) in enumerate(dirs):
+            cand = (cur[0] + sdx, cur[1] + sdy, cur[2] + sdx, cur[3] + sdy)
+            out = max(
+                F[0] + margin - cand[0],
+                F[1] + margin - cand[1],
+                cand[2] - (F[2] - margin),
+                cand[3] - (F[3] - margin),
+                0.0,
+            )
+            ov = sum(box_overlap(inflate(o, gap / 2), cand) for o in obstacles)
+            score = (1 if out > 1e-6 else 0, 1 if ov > 1e-6 else 0, round(out + ov, 6), idx)
+            if best is None or score < best[0]:
+                best = (score, sdx, sdy)
+        if best is None or (abs(best[1]) < 1e-9 and abs(best[2]) < 1e-9):
+            break
+        dx += best[1]
+        dy += best[2]
+    return dx, dy
+
+
+def _layout_tables(d, F, TB, TN, std):
+    """Lay out semantic ``T.<name>`` tables and populate grid/cell primitives and ``cell_box``."""
+    tables = [e for e in d._els.values() if e.kind == "table"]
+    if not tables:
+        return None, []
+    gap = std["tech_notes"]["gap"]
+    cursor_y = max(TB[3], TN[3] if TN else TB[3]) + gap
+    default_boxes = []
+    explicit_boxes = []
+
+    for tbl in tables:
+        i = tbl._intent
+        name = i["name"]
+        nr, nc = i["nrows"], i["ncols"]
+        th = float(i["text_height"] or TBL_TEXT_H)
+        min_rh = max(TBL_ROW, th + 2 * TBL_PAD_Y)
+        wrap = bool(i.get("wrap", True))
+        cells = [[d._els[f"T.{name}.{r}.{c}"] for c in range(1, nc + 1)] for r in range(1, nr + 1)]
+
+        if i.get("cols") is not None:
+            col_ws = [float(w) for w in i["cols"]]
+        else:
+            col_ws = []
+            for c in range(nc):
+                max_w = 0.0
+                for r in range(nr):
+                    for part in str(cells[r][c]._intent["text"]).splitlines() or [""]:
+                        max_w = max(max_w, text_size(part, th, std)[0])
+                col_ws.append(max(12.0, th * 3.0, math.ceil(max_w + 2 * TBL_PAD_X + 2.0)))
+            if i.get("title"):
+                need = math.ceil(text_size(i["title"], th, std)[0] + 2 * TBL_PAD_X + 2.0)
+                if sum(col_ws) < need:
+                    extra = (need - sum(col_ws)) / nc
+                    col_ws = [w + extra for w in col_ws]
+
+        def content_h(lines, _th=th):
+            if not lines:
+                return 0.0
+            hs = [text_size(ln, _th, std)[1] for ln in lines]
+            return sum(hs) + TBL_LINE_GAP * max(0, len(hs) - 1)
+
+        wrapped = [
+            [
+                _wrap_table_cell(cells[r][c]._intent["text"], col_ws[c], th, std, wrap)
+                for c in range(nc)
+            ]
+            for r in range(nr)
+        ]
+        if i.get("row_height") is not None:
+            row_hs = [float(i["row_height"])] * nr
+        else:
+            row_hs = [
+                max(
+                    min_rh,
+                    max((content_h(wrapped[r][c]) for c in range(nc)), default=0.0) + 2 * TBL_PAD_Y,
+                )
+                for r in range(nr)
+            ]
+
+        title_text = i.get("title")
+        title_h = (
+            max(min_rh, text_size(title_text, th, std)[1] + 2 * TBL_PAD_Y) if title_text else 0.0
+        )
+        total_w = sum(col_ws)
+        total_h = sum(row_hs) + title_h
+
+        explicit_at = tbl._layout.get("at")
+        if explicit_at is not None:
+            x0, y0 = float(explicit_at[0]), float(explicit_at[1])
+        else:
+            x0 = TB[2] - total_w
+            y0 = cursor_y
+            cursor_y = y0 + total_h + gap
+        ox, oy = tbl._layout.get("offset", [0.0, 0.0])
+        x0, y0 = x0 + ox, y0 + oy
+
+        xs = [x0]
+        for w in col_ws:
+            xs.append(xs[-1] + w)
+        # Row 1 at top (under optional title banner), Row R at bottom y0
+        body_top = y0 + sum(row_hs)
+        ys_rows = [body_top]
+        for rh in row_hs:
+            ys_rows.append(ys_rows[-1] - rh)
+
+        top = y0 + total_h
+        prims = [
+            Line((x0, y0), (x0 + total_w, y0), "thick"),
+            Line((x0, top), (x0 + total_w, top), "thick"),
+            Line((x0, y0), (x0, top), "thick"),
+            Line((x0 + total_w, y0), (x0 + total_w, top), "thick"),
+        ]
+        for x in xs[1:-1]:
+            prims.append(Line((x, y0), (x, body_top), "thin"))
+        if title_text:
+            prims.append(Line((x0, body_top), (x0 + total_w, body_top), "thick"))
+            prims.append(
+                make_text(
+                    title_text, (x0 + total_w / 2, body_top + title_h / 2), th, std, layer="text"
+                )
+            )
+        for r_idx in range(1, nr):
+            y_line = ys_rows[r_idx]
+            role = "thick" if (i.get("headers") and r_idx == 1) else "thin"
+            prims.append(Line((x0, y_line), (x0 + total_w, y_line), role))
+
+        for r in range(nr):
+            yt, yb = ys_rows[r], ys_rows[r + 1]
+            for c in range(nc):
+                cell = cells[r][c]
+                cell._resolved["cell_box"] = [xs[c], yb, xs[c + 1], yt]
+                lines = wrapped[r][c]
+                if not lines:
+                    cell._prims = []
+                    continue
+                hs = [text_size(ln, th, std)[1] for ln in lines]
+                yc = (yb + yt) / 2 + content_h(lines) / 2
+                xc = (xs[c] + xs[c + 1]) / 2
+                cprims = []
+                for ln, lh in zip(lines, hs):
+                    cprims.append(make_text(ln, (xc, yc - lh / 2), th, std, layer="text"))
+                    yc -= lh + TBL_LINE_GAP
+                cell._prims = cprims
+
+        if title_text:
+            tbl._resolved["title_box"] = [x0, body_top, x0 + total_w, top]
+        else:
+            tbl._resolved.pop("title_box", None)
+        tbl._prims = prims
+        tbl._resolved.update(at=[x0, y0], cols=list(col_ws), row_heights=list(row_hs))
+        tbox = [x0, y0, x0 + total_w, top]
+        if explicit_at is None and abs(ox) < 1e-9 and abs(oy) < 1e-9:
+            default_boxes.append(tbox)
+        else:
+            explicit_boxes.append(tbox)
+
+    return union(default_boxes), explicit_boxes
 
 
 def layout(d):
