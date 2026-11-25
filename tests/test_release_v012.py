@@ -5,6 +5,7 @@ G2: committed before the version bump / docs and expected to fail on main.
 
 from __future__ import annotations
 
+import json
 import re
 import tomllib
 from pathlib import Path
@@ -37,6 +38,11 @@ def test_pyproject_lock_and_package_version_are_0_1_2():
 
 def test_release_notes_v012_have_required_sections_and_v1_numbers():
     text = read("docs/releases/v0.1.2.md")
+    ev = json.loads(read("docs/milestones/v0.1.2/evidence/v1-planetary-rerun.json"))
+    base = ev["baseline_dsh_deepseek_v4_1_flash"]
+    r1 = ev["run1"]
+    r2 = ev["run2"]
+
     for heading in (
         "## 范围",
         "## 交付",
@@ -47,8 +53,10 @@ def test_release_notes_v012_have_required_sections_and_v1_numbers():
     ):
         assert heading in text, heading
 
+    assert re.search(r"^\| R1 \|.*#160\b", text, re.MULTILINE)
+
     for needle in (
-        "v0.1.2",
+        "# Liner-CAD v0.1.2 发布说明",
         "lcad skill install --target dsh",
         "--png",
         "d.table",
@@ -58,20 +66,20 @@ def test_release_notes_v012_have_required_sections_and_v1_numbers():
         "lcad --version",
         "偏离 17",
         "#156",
-        "623.0 s",
-        "41",
-        "2269.6 s",
-        "174",
         "跨 harness",
-        "18",
-        "19",
-        "286",
-        "295",
-        "7",
-        "151",
-        "96",
-        "728.0 s",
-        "75",
+        f"{base['wall_seconds']} s",
+        f"{base['tool_calls']} tool calls",
+        f"{r2['wall_seconds']} s",
+        f"`{r2['tool_calls']}` tool calls",
+        f"`{r2['init_to_e1_build_calls']}` 步 / `{r2['init_to_e1_build_seconds']} s`",
+        f"`{r2['init_to_e1_incl_png_calls']}` 步 / `{r2['init_to_e1_incl_png_seconds']} s`",
+        f"`{r2['e1_to_e2_calls']}` 步 / `{r2['e1_to_e2_seconds']} s`",
+        f"`{r2['e2_to_e3_calls']}` 步 / `{r2['e2_to_e3_seconds']} s`",
+        f"`{r2['e3_to_e4_calls']}` 步 / `{r2['e3_to_e4_seconds']} s`",
+        f"看图 **`{r2['image_reads']}` 次**",
+        f"源码读取 **`{r2['source_repo_reads']}` 次**",
+        f"{r1['wall_seconds']} s",
+        f"`{r1['tool_calls']}` tool calls",
         "scripts/release.py 0.1.2",
     ):
         assert needle in text, needle
@@ -93,6 +101,11 @@ def test_release_and_handover_evidence_paths_exist():
 
 def test_handover_v012_lists_all_5_cards_gates_and_deviations():
     text = read("docs/milestones/v0.1.2/HANDOVER.md")
+    ev = json.loads(read("docs/milestones/v0.1.2/evidence/v1-planetary-rerun.json"))
+    base = ev["baseline_dsh_deepseek_v4_1_flash"]
+    r1 = ev["run1"]
+    r2 = ev["run2"]
+
     for card, (issue, pr_ref) in CARDS.items():
         row = next(
             (line for line in text.splitlines() if line.startswith(f"| {card} |")),
@@ -102,6 +115,15 @@ def test_handover_v012_lists_all_5_cards_gates_and_deviations():
         assert f"#{issue}" in row, (card, issue, row)
         cells = [cell.strip() for cell in row.strip("|").split("|")]
         assert cells[2] == pr_ref, (card, cells)
+
+    stage_calls = (
+        f"{r2['init_to_e1_build_calls']}–{r2['init_to_e1_incl_png_calls']}"
+        f" / {r2['e1_to_e2_calls']} / {r2['e2_to_e3_calls']} / {r2['e3_to_e4_calls']}"
+    )
+    stage_secs = (
+        f"{int(r2['init_to_e1_build_seconds'])}–{int(r2['init_to_e1_incl_png_seconds'])}"
+        f" / {int(r2['e1_to_e2_seconds'])} / {int(r2['e2_to_e3_seconds'])} / {int(r2['e3_to_e4_seconds'])}"
+    )
 
     for needle in (
         "偏离 17",
@@ -113,10 +135,13 @@ def test_handover_v012_lists_all_5_cards_gates_and_deviations():
         "evals/mutate.py",
         "uv tool install --force",
         "scripts/release.py 0.1.2",
-        "623.0 s",
-        "41",
-        "2269.6 s",
-        "174",
+        f"{r2['wall_seconds']} s",
+        f"`{r2['tool_calls']}` tool calls",
+        f"{base['wall_seconds']} s",
+        f"`{base['tool_calls']}` tool calls",
+        f"{r1['wall_seconds']} s / {r1['tool_calls']} tool calls",
+        stage_calls,
+        stage_secs,
         "跨 harness",
     ):
         assert needle in text, needle
@@ -125,7 +150,10 @@ def test_handover_v012_lists_all_5_cards_gates_and_deviations():
 def test_roadmap_and_readme_updated_for_v012():
     roadmap = read("docs/ROADMAP.md")
     board_row = next(line for line in roadmap.splitlines() if re.match(r"^\|\s*v0\.1\.2\b", line))
-    assert "完成" in board_row and "计划中" not in board_row, board_row
+    board_cells = [cell.strip() for cell in board_row.strip("|").split("|")]
+    assert board_cells[0] == "v0.1.2", board_cells
+    assert board_cells[3] == "完成", board_cells
+    assert board_cells[4] == "待打（`v0.1.2`）", board_cells
     assert re.search(r"^\|\s*v0\.1\.2\b.*docs/milestones/v0\.1\.2/HANDOVER\.md", roadmap, re.M)
 
     readme = read("README.md")
