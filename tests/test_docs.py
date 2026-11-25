@@ -15,7 +15,7 @@ def read(rel):
 
 def test_readme_versions_and_v011_capabilities():
     text = read("README.md")
-    assert "**v0.1.1**" in text
+    assert "**v0.1.2**" in text
     for needle in (
         "--dry-run",
         "template save",
