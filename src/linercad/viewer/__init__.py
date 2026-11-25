@@ -58,6 +58,8 @@ def label(e) -> str:
         return i.get("letter", "")
     if e.kind in ("note", "table.cell"):
         return i.get("text", "")
+    if e.kind == "table":
+        return i.get("title") or i.get("name", "")
     return i.get("type") or i.get("shape") or ""
 
 
@@ -208,7 +210,7 @@ class Viewer:
             issues = self._issues_by_element(r)
             out = []
             for e in r.d._els.values():
-                if not e._prims:
+                if not e._prims and not (e.kind == "table.cell" and "cell_box" in e._resolved):
                     continue
                 src = e.src
                 link = None
@@ -410,7 +412,7 @@ class Viewer:
         such as V.top, or a parameter) is mapped to the elements that can be marked on the canvas."""
         eid = f.get("id")
         el = r.d._els.get(eid)
-        if el is not None and el._prims:
+        if el is not None and (el._prims or "cell_box" in el._resolved):
             return [eid]
         if isinstance(eid, str) and eid.startswith("V."):
             view = eid[2:]
@@ -610,6 +612,15 @@ def _brief_intent(e):
         "p2",
         "measured",
         "expr",
+        "table",
+        "row",
+        "col",
+        "header",
+        "title",
+        "cols",
+        "nrows",
+        "ncols",
+        "wrap",
     )
     return {k: v for k, v in e.to_dict()["intent"].items() if k in keep}
 

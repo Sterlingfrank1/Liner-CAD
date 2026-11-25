@@ -1,17 +1,22 @@
-"""C3-A (PR1 core): Semantic tables (`d.table`) — creation, 1-based cells, layout,
-checks (`table_overflow`, `out_of_frame`, `OWN_ZONE` title regression), DXF export and replay."""
+"""C3 (G2 RED -> GREEN): Semantic tables (`d.table`) — creation, 1-based cells, queries,
+layout, checks (`table_overflow`, `out_of_frame`, `OWN_ZONE` title regression), reactive Expr,
+Viewer/SVG picking, DXF export and `lcad edit` replay/suppress."""
 
 from __future__ import annotations
 
+import ast
 import re
+from pathlib import Path
 
 import pytest
 
-from linercad import Drawing, Param, checks, dxfout, errors
+from linercad import Drawing, Param, checks, dxfout, errors, svgout
+from linercad.commands import context
 from linercad.layout import Line, Text, box_overlap, layout
 from linercad.runtime import build
 from linercad.txn import build_commit, edit_full
 from linercad.txn import init as txn_init
+from linercad.viewer import Viewer, label, ref_text
 
 
 def _clean_part_with_table():
@@ -121,7 +126,24 @@ def test_table_creation_validation_errors():
         d.table("dup", [["c", "d"]])
 
 
-def test_table_oob_bracket_lookup_provides_candidates():
+def test_queries_and_title_block_table_facet():
+    d = _clean_part_with_table()
+    assert [t.id for t in d.q.tables()] == ["T.params"]
+
+    all_params = d.q.cells(table="params")
+    assert len(all_params) == 20
+    assert d.q.cells(table="params", row=1).ids() == [f"T.params.1.{c}" for c in range(1, 5)]
+    assert d.q.cells(table="params", col=2).ids() == [f"T.params.{r}.2" for r in range(1, 6)]
+    assert d.q.cells(table="params", header=True).ids() == [f"T.params.1.{c}" for c in range(1, 5)]
+
+    # Correction #1: title-block cells carry table="title"
+    title_cells = d.q.cells(table="title")
+    assert len(title_cells) >= 5
+    assert any(c.id == "T.title.name" and c.table == "title" for c in title_cells)
+    assert d.q.cells(table="title", field="name").one().id == "T.title.name"
+
+
+def test_table_oob_lookup_and_query_errors_provide_candidates():
     d = _clean_part_with_table()
     for bad_id in ("T.params.0.1", "T.params.6.1", "T.params.1.0", "T.params.2.5"):
         with pytest.raises(errors.NotFound) as exc:
@@ -132,6 +154,28 @@ def test_table_oob_bracket_lookup_provides_candidates():
             exc.value.candidates,
         )
         assert "1..5" in exc.value.message and "1..4" in exc.value.message
+
+    # Unknown table name
+    with pytest.raises(errors.NotFound) as exc:
+        d.q.cells(table="unknown")
+    assert "params" in exc.value.candidates and "title" in exc.value.candidates
+
+    # Query OOB row/col must raise InvalidArgument with 1..N candidates, never []
+    with pytest.raises(errors.InvalidArgument) as exc:
+        d.q.cells(table="params", row=0)
+    assert exc.value.candidates == [1, 2, 3, 4, 5]
+
+    with pytest.raises(errors.InvalidArgument) as exc:
+        d.q.cells(table="params", row=6)
+    assert exc.value.candidates == [1, 2, 3, 4, 5]
+
+    with pytest.raises(errors.InvalidArgument) as exc:
+        d.q.cells(table="params", col=5)
+    assert exc.value.candidates == [1, 2, 3, 4]
+
+    with pytest.raises(errors.InvalidArgument) as exc:
+        d.q.cells(table="title", row=1)
+    assert "name" in exc.value.candidates
 
 
 # ---- 2. Layout, right-aligned stacking, view avoidance, 5x4 check clean, DXF --------------------
@@ -347,7 +391,80 @@ def test_explicit_at_and_moved_tables_avoid_auto_views():
     assert box_overlap(d2["V.front"].bbox, t2.bbox) == 0.0
 
 
-# ---- 4. Edit replay & suppress -------------------------------------------------------------------
+# ---- 4. Viewer/SVG picking, reactive Expr, context, and edit replay ------------------------------
+
+
+def test_table_svg_viewer_pick_context_and_slider_preview(tmp_path):
+    txn_init(tmp_path)
+    src = """from linercad import Drawing, Param
+
+d = Drawing(sheet="A3")
+P = d.params(m=Param(2, min=1, max=10), z=Param(20, min=10, max=60))
+f = d.view("front")
+f.turned("g", [(0, P.m * P.z / 2), (10, P.m * P.z / 2)])
+f.dim.dia("d", (5, P.m * P.z / 2), (5, -P.m * P.z / 2), value=P.m * P.z, side="inside")
+d.general_tol("m")
+d.title(name="齿轮", material="45")
+d.table(
+    "params",
+    [["模数", P.m, ""], ["齿数", P.z, "标准"], ["分度圆", P.m * P.z, "computed"]],
+    headers=["项目", "数值", "备注"],
+)
+"""
+    (tmp_path / "drawing.py").write_text(src, encoding="utf-8")
+    build_commit(tmp_path, msg="add table")
+    res = build(tmp_path)
+    d = res.d
+
+    # Empty cell still emits SVG group with data-table and transparent hit rect
+    groups = {eid: (kind, html) for eid, kind, html in svgout.svg_groups(d)}
+    assert "T.params" in groups and groups["T.params"][0] == "table"
+    empty_id = "T.params.2.3"
+    assert empty_id in groups and 'data-table="params"' in groups[empty_id][1]
+    assert 'class="cell-hit"' in groups[empty_id][1]
+    assert 'data-table="title"' in groups["T.title.name"][1]
+
+    # viewer.js only skips frame, table, and title-block cells
+    vjs = (
+        Path(__file__).resolve().parents[1] / "src" / "linercad" / "viewer" / "viewer.js"
+    ).read_text(encoding="utf-8")
+    assert 'g.dataset.kind === "frame"' in vjs
+    assert 'g.dataset.table === "title"' in vjs
+
+    # Viewer model + slider preview updates reactive Expr cells
+    v = Viewer(tmp_path)
+    model = v.model()
+    by_id = {e["id"]: e for e in model["elements"]}
+    assert empty_id in by_id
+    assert by_id["T.params.4.2"]["intent"]["text"] == "40"
+    assert by_id["T.params.4.2"]["intent"]["table"] == "params"
+    assert by_id["T.params.4.2"]["intent"]["row"] == 4
+    assert by_id["T.params.4.2"]["intent"]["col"] == 2
+    assert label(d["T.params.2.2"]) == "2" and "T.params.2.2" in ref_text(d["T.params.2.2"])
+
+    pv = v.do_preview({"m": 4})
+    assert pv["ok"]
+    pv_model = {e["id"]: e for e in v.model()["elements"]}
+    assert pv_model["T.params.2.2"]["intent"]["text"] == "4"
+    assert pv_model["T.params.4.2"]["intent"]["text"] == "80"
+    assert "80" in v.preview["svg"]
+
+    # lcad context overview + single element (snippet cols length matches table.ncols)
+    ctx_all = context(tmp_path)
+    assert "table" in ctx_all["elements"]
+    ctx_tbl = context(tmp_path, ["T.params"])
+    snip = ctx_tbl["items"][0]["snippet"]
+    assert ctx_tbl["items"][0]["element"]["kind"] == "table" and snip
+    cols_line = next(line for line in snip if "set(cols=" in line)
+    m = re.search(r"cols=(\[[^\]]+\])", cols_line)
+    assert m, cols_line
+    parsed_cols = ast.literal_eval(m.group(1))
+    assert len(parsed_cols) == d["T.params"].ncols == 3
+    d["T.params"].set(cols=parsed_cols)
+    ctx_cell = context(tmp_path, ["T.params.2.2"])
+    assert (
+        ctx_cell["items"][0]["element"]["kind"] == "table.cell" and ctx_cell["items"][0]["snippet"]
+    )
 
 
 def test_edit_replay_table_cell_move_and_suppress(tmp_path):

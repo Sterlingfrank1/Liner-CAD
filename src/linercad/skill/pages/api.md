@@ -65,6 +65,7 @@ front = d.view("front")      # 基本视图：front top bottom left right rear�
 | `v.dim.chamfer(name, edge)` | 倒角：45° 注 `C1`，否则 `2×30°`；`edge` 传直线边 `E.<v>.<f>.1`（不传特征 `F.*`） |
 | `v.dim.thread(name, feat)` / `v.dim.groove(name, groove, fmt="wd")` / `v.dim.hole(name, feat, n=4)` / `v.dim.spline(name, feat)` / `sec.dim.keyway(name, "F.B.s", what="b"/"depth")` | 规定画法的代号和必需尺寸 |
 | `v.note(name, "text", anchor=, dir=, length=)` / `d.notes.tech([...])` / `d.title(name=, drawing_no=, material=, ...)` | 引线注释（`dir` 为角度制数字如 `135`，不是向量） / 技术要求 / 标题栏 |
+| `d.table(name, rows, *, headers=None, title=None, cols=None, row_height=None, text_height=None, at=None, wrap=True)` | 语义参数表 `T.<name>` 与 1-based 单元格 `T.<name>.<r>.<c>`（可传 `P.*` 表达式）；默认右对齐叠放于标题栏上方，`at=` 覆盖位置，`cols=` 指定列宽 |
 
 - `value=P.L - P.l1` 让尺寸显示参数值并记录 `covers`；不给就显示几何实测值。`role="position"` 必须给 `datum=`。
 - **公差**：`tol="k6"`（查 GB/T 1800 得偏差）、`"±0.1"`、`"+0.021/0"`；`tol_show="code"/"dev"/"both"` 三种注法；`envelope=True` 包容要求；`el.fit = "g6"` 同 `tol`。
@@ -89,8 +90,9 @@ d.chain("axial", closing="l5", increase=["D.L"], decrease=["D.l1", "D.l2"], requ
 ## 引用与查询
 
 ```python
-d["D.L"]                                         # 按 ID；找不到会列出相近 ID
-d.q.dims(view="front", role="position")          # 种类：views features edges lines circles arcs centers dims notes hatches sections cells all
+d["D.L"]                                         # 按 ID；找不到会列出相近 ID（表格 1-based：d["T.params.2.1"]）
+d.q.dims(view="front", role="position")          # 种类：views features edges lines circles arcs centers dims notes hatches sections tables cells all
+d.q.cells(table="params", row=2)                 # 也支持 d.q.cells(table="title") 查标题栏字段
 d.q.lines(view="front").where(length=30, dir="h").near(120, 45).one()   # near 用该视图的模型坐标
 ```
 

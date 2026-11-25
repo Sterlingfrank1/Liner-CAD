@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 
-from .errors import CountMismatch, InvalidArgument, UnknownAttribute
+from .errors import CountMismatch, InvalidArgument, NotFound, UnknownAttribute
 from .model import num
 
 KINDS = {
@@ -19,6 +19,7 @@ KINDS = {
     "notes": ("note", None),
     "hatches": ("hatch", None),
     "sections": ("section", None),
+    "tables": ("table", None),
     "cells": ("table.cell", None),
     "all": (None, None),
 }
@@ -28,7 +29,20 @@ def facets(el) -> dict:
     """Flat attributes a query can filter on."""
     i = el._intent
     f = {"id": el.id, "kind": el.kind, "view": i.get("view")}
-    for k in ("role", "type", "shape", "text", "field", "name", "value", "dir"):
+    for k in (
+        "role",
+        "type",
+        "shape",
+        "text",
+        "field",
+        "name",
+        "value",
+        "dir",
+        "table",
+        "row",
+        "col",
+        "header",
+    ):
         if k in i and not isinstance(i[k], (dict, list)):
             f[k] = i[k]
     if el.kind == "edge":
@@ -218,6 +232,34 @@ class QueryRoot:
 
         return Query(self._d, detail_sources(self._d, letter), f"q.detail_sources({letter})")
 
+    def _validate_cells_query(self, els, conds):
+        tables = sorted({e._intent["table"] for e in els if "table" in e._intent})
+        if "table" in conds and conds["table"] not in tables:
+            raise NotFound(f"找不到表格 {conds['table']!r}", candidates=tables)
+        if conds.get("table") == "title" and ("row" in conds or "col" in conds):
+            fields = sorted(e._intent["field"] for e in els if e._intent.get("table") == "title")
+            raise InvalidArgument(
+                "标题栏单元格没有 row/col 编号，请用 field= 查询", candidates=fields
+            )
+        for key, max_field, zh in (("row", "nrows", "行"), ("col", "ncols", "列")):
+            if key not in conds:
+                continue
+            if "table" in conds:
+                scope = [self._d._els.get(f"T.{conds['table']}")]
+            else:
+                scope = [e for e in self._d._els.values() if e.kind == "table"]
+            max_v = max((t._intent[max_field] for t in scope if t is not None), default=0)
+            if max_v == 0:
+                raise InvalidArgument("当前图纸没有参数表，无法按 row/col 查询", candidates=tables)
+            val = conds[key]
+            cands = list(range(1, max_v + 1))
+            if isinstance(val, bool) or not isinstance(val, int) or val < 1 or val > max_v:
+                raise InvalidArgument(
+                    f"表格{zh}号 {val!r} 越界（有效范围 1..{max_v}，1-based）",
+                    candidates=cands,
+                    values={key: val, "min": 1, "max": max_v},
+                )
+
     def __getattr__(self, name):
         if name.startswith("_") or name not in KINDS:
             raise UnknownAttribute(f"d.q 没有种类 {name}", candidates=list(KINDS))
@@ -230,6 +272,8 @@ class QueryRoot:
                 if (kind is None or e.kind == kind)
                 and (shape is None or e._intent.get("shape") == shape)
             ]
+            if name == "cells" and conds:
+                self._validate_cells_query(els, conds)
             q = Query(self._d, els, f"q.{name}()", view=conds.get("view"))
             return q.where(**conds) if conds else q
 
