@@ -1,6 +1,6 @@
 # Liner-CAD
 
-**v0.1.1**（[v0.1.0 发布说明](docs/releases/v0.1.0.md)） · 通用 2D 工程图 Harness 层：包名 `linercad`，命令行 `lcad`。
+**v0.1.2**（[v0.1.2 发布说明](docs/releases/v0.1.2.md) · [v0.1.1](docs/releases/v0.1.1.md) · [v0.1.0](docs/releases/v0.1.0.md)） · 通用 2D 工程图 Harness 层：包名 `linercad`，命令行 `lcad`。
 
 Liner-CAD 本身不是 Agent。推理、理解需求、写代码交给宿主 Coding Agent（Claude Code / Codex / OpenCode / WorkBuddy …）；Harness 提供语义化图纸模型、脚本运行时、制图与制造约束检查、交互 Viewer 和基于 git 的版本管理。
 
@@ -12,6 +12,12 @@ Liner-CAD 本身不是 Agent。推理、理解需求、写代码交给宿主 Cod
 | [DRAFTING-COVERAGE.md](DRAFTING-COVERAGE.md) | 机械制图专业度、覆盖矩阵、评测集 |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | 里程碑、开发流程、质量门禁、交接记录 |
 | [AGENTS.md](AGENTS.md) | Agent 行为纪律（开发本仓库时加载） |
+
+## v0.1.2 新增
+
+- **全局安装 + DSH Skill 一键安装：** `lcad skill install --target dsh` 安装到 `~/.agents/skills/linercad/SKILL.md`（幂等覆盖）；装好后在任意图纸目录直接运行全局 `lcad`，不读 Liner-CAD 源码仓库。
+- **单事务出图与查验：** `lcad build --png` 与 `lcad edit x.py --png` 在成功事务后直接返回 `png` 路径与完整 finding（失败仍回滚且不渲染）。
+- **语义参数表 `d.table`：** 创建 1-based 单元格 `T.<name>.<r>.<c>`，支持 `d.q.tables()` / `d.q.cells()`（标题栏单元格同步 `table="title"`）、右对齐自动避让与 `at=` 覆盖、`table_overflow` 与 `out_of_frame` 候选检查，以及 Viewer 语义单元格点选与参数滑块联动。
 
 ## v0.1.1 新增
 
@@ -26,10 +32,11 @@ Liner-CAD 本身不是 Agent。推理、理解需求、写代码交给宿主 Cod
 ```bash
 git clone https://github.com/Sterlingfrank1/Liner-CAD && cd Liner-CAD
 uv tool install --force .   # 全局安装 lcad（任意图纸目录直接运行；3D 来源：uv tool install --force --with build123d .）
+lcad --version              # 任意目录验证全局 lcad（如 0.1.2）
 lcad skill install --target dsh                                  # 全局安装 DSH skill（~/.agents/skills/linercad/SKILL.md）
 # 也可装进单个工作目录：lcad skill install --target claude|codex|opencode|generic --dir <Agent 工作目录>
 
-lcad init /tmp/shaft --from shaft && lcad -C /tmp/shaft render
+lcad init /tmp/shaft --from shaft && lcad -C /tmp/shaft build --png
 lcad -C /tmp/shaft view     # 本地 Viewer（首次 build 也会自动打开）
 lcad -C /tmp/shaft template list   # 用户模板清单
 ```

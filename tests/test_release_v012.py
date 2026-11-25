@@ -124,9 +124,7 @@ def test_handover_v012_lists_all_5_cards_gates_and_deviations():
 
 def test_roadmap_and_readme_updated_for_v012():
     roadmap = read("docs/ROADMAP.md")
-    board_row = next(
-        line for line in roadmap.splitlines() if re.match(r"^\|\s*v0\.1\.2\b", line)
-    )
+    board_row = next(line for line in roadmap.splitlines() if re.match(r"^\|\s*v0\.1\.2\b", line))
     assert "完成" in board_row and "计划中" not in board_row, board_row
     assert re.search(r"^\|\s*v0\.1\.2\b.*docs/milestones/v0\.1\.2/HANDOVER\.md", roadmap, re.M)
 

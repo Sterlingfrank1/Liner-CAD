@@ -13,7 +13,7 @@
 | M3 3D 来源与复杂零件 | 3D 投影正式来源、叉架类、箱体类、装配图、DXF 导入、版本对比、Skill 完善、L3 与跨 Agent 评测 | #4 | 完成 | `v0.1-m3` |
 | 发布 | 全量回归、发布说明 | — | 完成 | `v0.1.0` |
 | v0.1.1 | v0.1.0 缺口与人工评审项收口：出图与尺寸排布、评测指标体系、资源库核对、DXF 导入评测、Viewer（计划见 `docs/milestones/v0.1.1/PLAN.md`） | #5 | 完成 | `v0.1.1` |
-| v0.1.2 | 一次请求 = 一次达标交付：全局 `lcad` + DSH skill、`build` / `edit --png`、`d.table` 语义参数表，并用计时复跑验证（计划见 `docs/milestones/v0.1.2/PLAN.md`） | — | 计划中 | — |
+| v0.1.2 | 一次请求 = 一次达标交付：全局 `lcad` + DSH skill、`build` / `edit --png`、`d.table` 语义参数表，并用计时复跑验证（计划见 `docs/milestones/v0.1.2/PLAN.md`） | — | 完成 | 待打（`v0.1.2`） |
 
 ## 2. 里程碑生命周期
 
@@ -98,6 +98,7 @@ BRIEF（监督会话写）
 | M2 | 2026-11-08 | m1-depth（续用，见下） | `docs/milestones/M2/HANDOVER.md` | **通过。** 干净 clone：849 个测试全绿，ruff 通过，评测 30 / 30。临时目录用 shaft 范例实测 `lcad view`：在内置浏览器里点选后写出 `selection.json`（未命名几何给出 `d.q` 选择器），`lcad context @sel` 读到同一元素；另一个进程 `lcad edit` 后 Viewer 自动刷新到 e1，状态栏显示原话。看了 G5 截图和界面评审：主流程通，界面评分多为 3 / 5。无新增依赖。转入 M3：初始视图适配、违规时写回按钮、预览态标示、内孔引线穿越。说明：桌面应用不允许监督会话在自动触发的回合里新建会话，所以 M2 在 M1 的会话里继续执行（已改名），M3 同样 |
 | M3 | 2026-11-09 | m1-depth（续用） | `docs/milestones/M3/HANDOVER.md` | **通过（一项外部阻塞的偏离）。** 干净 clone（`uv sync --extra 3d`）：947 个测试全绿，ruff 通过，评测 40 / 40（零 error，几何对照与完整性对照 1.0）。临时目录抽查：`gear_cover` 纯 3D 投影出图零 error，三轮 `edit` 后 `lcad log` / `diff e1 e3` 正确（增 2、版面移动 5，出叠加 SVG），只跟踪 5 个源文件；L3 bearing 零 error，改零件 `seat` 的 `L` 120→130 后装配重建同步（`A.seat` 参数与配合尺寸随之变化，一个 commit）；`init --from-dxf` 导入样例后用 `d["D.dim_3"].move()` 改一轮成功；`lcad inspect` 给出结构摘要和渲染图。看图 gear_cover、bearing 与 Viewer 版本对比截图：表达正确，装配图序号拥挤、尺寸排布弱，与出图评审 2–3 分一致。偏离：跨 Agent 评测的 Codex 部分因服务商 403 余额不足未运行（监督会话决定按外部阻塞记录，重跑命令在 HANDOVER §5）。转入 v0.2：尺寸布局与序号对齐、装配螺纹画法与局部放大、明细栏合并、投影边按拓扑稳定命名（现在参数一变 `diff` 里边号大面积变化）、第三方 DXF 样例 |
 | v0.1.1 | 2026-11-23 | dsh-lead（DSH 团队章程：w1–w4 常驻成员 + Codex 评审 + glm 二道） | `docs/milestones/v0.1.1/HANDOVER.md` | **通过。** 33 张卡（issue #73–#102、#104–#108，A1/A3 随 #69 关闭）全部经 PR squash 合并、CI 四项绿。干净 clone 全量回归 1515 passed / 1 skipped、`--baseline` regressions 空、mutation 39/39 检出 1.0 误报 0、place_scores 五范例达标。G5 独立 Agent 四路：dsh 法兰变体 3 轮 check 0/0（dry-run 预览与最终渲染 SHA256 一致）、dsh 磨头参照图两轮 0/0（dry-run 与真实提交 ops 一致）、Codex conversation 双轮 0/0（修改轮 ~4.5× 提速）、图像评审 PASS WITH NOTES。验收发现如实追踪：#145 全剖端面线贯通通孔、#146 形位公差符号渲染、#147 V1 发现汇总（均记 v0.2）；PLAN §9 偏离 10–16。转入 v0.2（ROADMAP §6） |
+| v0.1.2 | 2026-11-25 | supervisor（全自动执行） | `docs/milestones/v0.1.2/HANDOVER.md` | **完成待打 tag。** C1–C3 / V1（C1 #151/#152、C2 #153/#154、V1 #155/#157、C3 #158/#159）已通过 Codex 评审与 CI 4/4 合并，R1 (#160) 完成版本 0.1.2 收口与全量验证（`1556 passed / 1 skipped`、`evals/run.py --baseline` 40/40 regressions 空且 G 族新增 `table_overflow` 指标、`evals/mutate.py` 38 规则 / 41 变异检出 1.0 误报 0、`%TEMP%` 全局 `lcad --version` = 0.1.2）；V1 隔离目录复跑（跨 harness 对照，仅方向性参考）Run 2 `623.0 s / 41 tool calls`（vs DSH `2269.6 s / 174 tool calls`）、0 源码读取、4 次看图、终态 0 error / 0 warning（PLAN §9 偏离 17）；摩擦点汇总 `#156` 与 DSH 校准转 v0.1.3。tag `v0.1.2` 与 Release 留用户执行 `scripts/release.py 0.1.2` |
 | 发布 v0.1.0 | 2026-11-09 | 监督会话 | `docs/releases/v0.1.0.md` | 全量回归即 M3 的干净 clone 复核（版本号改为 0.1.0 后 CI 再跑一遍）；发布说明汇总四个里程碑、已知缺口和全部“待用户人工评审”项；tag `v0.1.0` 与 GitHub Release |
 
 ## 6. v0.2 方向（v0.1 不做，但设计不能堵死）

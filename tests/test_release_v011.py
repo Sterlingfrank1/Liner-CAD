@@ -55,11 +55,13 @@ def read(rel):
 
 
 def test_pyproject_and_lock_are_at_0_1_1():
+    # v0.1.1+ milestone floor; exact current version is pinned by tests/test_release_v012.py
     project = tomllib.loads(read("pyproject.toml"))
-    assert project["project"]["version"] == "0.1.1"
+    ver = project["project"]["version"]
+    assert tuple(int(p) for p in ver.split("-", 1)[0].split(".")[:3]) >= (0, 1, 1), ver
     lock = tomllib.loads(read("uv.lock"))
     versions = [p["version"] for p in lock["package"] if p["name"] == "linercad"]
-    assert versions == ["0.1.1"], versions
+    assert versions == [ver], versions
 
 
 def test_installed_package_reports_the_pyproject_version():
