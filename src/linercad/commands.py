@@ -24,6 +24,7 @@ BRIEF_KINDS = (
     "section",
     "table",
     "table.cell",
+    "logo",
     "raw",
     "import",
 )
@@ -43,6 +44,7 @@ SNIPPETS = {
         'd["{id}"].suppress()                 # 删除整张表及全部单元格',
     ],
     "table.cell": ['d["{id}"].text = "新值"'],
+    "logo": ['d["{id}"].set(width=20, align="center")'],
     "view": ['d["{id}"].move(dy=-5)'],
 }
 
@@ -60,6 +62,8 @@ def brief(e) -> dict:
             out["table"] = i["table"]
         if "row" in i:
             out.update(row=i["row"], col=i["col"], header=i.get("header"))
+    elif e.kind == "logo":
+        out.update(cell=i.get("cell"), path=i.get("path"))
     elif e.kind == "note":
         out["text"] = i.get("text")
     elif e.kind in ("feature", "center"):

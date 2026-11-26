@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, replace
+from pathlib import Path
 
-from .errors import InvalidArgument
+from .errors import BuildError, InvalidArgument
 from .text import text_size
 from .views import wavy_points
 
@@ -88,6 +89,15 @@ class Poly:
     layer: str
 
 
+@dataclass(frozen=True)
+class Image:
+    path: str
+    resolved_path: str
+    box: tuple  # (x0, y0, x1, y1)
+    pixel_size: tuple  # (px_w, px_h)
+    layer: str = "thin"
+
+
 def _mv(p, dx, dy):
     return (p[0] + dx, p[1] + dy)
 
@@ -98,6 +108,9 @@ def move_prim(pr, dx, dy):
         return replace(pr, p=_mv(pr.p, dx, dy), q=_mv(pr.q, dx, dy))
     if isinstance(pr, (Circle, Arc)):
         return replace(pr, c=_mv(pr.c, dx, dy))
+    if isinstance(pr, Image):
+        b = pr.box
+        return replace(pr, box=(b[0] + dx, b[1] + dy, b[2] + dx, b[3] + dy))
     if isinstance(pr, Text):
         b = pr.box
         anchor = _mv(pr.anchor, dx, dy) if pr.anchor is not None else None
@@ -153,7 +166,7 @@ def prim_segments(pr):
 
 
 def prim_bbox(pr):
-    if isinstance(pr, Text):
+    if isinstance(pr, (Text, Image)):
         return pr.box
     if isinstance(pr, Circle):
         return (pr.c[0] - pr.r, pr.c[1] - pr.r, pr.c[0] + pr.r, pr.c[1] + pr.r)
@@ -2482,6 +2495,79 @@ class _Layout:
             e._prims = _cell_text_prims(
                 lines, bx0, by0, bx1, by1, h, std, align=align, bold=bold, pad_x=0.5
             )
+        for e in d._els.values():
+            if e.kind != "logo":
+                continue
+            spec = tb["fields"][e._intent["cell"]]
+            x0, y0, x1, y1 = spec["box"]
+            cx0, cy0, cx1, cy1 = ox + x0, oy + y0, ox + x1, oy + y1
+            cw, ch = cx1 - cx0, cy1 - cy0
+            raw_p = Path(e._intent["path"])
+            base_dir = Path(d._dir) if getattr(d, "_dir", None) else Path.cwd()
+            resolved = raw_p if raw_p.is_absolute() else (base_dir / raw_p)
+            if not resolved.is_file():
+                raise BuildError(
+                    f"找不到 Logo 图片：{resolved}",
+                    id=e.id,
+                    values={"path": str(resolved)},
+                    hint="确认 PNG 文件存在且路径正确",
+                )
+            from PIL import Image as PILImage
+
+            try:
+                with PILImage.open(resolved) as im:
+                    if im.format != "PNG":
+                        raise BuildError(
+                            f"Logo 图片必须是 PNG 格式（实际 {im.format}）：{resolved}",
+                            id=e.id,
+                            values={"path": str(resolved)},
+                        )
+                    px_w, px_h = im.size
+            except BuildError:
+                raise
+            except Exception as ex:  # noqa: BLE001
+                raise BuildError(
+                    f"无法读取 PNG 图片 {resolved}：{ex}",
+                    id=e.id,
+                    values={"path": str(resolved)},
+                ) from ex
+            aspect = px_w / max(px_h, 1)
+            req_w, req_h = e._intent.get("width"), e._intent.get("height")
+            if req_w is not None and req_h is not None:
+                w, h = float(req_w), float(req_h)
+            elif req_w is not None:
+                w = float(req_w)
+                h = w / aspect
+            elif req_h is not None:
+                h = float(req_h)
+                w = h * aspect
+            else:
+                scale = min(cw / max(px_w, 1), ch / max(px_h, 1))
+                w, h = px_w * scale, px_h * scale
+            align = e._intent.get("align") or "center"
+            if align == "left":
+                bx0 = cx0
+            elif align == "right":
+                bx0 = cx1 - w
+            else:
+                bx0 = (cx0 + cx1 - w) / 2
+            by0 = (cy0 + cy1 - h) / 2
+            box = (bx0, by0, bx0 + w, by0 + h)
+            res_abs = resolved.resolve()
+            try:
+                stored_path = res_abs.relative_to(base_dir.resolve()).as_posix()
+            except ValueError:
+                stored_path = res_abs.as_posix()
+            e._prims = [
+                Image(
+                    path=stored_path,
+                    resolved_path=str(res_abs),
+                    box=box,
+                    pixel_size=(int(px_w), int(px_h)),
+                    layer="thin",
+                )
+            ]
+            e._resolved["bbox"] = [bx0, by0, bx0 + w, by0 + h]
         bom = d._els.get("T.bom")
         if bom is not None and bom.kind == "bom":
             from .assembly import bom_rows

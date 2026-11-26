@@ -168,6 +168,19 @@ clause_note = "GB/T 4249-2018 原文未在本仓库读到；按工作流要求�
 
 
 [[rule]]
+id = "logo_external_ref"
+pack = "drafting"
+family = "G"
+fn = "logo_external_ref"
+statement = "DXF 外部图片引用在独立归档或传输时需随附图片文件"
+std = "DESIGN §9.1"
+clause = "DESIGN §9.1"
+clause_status = "design"
+status = "done"
+positive = "evals/mutate.py:FIXTURES['logo_external_ref']（无外部图片的干净 fixture，0 违规）"
+negative = "evals/mutate.py:MUTATORS['logo_external_ref']（附加 PNG logo 后检出率 1.0，target = T.title.logo.company）"
+
+[[rule]]
 id = "line_width"
 pack = "drafting"
 family = "G"

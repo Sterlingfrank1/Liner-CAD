@@ -213,7 +213,7 @@ def _out_of_frame(d):
         if (
             not b
             or e.kind in OWN_ZONE
-            or e.kind in ("view", "feature", "raw", "table.cell")
+            or e.kind in ("view", "feature", "raw", "table.cell", "logo")
             or e in tech
         ):
             continue

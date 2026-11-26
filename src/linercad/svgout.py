@@ -4,10 +4,12 @@ sub-prim index (``data-k``) that the DXF XDATA holds."""
 
 from __future__ import annotations
 
+import base64
 import math
 from html import escape
+from pathlib import Path
 
-from .layout import Arc, Circle, Hatch, Line, Poly, Solid, Text
+from .layout import Arc, Circle, Hatch, Image, Line, Poly, Solid, Text
 from .text import dxf_height, has_cjk
 
 
@@ -187,6 +189,14 @@ def _prim(pr, k, std, widths, P, H):
         return (
             f'<text data-k="{k}" transform="translate({_f(x)},{_f(y)}) rotate({_f(-pr.rot)}) scale({_f(wf)},1)" '
             f'font-size="{_f(size)}"{weight} text-anchor="middle" dominant-baseline="central">{escape(pr.text)}</text>'
+        )
+    if isinstance(pr, Image):
+        bx0, by0, bx1, by1 = pr.box
+        b64 = base64.b64encode(Path(pr.resolved_path).read_bytes()).decode("ascii")
+        return (
+            f'<image data-k="{k}" x="{_f(bx0)}" y="{_f(H - by1)}" '
+            f'width="{_f(bx1 - bx0)}" height="{_f(by1 - by0)}" '
+            f'href="data:image/png;base64,{b64}" preserveAspectRatio="none"/>'
         )
     return ""
 

@@ -370,6 +370,13 @@ class Drawing:
 
         drawing_title(self, **fields)
 
+    @mutator("logo")
+    def logo(self, cell="company", path="", width=None, height=None, align="center"):
+        """Place a PNG logo inside title-block cell ``cell`` → ``T.title.logo.<cell>``."""
+        from .annotate import drawing_logo
+
+        return drawing_logo(self, cell=cell, path=path, width=width, height=height, align=align)
+
     @mutator("table")
     def table(
         self,

@@ -121,11 +121,19 @@ def _section_problems():
 
 
 def _style_problems():
+    import tempfile
+
+    from PIL import Image as PILImage
+
     d = Drawing(sheet="A3")
     d.view("front").rect((0, 0), 30, 20, name="b")
     d["T.title.material"].set(text_height=7.0)
     t = d.table("st", [["a", "1"]], cols=[20, 20])
     t.set(text_height=7.0)
+    png = Path(tempfile.gettempdir()) / "linercad-metrics-logo.png"
+    if not png.is_file():
+        PILImage.new("RGBA", (8, 4), (0, 51, 170, 255)).save(png, format="PNG")
+    d.logo(cell="company", path=str(png), width=12, height=6)
     return d
 
 

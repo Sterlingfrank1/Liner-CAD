@@ -67,6 +67,7 @@ CREATE_OPS = (
     "std_part",
     "bom",
     "table",
+    "logo",
     "import_dxf",
 )
 MODIFY_OPS = ("place", "move", "set", "suppress", "accept", "raw")
@@ -124,6 +125,7 @@ DRAWING_CREATE = (
     "rough_default",
     "chain",
     "general_tol",
+    "logo",
     "import_dxf",
 )
 LAYOUT_GROUPS = {

@@ -478,14 +478,15 @@ def _formats(formats) -> list[str]:
     return out
 
 
-def _write_files(res, to: Path, formats) -> list[str]:
+def _write_files(res, to: Path, formats, src_dir: Path | None = None) -> list[str]:
     """Write the requested files into ``to``; a failure leaves no half-written file behind."""
-    from .dxfout import save_doc
+    from .dxfout import external_images, save_doc
     from .render import render_pdf
 
     to.mkdir(parents=True, exist_ok=True)
     W, H = res.d.template["size"]
     made, tmps = [], []
+    imgs = external_images(res.doc, Path(src_dir)) if ("dxf" in formats and src_dir) else []
     try:
         for fmt in formats:
             final = to / f"drawing.{fmt}"
@@ -497,6 +498,14 @@ def _write_files(res, to: Path, formats) -> list[str]:
                 render_pdf(res.doc, (W, H), part)
             os.replace(part, final)
             made.append(str(final))
+        for arc_rel, src_path in imgs:
+            dst = to / arc_rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            part_img = dst.with_name(f".lcad-partial-{dst.name}")
+            tmps.append(part_img)
+            shutil.copyfile(src_path, part_img)
+            os.replace(part_img, dst)
+            made.append(str(dst))
     finally:
         for p in tmps:
             p.unlink(missing_ok=True)
@@ -533,7 +542,7 @@ def export(dir, to, formats=None) -> dict:
         # files first, from a build that already carries the revision: a locked or full target
         # fails here, before anything is committed
         pre = runtime.build(dir, [op], current_edit=edit_id)
-        files = _write_files(pre, to, fmts)
+        files = _write_files(pre, to, fmts, src_dir=dir)
         script = dir / TMP_DIR / f"export-{tag}.py"
         script.parent.mkdir(parents=True, exist_ok=True)
         script.write_text(
@@ -543,7 +552,7 @@ def export(dir, to, formats=None) -> dict:
         edit, commit = out["edit"], out["commit"]
     else:
         res = runtime.build(dir)
-        files = _write_files(res, to, fmts)
+        files = _write_files(res, to, fmts, src_dir=dir)
         edit = None
         commit = _short(dir, "HEAD")
         note = "模板没有修订栏（revision），标题栏未改动，也没有新提交；标签打在当前提交上"

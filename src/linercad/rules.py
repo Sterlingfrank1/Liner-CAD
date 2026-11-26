@@ -1152,6 +1152,28 @@ def table_style_gb(d):
     return out, n
 
 
+def logo_external_ref(d):
+    out = []
+    n = 0
+    for e in d._els.values():
+        if e.kind != "logo":
+            continue
+        n += 1
+        out.append(
+            _f(
+                "logo_external_ref",
+                e.id,
+                f"{e.id} 引用外部 PNG 图片 {e._intent['path']}（DXF 不自包含，归档需随附图片）",
+                measured={"path": e._intent["path"], "cell": e._intent["cell"]},
+                expected={"self_contained": False, "export": "复制外部图片或 Viewer 打包 zip"},
+                candidates=[
+                    f'd.accept("logo_external_ref", "{e.id}", "使用 lcad export 或 Viewer zip 随附图片")'
+                ],
+            )
+        )
+    return out, n
+
+
 #: What each rule checks, as the clause statement it implements (benchmark-metrics §2 clause).
 #: The standard number is prefixed at run time from the active profile's [checks] table; the exact
 #: clause / table numbers arrive with the rule catalog (E2, rules/catalog.toml).
@@ -1179,6 +1201,7 @@ CLAUSES = {
     "rough_fit": "IT≤7 的配合表面应标注表面粗糙度",
     "title_style_gb": "标题栏字体高度应符合推荐范围 [2.5, 5.0] mm 及标准字高系列",
     "table_style_gb": "表格字体高度应符合 [2.5, 5.0] mm 且边框线宽应在线宽系列内",
+    "logo_external_ref": "DXF 外部图片引用在独立归档或传输时需随附图片文件",
 }
 
 
@@ -1193,6 +1216,7 @@ PACKS = {
         center_mark,
         title_style_gb,
         table_style_gb,
+        logo_external_ref,
     ),
     "dimensioning": (duplicate, closed_loop, missing, param_cover),
     "tolerancing": (

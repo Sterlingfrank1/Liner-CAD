@@ -65,7 +65,8 @@ front = d.view("front")      # 基本视图：front top bottom left right rear�
 | `v.dim.chamfer(name, edge)` | 倒角：45° 注 `C1`，否则 `2×30°`；`edge` 传直线边 `E.<v>.<f>.1`（不传特征 `F.*`） |
 | `v.dim.thread(name, feat)` / `v.dim.groove(name, groove, fmt="wd")` / `v.dim.hole(name, feat, n=4)` / `v.dim.spline(name, feat)` / `sec.dim.keyway(name, "F.B.s", what="b"/"depth")` | 规定画法的代号和必需尺寸 |
 | `v.note(name, "text", anchor=, dir=, length=)` / `d.notes.tech([...])` / `d.title(name=, drawing_no=, material=, ...)` | 引线注释（`dir` 为角度制数字如 `135`，不是向量） / 技术要求 / 标题栏 |
-| `d.table(name, rows, *, headers=None, title=None, cols=None, row_height=None, text_height=None, at=None, wrap=True)` | 语义参数表 `T.<name>` 与 1-based 单元格 `T.<name>.<r>.<c>`（可传 `P.*` 表达式）；默认右对齐叠放于标题栏上方，`at=` 覆盖位置，`cols=` 指定列宽 |
+| `d.table(name, rows, *, headers=None, title=None, cols=None, row_height=None, text_height=None, border_width=None, at=None, wrap=True)` | 语义参数表 `T.<name>` 与 1-based 单元格 `T.<name>.<r>.<c>`（可传 `P.*` 表达式）；默认右对齐叠放于标题栏上方，`at=` 覆盖位置，`cols=` 指定列宽 |
+| `d.logo(cell="company", path="assets/logo.png", width=None, height=None, align="center")` | 标题栏单元格内嵌 PNG Logo `T.title.logo.<cell>`（只支持 `.png`；DXF 写为 `IMAGEDEF`/`IMAGE` 外部引用，`lcad export` 自动随附复制图片，Viewer 下载打 zip） |
 
 - `value=P.L - P.l1` 让尺寸显示参数值并记录 `covers`；不给就显示几何实测值。`role="position"` 必须给 `datum=`。
 - **公差**：`tol="k6"`（查 GB/T 1800 得偏差）、`"±0.1"`、`"+0.021/0"`；`tol_show="code"/"dev"/"both"` 三种注法；`envelope=True` 包容要求；`el.fit = "g6"` 同 `tol`。
@@ -99,6 +100,7 @@ d.q.lines(view="front").where(length=30, dir="h").near(120, 45).one()   # near �
 `exactly(n)` / `one()` 不满足时报错并列出命中的元素和最近的候选。
 
 **元素操作**：`el.place(**布局)`、`el.move(dx=, dy=)`、`el.set(**意图)` 或直接赋值（`el.tol = "h7"`、`el.text = "..."`）、`el.suppress()`、`d.accept(rule, id, "理由")`（有意为之的检查结果放行，参数用 `P.<名>`）。
+单元格 `T.title.*` / `T.<name>.<r>.<c>` 支持 `set(text_height=<mm>, align="left|center|right", wrap=bool, bold=bool)`；表格 `T.<name>` 支持 `set(cols=[...], row_height=<mm>, text_height=<mm>, border_width=<mm>)`（别名 `font_size` / `col_widths` 也可用；字高应在 GB `[2.5, 5.0]` mm 系列内）。
 逃生口：`d.raw("D.L").entities[0].dxf.color = 1`、`d.raw_add("LINE", start=(x, y), end=(x, y), layer="THIN")`（图纸坐标）。
 
 

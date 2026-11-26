@@ -1185,6 +1185,45 @@ class Frame(Element):
     kind = "frame"
 
 
+def _check_logo_path(path, eid=None) -> str:
+    s = str(path or "").strip()
+    if not s or not s.lower().endswith(".png"):
+        raise InvalidArgument(
+            f"Logo 图片只支持 PNG（.png），收到 {path!r}",
+            id=eid,
+            values={"path": path},
+            hint="传入 .png 文件路径，如 'assets/logo.png'",
+        )
+    return s
+
+
+class Logo(Element):
+    """PNG logo placed inside a title-block cell (``T.title.logo.<cell>``)."""
+
+    kind = "logo"
+    SETTABLE = ("path", "width", "height", "align")
+    READ = ("cell", "path", "width", "height", "align")
+
+    cell = property(lambda s: s._intent["cell"])
+    path = property(lambda s: s._intent["path"])
+    width = property(lambda s: s._intent.get("width"))
+    height = property(lambda s: s._intent.get("height"))
+    align = property(lambda s: s._intent.get("align", "center"))
+
+    def _apply_set(self, fields):
+        if "path" in fields:
+            self._intent["path"] = _check_logo_path(fields["path"], self._id)
+        if "width" in fields:
+            w = fields["width"]
+            self._intent["width"] = None if w is None else _check_positive(w, "width")
+        if "height" in fields:
+            h = fields["height"]
+            self._intent["height"] = None if h is None else _check_positive(h, "height")
+        if "align" in fields:
+            al = fields["align"]
+            self._intent["align"] = "center" if al is None else _check_align(al, self._id)
+
+
 class Hatch(Element):
     """Section lining over closed loops; nested loops are islands."""
 
@@ -1372,6 +1411,28 @@ def drawing_title(self, **fields):
         raise InvalidArgument(f"标题栏没有字段 {', '.join(bad)}", candidates=sorted(cells))
     for k, v in fields.items():
         cells[k].set(text=v)
+
+
+def drawing_logo(self, cell="company", path="", width=None, height=None, align="center"):
+    tb_fields = self.template["title_block"]["fields"]
+    c = str(cell or "").strip()
+    if c.startswith("T.title."):
+        c = c[len("T.title.") :]
+    if c not in tb_fields:
+        raise InvalidArgument(f"标题栏没有单元格 {cell!r}", candidates=sorted(tb_fields))
+    p_str = _check_logo_path(path)
+    w_v = None if width is None else _check_positive(width, "width")
+    h_v = None if height is None else _check_positive(height, "height")
+    al = _check_align("center" if align is None else align)
+    lid = f"T.title.logo.{c}"
+    return self._add(
+        Logo(
+            self,
+            lid,
+            {"cell": c, "path": p_str, "width": w_v, "height": h_v, "align": al},
+            refs=[f"T.title.{c}"],
+        )
+    )
 
 
 RESERVED_TABLE_NAMES = ("title", "bom", "frame")
