@@ -114,7 +114,27 @@ def source_paths(dir):
             and any(f.glob("model.py")) | any(f.glob("*/model.py"))
         ):
             out.append(f.name)
+    if dir.is_dir():
+        try:
+            r = git(dir, "ls-files", "-z", "--", "*.png", "**/*.png", check=False)
+            if r.returncode == 0 and r.stdout:
+                for rel in r.stdout.split("\0"):
+                    if rel and not rel.startswith(".") and rel not in out:
+                        out.append(rel)
+        except GitError:
+            pass
     return out
+
+
+def _logo_paths(res, dir) -> list[str]:
+    if getattr(res, "doc", None) is None:
+        return []
+    from .dxfout import external_images
+
+    try:
+        return [rel for rel, _ in external_images(res.doc, Path(dir))]
+    except InvalidArgument:
+        return []
 
 
 def dirty_sources(dir):
@@ -143,9 +163,12 @@ def _unstage(dir):
     git(dir, "reset", "-q", "--", *source_paths(dir), check=False)
 
 
-def commit(dir, subject, body=None):
+def commit(dir, subject, body=None, *, extra_paths=()):
     """Commit only this drawing's source files. Returns the short hash, or None if nothing changed."""
     paths = source_paths(dir)
+    for p in extra_paths:
+        if p and p not in paths and (Path(dir) / p).exists():
+            paths.append(p)
     git(dir, "add", "--", *paths)
     staged = git(dir, "diff", "--cached", "--name-only", "--", *paths).stdout.strip()
     if not staged:
@@ -385,7 +408,7 @@ def init(dir, from_=None, sheet=None, from_dxf=None, sets=None, *, project=None)
         subj = f"e0 · init --from {from_}@{tpl_tag}" if tpl_tag else f"e0 · init --from {from_}"
     else:
         subj = "e0 · init"
-    h = commit(dir, subj)
+    h = commit(dir, subj, extra_paths=_logo_paths(res, dir))
     out = {
         "ok": True,
         "edit": "e0",
@@ -497,7 +520,7 @@ def build_commit(dir, msg=None, png=False):
         dirty = dirty_sources(dir)
         if msg:
             if dirty:
-                out["commit"] = commit(dir, f"{edit} · {msg}")
+                out["commit"] = commit(dir, f"{edit} · {msg}", extra_paths=_logo_paths(res, dir))
                 out["edit"] = edit
             else:
                 out["note"] = "源文件没有改动，未提交"
@@ -598,7 +621,7 @@ def edit_full(dir, script, msg, dry_run=False, png=False):
         prefix += "\n"
     _write(log_path, prefix + lines)
     try:
-        h = commit(dir, f"{edit_id} · {msg}")
+        h = commit(dir, f"{edit_id} · {msg}", extra_paths=_logo_paths(r2, dir))
     except Exception:
         if staged is not None:
             staged.unlink(missing_ok=True)

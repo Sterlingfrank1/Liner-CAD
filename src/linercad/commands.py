@@ -487,6 +487,7 @@ def _template_section():
     lines = ["", "## 当前用户模板（含项目级；详情 lcad template list）", ""]
     items = []
     seen = set()
+    proj = None
     try:
         proj = proj_mod.resolve_project(Path.cwd().resolve(), allow_create=False)
         if proj is not None:
@@ -496,9 +497,11 @@ def _template_section():
                 items.append(item)
                 seen.add(item["name"])
     except LinerError:
-        pass
+        proj = None
     try:
-        for item in usertemplates.list_all(scope="user"):
+        for item in usertemplates.list_all(
+            scope="user", project_root=proj.root if proj is not None else None
+        ):
             if item["name"] not in seen:
                 items.append(item)
     except LinerError:

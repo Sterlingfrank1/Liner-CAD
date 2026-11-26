@@ -112,6 +112,10 @@ def test_iron_rule_never_create_marker_inside_drawing_dir_or_drive_root(tmp_path
     draw = _make_drawing(tmp_path / "my-drawing")
     with pytest.raises(LinerError):
         resolve_project(draw, project=draw, allow_create=True)
+    with pytest.raises(LinerError):
+        resolve_project(draw, project=draw / "sub", allow_create=True)
+    sub_fb = resolve_project(draw / "sub", allow_create=True)
+    assert sub_fb is not None and sub_fb.root == draw.parent.resolve()
 
     drive_root = Path(draw.resolve().anchor)
     if not (drive_root / MARKER).is_file():
@@ -239,7 +243,7 @@ def test_lookup_precedence_project_over_user_over_example_and_list_fields(tmp_pa
     assert txn_ex["template"]["scope"] == "example" and txn_ex["template"]["trust"] == "builtin"
 
 
-def test_trust_local_external_and_legacy_source(tmp_path):
+def test_trust_local_external_and_legacy_source(tmp_path, monkeypatch):
     from linercad.usertemplates import TRUST_EXTERNAL_WARNING, trust_info
 
     proj = tmp_path / "proj"
@@ -249,12 +253,17 @@ def test_trust_local_external_and_legacy_source(tmp_path):
 
     assert commands.save_template(local_draw, "local-tpl", scope="project", project=str(proj))["ok"]
     assert commands.save_template(ext_draw, "ext-tpl", scope="project", project=str(proj))["ok"]
+    assert commands.save_template(ext_draw, "ext-user-tpl", scope="user")["ok"]
 
     listed = {t["name"]: t for t in commands.template_list(dir=proj)["templates"]}
     assert listed["local-tpl"]["trust"] == "local"
     assert "trust_warning" not in listed["local-tpl"]
     assert listed["ext-tpl"]["trust"] == "external"
     assert listed["ext-tpl"]["trust_warning"] == TRUST_EXTERNAL_WARNING
+    assert listed["ext-user-tpl"]["trust"] == "external"
+
+    monkeypatch.chdir(proj)
+    assert "（user / external）" in commands.skill("api")["text"]
 
     out_local = txn.init(proj / "new-local", from_="local-tpl", project=str(proj))
     assert out_local["template"]["trust"] == "local"

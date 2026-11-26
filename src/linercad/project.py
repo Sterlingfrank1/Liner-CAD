@@ -33,6 +33,21 @@ def is_drawing_dir(path: Path) -> bool:
     return (p / "drawing.py").is_file() or (p / ".linercad").is_dir()
 
 
+def is_inside_drawing_dir(path: Path) -> bool:
+    """True when ``path`` is a drawing dir or sits beneath a drawing root (with ``drawing.py``)."""
+    p = Path(path).resolve()
+    if is_drawing_dir(p):
+        return True
+    for anc in p.parents:
+        if is_drive_root(anc):
+            break
+        if (anc / "drawing.py").is_file() or (anc / "drawing.actions.jsonl").is_file():
+            return True
+        if (anc / ".git").exists() or (anc / MARKER).is_file():
+            break
+    return False
+
+
 def is_drive_root(path: Path) -> bool:
     """True when ``path`` is the filesystem / drive root."""
     r = Path(path).resolve()
@@ -75,7 +90,7 @@ def _read_marker(root: Path) -> tuple[Path, str]:
         sub = tdir.relative_to(root_res)
     except ValueError as e:
         raise InvalidArgument(f"{marker} 中的模板目录越出项目根：{rel}") from e
-    if sub == Path(".") or is_drawing_dir(tdir):
+    if sub == Path(".") or is_inside_drawing_dir(tdir):
         raise InvalidArgument(f"{marker} 中的模板目录不合法：{rel}")
     return tdir, sub.as_posix()
 
@@ -91,7 +106,7 @@ def _can_write_target(cand: Path) -> bool:
 
 def _from_explicit(raw: str | Path, *, source_name: str, allow_create: bool) -> ProjectRoot | None:
     p = Path(raw).expanduser().resolve()
-    if is_drawing_dir(p):
+    if is_inside_drawing_dir(p):
         raise InvalidArgument(
             f"项目根不能在图纸目录内：{p}",
             hint="请传入图纸所在的项目根目录（例如图纸目录的父目录）",
@@ -139,7 +154,7 @@ def resolve_project(
     cur = start
     idx = 0
     while True:
-        if not is_drawing_dir(cur) and (cur / MARKER).is_file():
+        if not is_inside_drawing_dir(cur) and (cur / MARKER).is_file():
             tdir, _ = _read_marker(cur)
             return ProjectRoot(cur, tdir, cur / MARKER, True, "marker")
         if idx > 0 and (cur / ".git").exists():
@@ -153,7 +168,9 @@ def resolve_project(
         return None
 
     cand = start.parent if is_drawing_dir(start) else start
-    if is_drawing_dir(cand):
+    while is_inside_drawing_dir(cand) and not is_drive_root(cand):
+        cand = cand.parent
+    if is_inside_drawing_dir(cand):
         raise InvalidArgument(
             f"项目根不能在图纸目录内：{cand}",
             hint="请显式传入 --project <项目根目录>",
@@ -173,7 +190,7 @@ def resolve_project(
 
 def ensure_project_dir(proj: ProjectRoot) -> bool:
     """Create ``linercad.project.toml`` (if absent) and the templates dir; returns True if marker created."""
-    if is_drawing_dir(proj.root):
+    if is_inside_drawing_dir(proj.root):
         raise InvalidArgument(f"铁律禁止在图纸目录内写入项目标记：{proj.root}")
     proj.root.mkdir(parents=True, exist_ok=True)
     created_marker = False

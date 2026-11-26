@@ -262,6 +262,27 @@ def test_template_save_packages_logo_assets_and_rejects_external_image(tmp_path)
     assert (inst / "assets" / "logo.png").is_file()
     assert txn.dirty_sources(inst) == []
 
+    # Root-level logo.png (outside assets/) is also packaged, committed in e0, and diffable
+    src_root = _init_part(
+        proj / "logo-root",
+        BASE_SRC + 'd.logo("company", path="logo.png", align="left")\n',
+    )
+    Image.new("RGBA", (32, 16), (0, 90, 200, 255)).save(src_root / "logo.png")
+    subprocess.run(["git", "add", "logo.png"], cwd=src_root, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "add root logo"], cwd=src_root, check=True)
+    saved_root = commands.save_template(
+        src_root, "with-root-logo", scope="project", project=str(proj)
+    )
+    assert saved_root["ok"] and "logo.png" in saved_root["template"]["files"]
+    inst_root = proj / "inst-root-logo"
+    assert txn.init(inst_root, from_="with-root-logo", project=str(proj))["ok"]
+    assert (inst_root / "logo.png").is_file() and txn.dirty_sources(inst_root) == []
+    sc_root = inst_root / ".linercad" / "tmp" / "m.py"
+    sc_root.parent.mkdir(parents=True, exist_ok=True)
+    sc_root.write_text('def apply(d):\n    d["D.H"].place(side="right")\n', encoding="utf-8")
+    assert txn.edit(inst_root, sc_root, "调整标注")["ok"]
+    assert "D.H" in versions.diff(inst_root, "e0", "e1")["layout_changed"]
+
     # External image outside drawing directory MUST be rejected with path before saving
     ext_png = tmp_path / "outside.png"
     Image.new("RGBA", (24, 12), (200, 0, 0, 255)).save(ext_png)
