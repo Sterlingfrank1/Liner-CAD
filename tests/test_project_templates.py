@@ -237,3 +237,36 @@ def test_lookup_precedence_project_over_user_over_example_and_list_fields(tmp_pa
     assert not (loose_parent / "linercad.project.toml").exists()
     txn_ex = txn.init(tmp_path / "ex-init", from_="shaft")
     assert txn_ex["template"]["scope"] == "example" and txn_ex["template"]["trust"] == "builtin"
+
+
+def test_trust_local_external_and_legacy_source(tmp_path):
+    from linercad.usertemplates import TRUST_EXTERNAL_WARNING, trust_info
+
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    local_draw = _make_drawing(proj / "parts" / "p1")
+    ext_draw = _make_drawing(tmp_path / "outside" / "ext-part")
+
+    assert commands.save_template(local_draw, "local-tpl", scope="project", project=str(proj))["ok"]
+    assert commands.save_template(ext_draw, "ext-tpl", scope="project", project=str(proj))["ok"]
+
+    listed = {t["name"]: t for t in commands.template_list(dir=proj)["templates"]}
+    assert listed["local-tpl"]["trust"] == "local"
+    assert "trust_warning" not in listed["local-tpl"]
+    assert listed["ext-tpl"]["trust"] == "external"
+    assert listed["ext-tpl"]["trust_warning"] == TRUST_EXTERNAL_WARNING
+
+    out_local = txn.init(proj / "new-local", from_="local-tpl", project=str(proj))
+    assert out_local["template"]["trust"] == "local"
+    assert "trust_warning" not in out_local
+
+    out_ext = txn.init(proj / "new-ext", from_="ext-tpl", project=str(proj))
+    assert out_ext["template"]["trust"] == "external"
+    assert out_ext["trust_warning"] == TRUST_EXTERNAL_WARNING
+
+    # Legacy schema-1 str source is supported cleanly
+    existing_dir = tmp_path / "existing-legacy"
+    existing_dir.mkdir()
+    assert trust_info({"source": str(existing_dir)}, scope="user")[0] == "local"
+    t_missing, w_missing = trust_info({"source": str(tmp_path / "deleted-dir")}, scope="user")
+    assert t_missing == "external" and w_missing == TRUST_EXTERNAL_WARNING

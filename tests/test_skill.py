@@ -156,3 +156,27 @@ def test_skill_help_lists_dsh():
     )
     out = json.loads(r.stdout)
     assert r.returncode == 0 and "dsh" in out["commands"]["skill"]
+
+
+def test_skill_documents_project_templates_and_trust():
+    from linercad import commands
+
+    main_skill = (resources.files("linercad") / "skill" / "SKILL.md").read_text(encoding="utf-8")
+    assert len(main_skill.splitlines()) <= 120
+    for needle in ("linercad.project.toml", "--scope project", "--tag", "trust"):
+        assert needle in main_skill, needle
+
+    api_page = commands.skill("api")["text"]
+    for needle in (
+        "linercad.project.toml",
+        "lcad-templates",
+        "--scope project",
+        "--project",
+        "--tag",
+        "baseline.actions.jsonl",
+        "--force-probe-fail",
+        "--no-probe",
+        "trust",
+        "当前用户模板",
+    ):
+        assert needle in api_page, needle

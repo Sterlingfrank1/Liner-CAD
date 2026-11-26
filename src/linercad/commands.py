@@ -480,17 +480,32 @@ def _param_range_text(p):
 
 
 def _template_section():
-    """Live user-template list appended to the skill (H2): the card wants skill to list them."""
+    """Live template list (project + user) appended to the skill."""
+    from . import project as proj_mod
     from . import usertemplates
 
-    lines = ["", "## 当前用户模板（自动生成；详情 lcad template list）", ""]
+    lines = ["", "## 当前用户模板（含项目级；详情 lcad template list）", ""]
+    items = []
+    seen = set()
     try:
-        items = usertemplates.list_all()
+        proj = proj_mod.resolve_project(Path.cwd().resolve(), allow_create=False)
+        if proj is not None:
+            for item in usertemplates.list_all(
+                root=proj.templates_dir, scope="project", project_root=proj.root
+            ):
+                items.append(item)
+                seen.add(item["name"])
     except LinerError:
-        items = []
+        pass
+    try:
+        for item in usertemplates.list_all(scope="user"):
+            if item["name"] not in seen:
+                items.append(item)
+    except LinerError:
+        pass
     if not items:
         lines.append(
-            "（暂无用户模板；lcad template save <名> --description … 把当前图纸沉淀成模板）"
+            "（暂无模板；lcad template save <名> [--scope project|user] --description … 把当前图纸沉淀成模板）"
         )
     else:
         for t in items:
@@ -499,7 +514,10 @@ def _template_section():
                 for p in t.get("params", [])
             )
             desc = t.get("description") or "（无描述）"
-            lines.append(f"- `{t['name']}`：{desc}；参数：{params or '—'}")
+            tag = f"@{t['tag']}" if t.get("tag") else ""
+            lines.append(
+                f"- `{t['name']}{tag}`（{t.get('scope', 'user')} / {t.get('trust', 'local')}）：{desc}；参数：{params or '—'}"
+            )
         lines.append("")
         lines.append("匹配即从模板起步：lcad init <目录> --from <名> --set 参数=值 …")
     return "\n".join(lines)

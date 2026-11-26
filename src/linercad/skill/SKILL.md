@@ -70,8 +70,13 @@ def apply(d):
 | 有 3D 模型（`model.py` / STEP），或要由模型投影出视图、剖视 | `lcad skill 3d` |
 | 画装配图（组件、标准件、序号、明细栏） | `lcad skill assembly` |
 | 读懂 `error.code`、检查规则包（drafting / dimensioning / tolerancing / surface / layout） | `lcad skill checks` |
-| 别人的 DXF：`lcad inspect x.dxf` 看内容并报告识别到的图框 / 标题栏；`lcad init <目录> --from-dxf x.dxf` 导入后照常编辑——TEXT / MTEXT 成普通文字、HATCH 保留、源图框 / 标题栏吸收进模板语义（只留一个图框） | — |
-| 用户要求发布 / 出版时才用：`lcad export --to <目录> --formats dxf,pdf`（打 tag `rev-A`…） | — |
+| 别人给的 DXF：`lcad inspect x.dxf`、`lcad init <目录> --from-dxf x.dxf` | — |
+| 正式出档：`lcad export --to <目录> --formats dxf,pdf`（`rev-A`…） | — |
+
+## 3.1 项目模板与自检（v0.1.3）
+
+- **沉淀**：在工作区设 `LCAD_PROJECT_ROOT` 或 `--project <根>`，执行 `lcad template save <名> --scope project [--tag r1]`；会在项目根写 `linercad.project.toml` 与 `lcad-templates/<名>/`（绝不建在图纸目录内），将构建层、语义基线 `baseline.actions.jsonl` 与目录内 Logo 一并打包，并跑边界自检（`--dry-run` 仅预览，`--no-probe`/`--force-probe-fail` 跳过或强制）。`--tag` 仅写入 `template.json`，不打 git tag。
+- **实例化与信任**：`lcad init <新目录> --from <名> --set 参数=值 …`（优先级 项目 > 用户 > 范例）；合并基线进 `drawing.actions.jsonl` 并校验 `model_hash`（`undo e0` 拒绝）。返回带 `trust`（`local`/`builtin`/`external`），外部来源需确认后再用；详情见 `lcad skill api`。
 
 ## 4. 零件族
 
