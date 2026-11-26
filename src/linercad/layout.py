@@ -2453,8 +2453,10 @@ class _Layout:
                 continue
             spec = tb["fields"][e._intent["field"]]
             x0, y0, x1, y1 = spec["box"]
+            e._resolved["cell_box"] = [ox + x0, oy + y0, ox + x1, oy + y1]
             text = e._intent["text"]
             if not text:
+                e._prims = []
                 continue
             # the largest height of the GB/T 14691 series (up to the slot's) that fits the slot
             fit = [

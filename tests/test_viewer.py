@@ -42,7 +42,11 @@ def test_every_drawn_element_is_clickable(built, name):
     p, res = built[name]
     svg = svgout.svg(res.d)
     ids = set(re.findall(r'data-id="([^"]+)"', svg))
-    assert ids == {e.id for e in res.d._els.values() if e._prims}
+    assert ids == {
+        e.id
+        for e in res.d._els.values()
+        if e._prims or (e.kind == "table.cell" and "cell_box" in e._resolved)
+    }
 
 
 def test_selectors_find_the_same_edge(built):

@@ -629,6 +629,8 @@ def _brief_intent(e):
         "measured",
         "expr",
         "table",
+        "field",
+        "label",
         "row",
         "col",
         "header",

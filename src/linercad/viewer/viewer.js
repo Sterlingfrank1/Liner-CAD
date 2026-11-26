@@ -329,8 +329,7 @@ function cacheBoxes() {
   const inv = S.svg.getScreenCTM().inverse();
   for (const g of S.svg.querySelectorAll("g[data-id]")) {
     const kind = g.dataset.kind || "";
-    if (kind === "frame" || kind === "table" ||
-        (kind === "table.cell" && g.dataset.table === "title")) continue;
+    if (kind === "frame" || kind === "table") continue;
     let ex0 = Infinity, ey0 = Infinity, ex1 = -Infinity, ey1 = -Infinity;
     for (const c of g.children) {
       const b = c.getBBox();  // in the child's own user space: map its corners to SVG units

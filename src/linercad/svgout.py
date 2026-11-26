@@ -42,13 +42,13 @@ def svg_groups(d) -> list[tuple[str, str, str]]:
     out = []
     for e in d._els.values():
         cb = e._resolved.get("cell_box") if e.kind == "table.cell" else None
-        user_cell = e.kind == "table.cell" and "field" not in e._intent and cb is not None
-        if not e._prims and not user_cell:
+        has_cell = e.kind == "table.cell" and cb is not None
+        if not e._prims and not has_cell:
             continue
         tbl = e._intent.get("table")
         tattr = f' data-table="{escape(tbl)}"' if tbl else ""
         parts = [f'<g data-id="{escape(e.id)}" data-kind="{escape(e.kind)}"{tattr}>']
-        if user_cell:
+        if has_cell:
             x0, y0, x1, y1 = cb
             parts.append(
                 f'<rect data-k="hit" class="cell-hit" x="{_f(x0)}" y="{_f(H - y1)}" '
