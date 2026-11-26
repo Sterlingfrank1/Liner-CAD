@@ -69,7 +69,8 @@ W2：PR-2 与 PR-3 并行（两个 Worker）← 文件基本不重叠
 3) 验收清单是否每条都有自动化测试，或说明为何只能手工；
 4) 边界：异常路径、空输入、Windows 路径、并发/端口、预览态与提交态；
 5) 文档是否同 PR 更新；
-6) 你可以在本地跑 uv run pytest / ruff --check 验证，但不得修改任何文件。
+6) 你可以在本地跑 uv run pytest / ruff check 验证，但不得修改任何文件；
+7) 看 diff 用 `gh pr diff <N>`；需要读全文时用 `git worktree add ../rev-<N> <branch>` 另开工作区，**不要在主工作区切分支**（会把 Worker 的现场切走）。
 输出 findings，按 P0（阻断）/ P1（必须修）/ P2（建议）分级，每条给 文件:行、问题、建议改法；
 最后给结论：APPROVE 或 REQUEST CHANGES。不要评论纯风格偏好。
 ```
