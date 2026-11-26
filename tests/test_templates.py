@@ -88,7 +88,7 @@ def test_init_from_user_template_with_set_one_shot(tmp_path, drawing):
     commands.save_template(drawing, "shaft-tpl", "轴模板")
     target = tmp_path / "new-shaft"
     code, out = _cli("init", str(target), "--from", "shaft-tpl", "--set", "L=220", "l1=36")
-    assert code == 0 and out["ok"] and out["template"] == "shaft-tpl"
+    assert code == 0 and out["ok"] and out["template"]["name"] == "shaft-tpl"
     text = (target / "drawing.py").read_text(encoding="utf-8")
     compact = text.replace(" ", "")
     assert "L=Param(220" in compact and "l1=Param(36" in compact
@@ -124,7 +124,7 @@ def test_template_copies_model_py_and_init_without_set(tmp_path, drawing):
     commands.save_template(drawing, "with-model", "含 model.py")
     target = tmp_path / "from-model"
     code, out = _cli("init", str(target), "--from", "with-model")
-    assert code == 0 and out["ok"] and out.get("template") == "with-model"
+    assert code == 0 and out["ok"] and (out.get("template") or {}).get("name") == "with-model"
     assert (target / "model.py").is_file() and (target / "drawing.py").is_file()
 
 

@@ -248,29 +248,38 @@ def needs_3d(name) -> bool:
     return (resources.files("linercad") / "examples" / name / "model.py").is_file()
 
 
-def init(dir, from_=None, sheet=None, from_dxf=None, sets=None):
-    """New drawing directory: the starter, a package example (``from_``) or an imported DXF
-    (``from_dxf`` is copied to ``ref.dxf``; the sheet is guessed from its extents unless given)."""
+def init(dir, from_=None, sheet=None, from_dxf=None, sets=None, *, project=None):
+    """New drawing directory: the starter, a template (project > user > example), or imported DXF."""
     dir = Path(dir)
     if (dir / SRC).exists() or (dir / LOG).exists():
         raise InvalidArgument(f"{dir} 里已经有图纸（{SRC} 或 {LOG}）", hint="换一个空目录")
+    from . import project as proj_mod
     from . import usertemplates
 
-    user_template = None
-    if from_ is not None and from_ not in EXAMPLES:
-        known = usertemplates.names()
-        if from_ in known:
-            user_template = str(from_)  # a saved user template shadows nothing: examples win
+    anchor = dir.resolve()
+    if not anchor.exists():
+        anchor = anchor.parent
+    proj = proj_mod.resolve_project(anchor, project=project, allow_create=False)
+    if proj is None and (project is None or not str(project).strip()):
+        proj = proj_mod.resolve_project(Path.cwd().resolve(), allow_create=False)
+
+    tpl_scope = None
+    tpl_folder = None
+    tpl_manifest = None
+    example_name = None
+    if from_ is not None:
+        tpl_scope, tpl_folder = usertemplates.resolve_template(
+            str(from_), proj.templates_dir if proj is not None else None
+        )
+        if tpl_scope == "example":
+            example_name = str(from_)
         else:
-            raise InvalidArgument(
-                f"没有范例或用户模板 {from_!r}",
-                candidates=list(EXAMPLES) + known,
-            )
+            tpl_manifest = usertemplates._manifest_of(tpl_folder) or {}
     if from_ is not None and from_dxf is not None:
         raise InvalidArgument("--from 和 --from-dxf 只能用一个")
-    if user_template is not None and sheet:
+    if tpl_folder is not None and sheet:
         raise InvalidArgument(
-            "用户模板自带图幅，不能再用 --sheet",
+            "模板自带图幅，不能再用 --sheet",
             hint="需要别的图幅：改模板 drawing.py 的 Drawing(sheet=...) 后重新 template save",
         )
     dxf_src, guess = None, None
@@ -294,20 +303,25 @@ def init(dir, from_=None, sheet=None, from_dxf=None, sets=None):
             if not (dir / REF_DXF).exists():
                 shutil.copyfile(dxf_src, dir / REF_DXF)
                 created.append(dir / REF_DXF)
-        elif user_template:
-            files = usertemplates.init_files(user_template)
+        elif tpl_folder is not None:
+            files = usertemplates.init_files(str(from_), folder=tpl_folder)
             text0 = dict(files)[SRC].decode("utf-8")
             extras = [(n, b) for n, b in files if n != SRC]
-        elif from_:
-            text0 = (resources.files("linercad") / "examples" / from_ / SRC).read_text(
+        elif example_name:
+            text0 = (resources.files("linercad") / "examples" / example_name / SRC).read_text(
                 encoding="utf-8"
             )
-            extras = _example_extras(from_)
+            extras = _example_extras(example_name)
         else:
             text0 = STARTER.format(sheet=sheet)
             extras = []
         if sets:
-            text0 = usertemplates.apply_sets(text0, sets, template_name=user_template)
+            text0 = usertemplates.apply_sets(
+                text0,
+                sets,
+                template_name=str(from_) if from_ else None,
+                folder=tpl_folder,
+            )
         for name, text in (
             (SRC, text0),
             *extras,
@@ -337,7 +351,12 @@ def init(dir, from_=None, sheet=None, from_dxf=None, sets=None):
         raise
     (dir / TMP_DIR).mkdir(parents=True, exist_ok=True)
     arts = write_artifacts(dir, res, "e0")
-    h = commit(dir, "e0 · init")
+    tpl_tag = tpl_manifest.get("tag") if tpl_manifest is not None else None
+    if tpl_folder is not None:
+        subj = f"e0 · init --from {from_}@{tpl_tag}" if tpl_tag else f"e0 · init --from {from_}"
+    else:
+        subj = "e0 · init"
+    h = commit(dir, subj)
     out = {
         "ok": True,
         "edit": "e0",
@@ -347,8 +366,23 @@ def init(dir, from_=None, sheet=None, from_dxf=None, sets=None):
         "errors": _errors(res.findings),
         "warnings": _warnings(res.findings),
     }
-    if user_template:
-        out["template"] = user_template
+    if from_ is not None:
+        trust, trust_warn = usertemplates.trust_info(
+            tpl_manifest,
+            scope=tpl_scope,
+            project_root=proj.root if proj is not None else None,
+        )
+        out["template"] = {
+            "name": str(from_),
+            "scope": tpl_scope,
+            "tag": tpl_tag,
+            "path": str(tpl_folder.resolve()) if tpl_folder is not None else None,
+            "trust": trust,
+        }
+        if trust_warn:
+            out["trust_warning"] = trust_warn
+        if tpl_folder is not None:
+            out["baseline_warnings"] = []
     if sets:
         out["sets"] = dict(sets)
     if dxf_src is not None:

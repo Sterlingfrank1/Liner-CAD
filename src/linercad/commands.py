@@ -653,12 +653,51 @@ def _validate_template_dir(staged, manifest=None):
         )
 
 
-def save_template(dir, name, description="", force=False):
-    """Save the current drawing as a reusable user template (requires check 0 error)."""
+def save_template(
+    dir,
+    name,
+    description="",
+    force=False,
+    *,
+    scope=None,
+    project=None,
+    tag=None,
+    dry_run=False,
+):
+    """Save the current drawing as a reusable template (requires check 0 error)."""
+    from . import project as proj_mod
     from . import txn, usertemplates
 
+    if scope is not None and scope not in ("project", "user"):
+        raise InvalidArgument(
+            f"--scope {scope!r} 不支持",
+            candidates=["project", "user"],
+        )
+    if scope == "user" and project is not None and str(project).strip():
+        raise InvalidArgument("--scope user 不能同时指定 --project")
+
     name = usertemplates.validate_name(name)
+    tag_clean = proj_mod.validate_tag(tag)
     dir = Path(dir)
+    anchor = dir.resolve()
+
+    if scope == "user":
+        proj = None
+        final_scope = "user"
+        dest_root = usertemplates.home()
+    elif scope == "project" or (project is not None and str(project).strip()):
+        proj = proj_mod.resolve_project(anchor, project=project, allow_create=True)
+        final_scope = "project"
+        dest_root = proj.templates_dir
+    else:
+        proj = proj_mod.resolve_project(anchor, allow_create=False)
+        if proj is not None:
+            final_scope = "project"
+            dest_root = proj.templates_dir
+        else:
+            final_scope = "user"
+            dest_root = usertemplates.home()
+
     res = build(dir)
     errors = [f for f in res.findings if f.get("severity") == "error"]
     if errors:
@@ -682,23 +721,74 @@ def save_template(dir, name, description="", force=False):
         dirty = []
     if dirty:
         warnings.append("有未提交的源文件改动：按当前文件保存")
-    # staged validation runs in a fresh interpreter before any existing template is replaced
+
+    on_ready = (lambda: proj_mod.ensure_project_dir(proj)) if proj is not None else None
+    target_path = usertemplates.path(name, root=dest_root).resolve()
     manifest = usertemplates.save(
-        dir, name, description, force, build_result=res, validate=_validate_template_dir
+        dir,
+        name,
+        description,
+        force,
+        build_result=res,
+        validate=_validate_template_dir,
+        root=dest_root,
+        tag=tag_clean,
+        dry_run=dry_run,
+        on_ready=on_ready,
     )
     out = {
         "ok": True,
+        "scope": final_scope,
         "template": manifest,
-        "path": str(usertemplates.path(str(name))),
+        "path": str(target_path),
         "hint": f"lcad init <新目录> --from {manifest['name']} --set 参数=值 一步出图",
     }
+    if final_scope == "project" and proj is not None:
+        out["project"] = str(proj.root)
+        out["templates_dir"] = str(proj.templates_dir.resolve())
+        out["marker_path"] = str(proj.marker_path.resolve())
+        out["will_create_marker"] = not proj.marker_exists
+    if dry_run:
+        will_write = []
+        if proj is not None and not proj.marker_exists:
+            will_write.append(str(proj.marker_path.resolve()))
+        will_write.extend(
+            str((target_path / f).resolve())
+            for f in [*manifest.get("files", []), usertemplates.MANIFEST]
+        )
+        out["dry_run"] = True
+        out["will_write"] = will_write
     if warnings:
         out["warning"] = "；".join(warnings)
     return out
 
 
-def template_list():
-    """List the user's saved parametrised templates."""
+def template_list(dir=None, *, project=None):
+    """List saved templates (project scope first, then user scope)."""
+    from . import project as proj_mod
     from . import usertemplates
 
-    return {"ok": True, "home": str(usertemplates.home()), "templates": usertemplates.list_all()}
+    anchor = Path(dir).resolve() if dir is not None else Path.cwd().resolve()
+    proj = proj_mod.resolve_project(anchor, project=project, allow_create=False)
+    items = []
+    seen = set()
+    if proj is not None:
+        for item in usertemplates.list_all(
+            root=proj.templates_dir, scope="project", project_root=proj.root
+        ):
+            items.append(item)
+            seen.add(item["name"])
+    for item in usertemplates.list_all(
+        scope="user", project_root=proj.root if proj is not None else None
+    ):
+        if item["name"] in seen:
+            item["shadowed"] = True
+        items.append(item)
+    return {
+        "ok": True,
+        "home": str(usertemplates.home()),
+        "project": str(proj.root) if proj is not None else None,
+        "project_templates_dir": str(proj.templates_dir.resolve()) if proj is not None else None,
+        "note": "模板包内 drawing.py 与 baseline.actions.jsonl 是一个单元；只拷 drawing.py 会丢失基线修订层。",
+        "templates": items,
+    }

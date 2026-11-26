@@ -62,6 +62,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--from", dest="from_", default=None)
     s.add_argument("--from-dxf", dest="from_dxf", default=None)
     s.add_argument("--sheet", default=None)
+    s.add_argument("--project", default=None)
     s.add_argument(
         "--set",
         dest="set",
@@ -116,7 +117,12 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("name")
     s.add_argument("--description", default="")
     s.add_argument("--force", action="store_true")
-    ts.add_parser("list")
+    s.add_argument("--scope", choices=("project", "user"), default=None)
+    s.add_argument("--project", default=None)
+    s.add_argument("--tag", default=None)
+    s.add_argument("--dry-run", dest="dry_run", action="store_true")
+    s = ts.add_parser("list")
+    s.add_argument("--project", default=None)
     return p
 
 
@@ -177,7 +183,14 @@ def _run(args, parser) -> int:
     d = args.dir
     if args.cmd == "init":
         sets = _parse_sets(getattr(args, "set", None))
-        out = txn.init(args.path, args.from_, args.sheet, args.from_dxf, sets=sets)
+        out = txn.init(
+            args.path,
+            args.from_,
+            args.sheet,
+            args.from_dxf,
+            sets=sets,
+            project=getattr(args, "project", None),
+        )
     elif args.cmd == "build":
         out = txn.build_commit(d, args.msg, png=getattr(args, "png", False))
     elif args.cmd == "edit":
@@ -216,9 +229,18 @@ def _run(args, parser) -> int:
         if args.action == "import":
             out = commands.template_import(d, args.file, args.name)
         elif args.action == "save":
-            out = commands.save_template(d, args.name, args.description, args.force)
+            out = commands.save_template(
+                d,
+                args.name,
+                args.description,
+                args.force,
+                scope=getattr(args, "scope", None),
+                project=getattr(args, "project", None),
+                tag=getattr(args, "tag", None),
+                dry_run=getattr(args, "dry_run", False),
+            )
         elif args.action == "list":
-            out = commands.template_list()
+            out = commands.template_list(dir=d, project=getattr(args, "project", None))
         else:
             return _usage("lcad template 有子命令 import / save / list")
     else:
