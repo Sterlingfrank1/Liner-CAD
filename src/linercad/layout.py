@@ -24,6 +24,7 @@ class Line:
     q: tuple
     layer: str
     ltscale: float = 1.0
+    width: float | None = None
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,7 @@ class Text:
     align: tuple | None = None  # (halign, valign) of the source TEXT / MTEXT
     anchor: tuple | None = None  # sheet-coordinate insertion point of the source entity
     anchor2: tuple | None = None  # second alignment point (ALIGNED / FIT)
+    bold: bool = False
 
 
 @dataclass(frozen=True)
@@ -350,6 +352,7 @@ def make_text(
     align=None,
     anchor=None,
     anchor2=None,
+    bold=False,
 ):
     w, hh = text_size(s, h, std, cjk)
     if abs(rot % 180 - 90) < 1e-9:
@@ -374,6 +377,7 @@ def make_text(
         align,
         anchor,
         anchor2,
+        bold,
     )
 
 
@@ -2453,23 +2457,31 @@ class _Layout:
                 continue
             spec = tb["fields"][e._intent["field"]]
             x0, y0, x1, y1 = spec["box"]
-            e._resolved["cell_box"] = [ox + x0, oy + y0, ox + x1, oy + y1]
+            bx0, by0, bx1, by1 = ox + x0, oy + y0, ox + x1, oy + y1
+            e._resolved["cell_box"] = [bx0, by0, bx1, by1]
             text = e._intent["text"]
             if not text:
                 e._prims = []
                 continue
-            # the largest height of the GB/T 14691 series (up to the slot's) that fits the slot
-            fit = [
-                s
-                for s in std["text"]["heights"]
-                if s <= spec["height"] + 1e-9
-                and text_size(text, s, std)[0] <= (x1 - x0) - 1
-                and text_size(text, s, std)[1] <= y1 - y0
-            ]
-            h = max(fit) if fit else std["text"]["heights"][0]
-            e._prims = [
-                make_text(text, (ox + (x0 + x1) / 2, oy + (y0 + y1) / 2), h, std, layer="text")
-            ]
+            if e._intent.get("text_height") is not None:
+                h = float(e._intent["text_height"])
+            else:
+                # the largest height of the GB/T 14691 series (up to the slot's) that fits the slot
+                fit = [
+                    s
+                    for s in std["text"]["heights"]
+                    if s <= spec["height"] + 1e-9
+                    and text_size(text, s, std)[0] <= (x1 - x0) - 1
+                    and text_size(text, s, std)[1] <= y1 - y0
+                ]
+                h = max(fit) if fit else std["text"]["heights"][0]
+            wrap = bool(e._intent.get("wrap", False))
+            align = e._intent.get("align") or "center"
+            bold = bool(e._intent.get("bold", False))
+            lines = _wrap_table_cell(text, x1 - x0, h, std, wrap, pad_x=0.5)
+            e._prims = _cell_text_prims(
+                lines, bx0, by0, bx1, by1, h, std, align=align, bold=bold, pad_x=0.5
+            )
         bom = d._els.get("T.bom")
         if bom is not None and bom.kind == "bom":
             from .assembly import bom_rows
@@ -2816,7 +2828,7 @@ TBL_PAD_Y = 1.0
 TBL_LINE_GAP = 0.8
 
 
-def _wrap_table_cell(text, width, h, std, wrap):
+def _wrap_table_cell(text, width, h, std, wrap, pad_x=TBL_PAD_X):
     """Split cell text into rendered lines; wraps at cell padding only when ``wrap`` is True."""
     s = str(text).strip()
     if not s:
@@ -2824,7 +2836,7 @@ def _wrap_table_cell(text, width, h, std, wrap):
     raw_lines = [ln for ln in s.splitlines() if ln.strip()]
     if not wrap:
         return raw_lines
-    avail = max(width - 2 * TBL_PAD_X, 0.1)
+    avail = max(width - 2 * pad_x, 0.1)
     lines = []
     for raw in raw_lines:
         cur = ""
@@ -2837,6 +2849,32 @@ def _wrap_table_cell(text, width, h, std, wrap):
         if cur:
             lines.append(cur.rstrip())
     return lines or raw_lines
+
+
+def _cell_content_h(lines, h, std):
+    if not lines:
+        return 0.0
+    hs = [text_size(ln, h, std)[1] for ln in lines]
+    return sum(hs) + TBL_LINE_GAP * max(0, len(hs) - 1)
+
+
+def _cell_text_prims(lines, x0, y0, x1, y1, h, std, *, align="center", bold=False, pad_x=TBL_PAD_X):
+    if not lines:
+        return []
+    hs = [text_size(ln, h, std)[1] for ln in lines]
+    total_h = sum(hs) + TBL_LINE_GAP * max(0, len(hs) - 1)
+    yc = (y0 + y1) / 2 + total_h / 2
+    out = []
+    for ln, lh in zip(lines, hs):
+        if align == "left":
+            xc = x0 + pad_x + text_size(ln, h, std)[0] / 2
+        elif align == "right":
+            xc = x1 - pad_x - text_size(ln, h, std)[0] / 2
+        else:
+            xc = (x0 + x1) / 2
+        out.append(make_text(ln, (xc, yc - lh / 2), h, std, layer="text", bold=bold))
+        yc -= lh + TBL_LINE_GAP
+    return out
 
 
 def _avoid_obstacles(gb, obstacles, F, gap, margin):
@@ -2892,6 +2930,10 @@ def _layout_tables(d, F, TB, TN, std):
         min_rh = max(TBL_ROW, th + 2 * TBL_PAD_Y)
         wrap = bool(i.get("wrap", True))
         cells = [[d._els[f"T.{name}.{r}.{c}"] for c in range(1, nc + 1)] for r in range(1, nr + 1)]
+        cell_ths = [
+            [float(cells[r][c]._intent.get("text_height") or th) for c in range(nc)]
+            for r in range(nr)
+        ]
 
         if i.get("cols") is not None:
             col_ws = [float(w) for w in i["cols"]]
@@ -2899,25 +2941,30 @@ def _layout_tables(d, F, TB, TN, std):
             col_ws = []
             for c in range(nc):
                 max_w = 0.0
+                max_cth = th
                 for r in range(nr):
+                    cth = cell_ths[r][c]
+                    max_cth = max(max_cth, cth)
                     for part in str(cells[r][c]._intent["text"]).splitlines() or [""]:
-                        max_w = max(max_w, text_size(part, th, std)[0])
-                col_ws.append(max(12.0, th * 3.0, math.ceil(max_w + 2 * TBL_PAD_X + 2.0)))
+                        max_w = max(max_w, text_size(part, cth, std)[0])
+                col_ws.append(max(12.0, max_cth * 3.0, math.ceil(max_w + 2 * TBL_PAD_X + 2.0)))
             if i.get("title"):
                 need = math.ceil(text_size(i["title"], th, std)[0] + 2 * TBL_PAD_X + 2.0)
                 if sum(col_ws) < need:
                     extra = (need - sum(col_ws)) / nc
                     col_ws = [w + extra for w in col_ws]
 
-        def content_h(lines, _th=th):
-            if not lines:
-                return 0.0
-            hs = [text_size(ln, _th, std)[1] for ln in lines]
-            return sum(hs) + TBL_LINE_GAP * max(0, len(hs) - 1)
-
         wrapped = [
             [
-                _wrap_table_cell(cells[r][c]._intent["text"], col_ws[c], th, std, wrap)
+                _wrap_table_cell(
+                    cells[r][c]._intent["text"],
+                    col_ws[c],
+                    cell_ths[r][c],
+                    std,
+                    wrap
+                    if cells[r][c]._intent.get("wrap") is None
+                    else bool(cells[r][c]._intent["wrap"]),
+                )
                 for c in range(nc)
             ]
             for r in range(nr)
@@ -2927,8 +2974,12 @@ def _layout_tables(d, F, TB, TN, std):
         else:
             row_hs = [
                 max(
-                    min_rh,
-                    max((content_h(wrapped[r][c]) for c in range(nc)), default=0.0) + 2 * TBL_PAD_Y,
+                    TBL_ROW,
+                    *(cell_ths[r][c] + 2 * TBL_PAD_Y for c in range(nc)),
+                    *(
+                        _cell_content_h(wrapped[r][c], cell_ths[r][c], std) + 2 * TBL_PAD_Y
+                        for c in range(nc)
+                    ),
                 )
                 for r in range(nr)
             ]
@@ -2960,11 +3011,12 @@ def _layout_tables(d, F, TB, TN, std):
             ys_rows.append(ys_rows[-1] - rh)
 
         top = y0 + total_h
+        outer_w = float(i["border_width"]) if i.get("border_width") is not None else None
         prims = [
-            Line((x0, y0), (x0 + total_w, y0), "thick"),
-            Line((x0, top), (x0 + total_w, top), "thick"),
-            Line((x0, y0), (x0, top), "thick"),
-            Line((x0 + total_w, y0), (x0 + total_w, top), "thick"),
+            Line((x0, y0), (x0 + total_w, y0), "thick", width=outer_w),
+            Line((x0, top), (x0 + total_w, top), "thick", width=outer_w),
+            Line((x0, y0), (x0, top), "thick", width=outer_w),
+            Line((x0 + total_w, y0), (x0 + total_w, top), "thick", width=outer_w),
         ]
         for x in xs[1:-1]:
             prims.append(Line((x, y0), (x, body_top), "thin"))
@@ -2986,17 +3038,17 @@ def _layout_tables(d, F, TB, TN, std):
                 cell = cells[r][c]
                 cell._resolved["cell_box"] = [xs[c], yb, xs[c + 1], yt]
                 lines = wrapped[r][c]
-                if not lines:
-                    cell._prims = []
-                    continue
-                hs = [text_size(ln, th, std)[1] for ln in lines]
-                yc = (yb + yt) / 2 + content_h(lines) / 2
-                xc = (xs[c] + xs[c + 1]) / 2
-                cprims = []
-                for ln, lh in zip(lines, hs):
-                    cprims.append(make_text(ln, (xc, yc - lh / 2), th, std, layer="text"))
-                    yc -= lh + TBL_LINE_GAP
-                cell._prims = cprims
+                cell._prims = _cell_text_prims(
+                    lines,
+                    xs[c],
+                    yb,
+                    xs[c + 1],
+                    yt,
+                    cell_ths[r][c],
+                    std,
+                    align=cell._intent.get("align") or "center",
+                    bold=bool(cell._intent.get("bold", False)),
+                )
 
         if title_text:
             tbl._resolved["title_box"] = [x0, body_top, x0 + total_w, top]

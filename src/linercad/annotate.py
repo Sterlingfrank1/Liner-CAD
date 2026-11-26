@@ -962,12 +962,43 @@ def _cell_parts(value):
     return str(value), None, []
 
 
+ALIGNS = ("left", "center", "right")
+
+
+def _check_align(v, eid=None):
+    if v not in ALIGNS:
+        raise InvalidArgument(
+            f"align 只能是 {', '.join(ALIGNS)}，收到 {v!r}",
+            id=eid,
+            candidates=list(ALIGNS),
+        )
+    return v
+
+
+def _check_bool(v, what, eid=None):
+    if not isinstance(v, bool):
+        raise InvalidArgument(f"{what} 必须是 bool", id=eid)
+    return v
+
+
 class Cell(Element):
     """A title-block field or semantic table cell."""
 
     kind = "table.cell"
-    SETTABLE = ("text",)
-    READ = ("text", "field", "table", "row", "col", "header")
+    SETTABLE = ("text", "text_height", "align", "wrap", "bold")
+    ALIASES = {"font_size": "text_height"}
+    READ = (
+        "text",
+        "field",
+        "table",
+        "row",
+        "col",
+        "header",
+        "text_height",
+        "align",
+        "wrap",
+        "bold",
+    )
 
     text = property(lambda s: s._intent["text"])
     field = property(lambda s: s._intent.get("field"))
@@ -975,15 +1006,44 @@ class Cell(Element):
     row = property(lambda s: s._intent.get("row"))
     col = property(lambda s: s._intent.get("col"))
     header = property(lambda s: s._intent.get("header"))
+    text_height = property(lambda s: s._intent.get("text_height"))
+    align = property(lambda s: s._intent.get("align", "center"))
+    wrap = property(lambda s: s._intent.get("wrap"))
+    bold = property(lambda s: bool(s._intent.get("bold", False)))
 
     def _apply_set(self, fields):
-        text, expr, covers = _cell_parts(fields["text"])
-        self._intent["text"] = text
-        if expr is not None:
-            self._intent["expr"] = expr
-        else:
-            self._intent.pop("expr", None)
-        self._covers[:] = covers
+        if "text" in fields:
+            text, expr, covers = _cell_parts(fields["text"])
+            self._intent["text"] = text
+            if expr is not None:
+                self._intent["expr"] = expr
+            else:
+                self._intent.pop("expr", None)
+            self._covers[:] = covers
+        if "text_height" in fields:
+            th = fields["text_height"]
+            if th is None:
+                self._intent.pop("text_height", None)
+            else:
+                self._intent["text_height"] = _check_positive(th, "text_height")
+        if "align" in fields:
+            al = fields["align"]
+            if al is None:
+                self._intent.pop("align", None)
+            else:
+                self._intent["align"] = _check_align(al, self._id)
+        if "wrap" in fields:
+            wp = fields["wrap"]
+            if wp is None:
+                self._intent.pop("wrap", None)
+            else:
+                self._intent["wrap"] = _check_bool(wp, "wrap", self._id)
+        if "bold" in fields:
+            bd = fields["bold"]
+            if bd is None:
+                self._intent.pop("bold", None)
+            else:
+                self._intent["bold"] = _check_bool(bd, "bold", self._id)
 
     def suppress(self):
         if "table" in self._intent and "field" not in self._intent:
@@ -1028,7 +1088,8 @@ class Table(Element):
     """Semantic sheet table (``d.table``): ``T.<name>`` owns 1-based ``T.<name>.<r>.<c>`` cells."""
 
     kind = "table"
-    SETTABLE = ("title", "cols", "row_height", "text_height", "wrap")
+    SETTABLE = ("title", "cols", "row_height", "text_height", "wrap", "border_width")
+    ALIASES = {"col_widths": "cols", "font_size": "text_height"}
     LAYOUT = ("at",)
     READ = (
         "name",
@@ -1037,6 +1098,7 @@ class Table(Element):
         "row_height",
         "text_height",
         "wrap",
+        "border_width",
         "nrows",
         "ncols",
         "at",
@@ -1055,6 +1117,7 @@ class Table(Element):
     row_height = property(lambda s: s._intent.get("row_height"))
     text_height = property(lambda s: s._intent.get("text_height"))
     wrap = property(lambda s: s._intent.get("wrap", True))
+    border_width = property(lambda s: s._intent.get("border_width"))
     nrows = property(lambda s: s._intent["nrows"])
     ncols = property(lambda s: s._intent["ncols"])
     headers = property(lambda s: s._intent.get("headers"))
@@ -1095,6 +1158,11 @@ class Table(Element):
             if not isinstance(fields["wrap"], bool):
                 raise InvalidArgument("wrap 必须是 bool")
             self._intent["wrap"] = fields["wrap"]
+        if "border_width" in fields:
+            bw = fields["border_width"]
+            self._intent["border_width"] = (
+                None if bw is None else _check_positive(bw, "border_width")
+            )
 
     def _apply_place(self, fields):
         if "at" in fields:
@@ -1319,6 +1387,7 @@ def drawing_table(
     cols=None,
     row_height=None,
     text_height=None,
+    border_width=None,
     at=None,
     wrap=True,
 ):
@@ -1349,6 +1418,7 @@ def drawing_table(
     cols_v = None if cols is None else _check_table_cols(cols, ncols)
     rh_v = None if row_height is None else _check_positive(row_height, "row_height")
     th_v = None if text_height is None else _check_positive(text_height, "text_height")
+    bw_v = None if border_width is None else _check_positive(border_width, "border_width")
     at_v = _check_table_at(at)
 
     all_rows = ([list(headers)] if headers is not None else []) + [list(r) for r in rows]
@@ -1364,6 +1434,8 @@ def drawing_table(
         "ncols": ncols,
         "headers": bool(headers is not None),
     }
+    if bw_v is not None:
+        intent["border_width"] = bw_v
     tbl = self._add(Table(self, f"T.{name}", intent))
     if at_v is not None:
         tbl._layout["at"] = at_v

@@ -769,6 +769,10 @@ def _brief_intent(e):
         "nrows",
         "ncols",
         "wrap",
+        "text_height",
+        "align",
+        "bold",
+        "border_width",
     )
     return {k: v for k, v in e.to_dict()["intent"].items() if k in keep}
 

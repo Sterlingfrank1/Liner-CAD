@@ -511,3 +511,134 @@ d.title(name="零件", material="45")
     out2, res2 = edit_full(tmp_path, s2, "suppress table")
     assert out2["ok"]
     assert "T.p" not in res2.d and "T.p.2.2" not in res2.d
+
+
+# ---- 4. C3 (R13 RED -> GREEN): Cell & Table style set(), aliases, layout/DXF/SVG/replay ----
+
+
+def test_r13_cell_and_table_style_set_and_aliases(tmp_path):
+    import xml.etree.ElementTree as ET
+
+    d = Drawing(sheet="A3")
+    d.view("front").rect((0, 0), 30, 20, name="r")
+    d.title(name="法兰盘", material="45", drawing_no="LC-01")
+    tbl = d.table(
+        "params",
+        [["外径 D", "120"], ["长说明", "超长参数说明文字验证自动换行宽度控制"]],
+        headers=["名称", "值"],
+        cols=[24, 24],
+    )
+
+    # Cell style set + font_size alias + read properties
+    c_mat = d["T.title.material"]
+    c_mat.set(text_height=5.0, align="left", wrap=True, bold=True)
+    assert c_mat.text_height == 5.0
+    assert c_mat.align == "left"
+    assert c_mat.wrap is True
+    assert c_mat.bold is True
+
+    c_name = d["T.title.name"]
+    c_name.set(font_size=5.0, align="right")
+    assert c_name.text_height == 5.0 and c_name.align == "right"
+
+    # Validation errors & conflict rejection
+    with pytest.raises(errors.InvalidArgument):
+        c_mat.set(align="justify")
+    with pytest.raises(errors.InvalidArgument):
+        c_mat.set(wrap="yes")
+    with pytest.raises(errors.InvalidArgument):
+        c_mat.set(bold=1)
+    with pytest.raises(errors.InvalidArgument):
+        c_mat.set(text_height=0)
+    with pytest.raises(errors.InvalidArgument):
+        c_mat.set(text_height=3.5, font_size=5.0)
+
+    # Table border_width + col_widths / font_size aliases
+    tbl.set(col_widths=[26, 22], font_size=3.5, border_width=0.7)
+    assert tbl.cols == [26.0, 22.0]
+    assert tbl.text_height == 3.5
+    assert tbl.border_width == 0.7
+
+    layout(d)
+
+    # Alignment shifts text x monotonically across left < center < right in title and table cells
+    xs_align = {}
+    for al in ("left", "center", "right"):
+        d["T.title.drawing_no"].set(align=al)
+        d["T.params.2.1"].set(align=al)
+        layout(d)
+        xs_align[al] = (
+            d["T.title.drawing_no"]._prims[0].at[0],
+            d["T.params.2.1"]._prims[0].at[0],
+        )
+    assert xs_align["left"][0] < xs_align["center"][0] < xs_align["right"][0]
+    assert xs_align["left"][1] < xs_align["center"][1] < xs_align["right"][1]
+
+    # Long text with wrap=True in title cell splits into >=2 Text prims inside cell_box
+    d["T.title.material"].set(
+        text="高强度合金结构钢 40CrNiMoA 调质回火热处理工艺规范及金相检验要求",
+        text_height=3.5,
+        wrap=True,
+        align="left",
+        bold=True,
+    )
+    layout(d)
+    mat_texts = [p for p in d["T.title.material"]._prims if isinstance(p, Text)]
+    assert len(mat_texts) >= 2
+    cb = d["T.title.material"]._resolved["cell_box"]
+    for tp in mat_texts:
+        assert tp.box[0] >= cb[0] - 0.1 and tp.box[2] <= cb[2] + 0.1
+        assert tp.bold is True
+
+    # DXF and SVG reflect text_height, bold, border_width
+    from linercad.text import dxf_height
+
+    doc, idx, _ = dxfout.to_doc(d)
+    assert idx["T.title.material"][0].dxf.height == pytest.approx(
+        dxf_height(mat_texts[0].text, 3.5, d.std), abs=1e-4
+    )
+    assert idx["T.title.material"][0].dxf.style == "LC_BOLD"
+    tbl_lines = [ent for ent in idx["T.params"] if ent.dxftype() == "LINE"]
+    assert any(ent.dxf.lineweight == 70 for ent in tbl_lines)
+
+    svg_str = svgout.svg(d)
+    root = ET.fromstring(svg_str)
+    ns = {"svg": "http://www.w3.org/2000/svg"}
+    mat_g = root.find('.//svg:g[@data-id="T.title.material"]', ns)
+    assert any(t.attrib.get("font-weight") == "bold" for t in mat_g.findall("svg:text", ns))
+    tbl_g = root.find('.//svg:g[@data-id="T.params"]', ns)
+    assert any(ln.attrib.get("stroke-width") == "0.7" for ln in tbl_g.findall("svg:line", ns))
+
+    # Reset via None
+    d["T.title.material"].set(text_height=None, align=None, wrap=None, bold=None)
+    assert d["T.title.material"].text_height is None and d["T.title.material"].bold is False
+
+    # Replay via lcad edit
+    p = tmp_path / "replay"
+    txn_init(p)
+    (p / "drawing.py").write_text(
+        """from linercad import Drawing
+d = Drawing(sheet="A3")
+d.view("front").rect((0, 0), 30, 20, name="r")
+d.title(name="支架", material="45")
+d.table("p", [["a", "1"], ["b", "2"]], headers=["k", "v"])
+""",
+        encoding="utf-8",
+    )
+    build_commit(p, msg="base")
+    sc = p / "style.py"
+    sc.write_text(
+        """def apply(d):
+    d["T.title.name"].set(font_size=5.0, align="left", bold=True)
+    d["T.p"].set(col_widths=[25, 25], border_width=0.7)
+""",
+        encoding="utf-8",
+    )
+    out, _res = edit_full(p, sc, "调样式")
+    assert out["ok"]
+    rebuilt = build(p)
+    assert rebuilt.d["T.title.name"].text_height == 5.0
+    assert rebuilt.d["T.title.name"].align == "left"
+    assert rebuilt.d["T.title.name"].bold is True
+    assert rebuilt.d["T.p"].cols == [25.0, 25.0]
+    assert rebuilt.d["T.p"].border_width == 0.7

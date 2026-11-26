@@ -6,6 +6,7 @@ Prims (sheet coordinates) → ezdxf entities. Every entity carries XDATA
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -13,6 +14,7 @@ from pathlib import Path
 import ezdxf
 from ezdxf.document import CREATED_BY_EZDXF
 from ezdxf.enums import TextEntityAlignment
+from ezdxf.lldxf.const import VALID_DXF_LINEWEIGHTS
 
 from .errors import InvalidArgument
 from .layout import Arc, Circle, Hatch, Line, Poly, Solid, Text
@@ -108,11 +110,18 @@ def _alignment(align) -> TextEntityAlignment:
     return getattr(TextEntityAlignment, name, TextEntityAlignment.MIDDLE_CENTER)
 
 
+def _dxf_lineweight(width_mm: float) -> int:
+    w = int(round(width_mm * 100))
+    return min(VALID_DXF_LINEWEIGHTS, key=lambda v: (abs(v - w), v))
+
+
 def _write(msp, pr, std, text_boxes):
     lay = {"layer": _layer(std, pr.layer)}
     if isinstance(pr, Line):
         if pr.ltscale != 1.0:
             lay["ltscale"] = pr.ltscale
+        if getattr(pr, "width", None) is not None:
+            lay["lineweight"] = _dxf_lineweight(pr.width)
         return msp.add_line(pr.p, pr.q, dxfattribs=lay)
     if isinstance(pr, Circle):
         if pr.ltscale != 1.0:
@@ -146,11 +155,21 @@ def _write(msp, pr, std, text_boxes):
             else:
                 t.set_placement(pr.anchor, align=align)
             return t
+        style_name = "LC"
+        if getattr(pr, "bold", False):
+            doc = msp.doc
+            style_name = "LC_BOLD"
+            if not doc.styles.has_entry(style_name):
+                bs = doc.styles.add(style_name, font=std["text"]["font"])
+                bs.dxf.width = std["text"]["width_factor"]
+                with contextlib.suppress(Exception):
+                    bs.set_extended_font_data(font_family="SimFang", bold=True)
+            lay["lineweight"] = _dxf_lineweight(std["lines"]["thick"]["width"])
         t = msp.add_text(
             pr.text,
             height=dxf_height(pr.text, pr.height, std, pr.cjk),
             rotation=pr.rot,
-            dxfattribs={**lay, "style": "LC", "width": std["text"]["width_factor"]},
+            dxfattribs={**lay, "style": style_name, "width": std["text"]["width_factor"]},
         )
         t.set_placement(pr.at, align=TextEntityAlignment.MIDDLE_CENTER)
         return t
