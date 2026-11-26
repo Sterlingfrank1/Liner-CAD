@@ -100,7 +100,7 @@ d.q.lines(view="front").where(length=30, dir="h").near(120, 45).one()   # near �
 `exactly(n)` / `one()` 不满足时报错并列出命中的元素和最近的候选。
 
 **元素操作**：`el.place(**布局)`、`el.move(dx=, dy=)`、`el.set(**意图)` 或直接赋值（`el.tol = "h7"`、`el.text = "..."`）、`el.suppress()`、`d.accept(rule, id, "理由")`（有意为之的检查结果放行，参数用 `P.<名>`）。
-单元格 `T.title.*` / `T.<name>.<r>.<c>` 支持 `set(text_height=<mm>, align="left|center|right", wrap=bool, bold=bool)`；表格 `T.<name>` 支持 `set(cols=[...], row_height=<mm>, text_height=<mm>, border_width=<mm>)`（别名 `font_size` / `col_widths` 也可用；字高应在 GB `[2.5, 5.0]` mm 系列内）。
+单元格 `T.title.*` / `T.<name>.<r>.<c>` 支持 `set(text_height=<mm>, align="left|center|right", wrap=bool, bold=bool)`；表格 `T.<name>` 支持 `set(cols=[...], row_height=<mm>, text_height=<mm>, border_width=<mm>)`（字高应在 GB `[2.5, 5.0]` mm 系列内）。
 逃生口：`d.raw("D.L").entities[0].dxf.color = 1`、`d.raw_add("LINE", start=(x, y), end=(x, y), layer="THIN")`（图纸坐标）。
 
 

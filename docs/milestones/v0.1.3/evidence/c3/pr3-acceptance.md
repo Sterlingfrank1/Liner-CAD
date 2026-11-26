@@ -8,8 +8,8 @@
 
 ### R13：表格 / 单元格样式 `set()` API
 - `Element.ALIASES` 与 `_resolve_aliases()` 支持别名映射，同时保留 `d.table("bad", ..., col_widths=[20])` 拒绝未知构造参数的行为：
-  - `Cell.set(...)` 支持 `text_height`（别名 `font_size`）、`align`、`wrap`、`bold`。
-  - `Table.set(...)` 支持 `col_widths`、`row_heights`、`text_height`（别名 `font_size`）、`align`、`wrap`、`bold`、`border_width`。
+  - `Cell.set(...)` 支持 `text`、`text_height`（别名 `font_size`）、`align`、`wrap`、`bold`。
+  - `Table.set(...)` 支持 `title`、`cols`（别名 `col_widths`）、`row_height`、`text_height`（别名 `font_size`）、`wrap`、`border_width`（`align` / `bold` 仅在 `Cell.set(...)` 生效，表格维度拒绝未声明字段）。
   - `d.table(..., border_width=None)` 支持直接设置表格外框线宽。
 - 实测样本前后对照：
   - `T.title.material` 字高由 `3.5 mm` 调整为 `5.0 mm`，设置 `align="left"`、`bold=True`、文本 `"45"`。
@@ -18,7 +18,7 @@
 - 渲染截图：[style-after.png](style-after.png)（目检确认 `45` 左对齐加粗、`LC-C3-01` 右对齐、`T.params` 外框加粗、`120` 右对齐加粗，格内均无文字溢出）。
 
 ### R14：GB 样式守护与标题栏格子溢出
-- `rules.py` 新增 `title_style_gb` 与 `table_style_gb`（`severity="warn"`，`std="GB/T 10609.1-2008"`），纳入 `drafting` pack；同步更新 `src/linercad/std/{gb,iso}.toml`、`src/linercad/res/catalog.toml`、`evals/mutate.py` 与 `tests/test_metrics.py`。
+- `rules.py` 新增 `title_style_gb`（`std="GB/T 10609.1-2008"`）与 `table_style_gb`（`std="GB/T 14691-1993"`），均为 `severity="warn"` 并纳入 `drafting` pack；同步更新 `src/linercad/std/{gb,iso}.toml`、`src/linercad/res/catalog.toml`、`evals/mutate.py` 与 `tests/test_metrics.py`。
 - 实测 `title_style_gb`：当标题栏字段字高设为 `7.0 mm` 时触发 `title_style_gb` warning（`std="GB/T 10609.1-2008"`）。
 - `checks.py` 将 `table_overflow` 扩展至标题栏单元格（通过 `_title_border_box` 取标题栏实际包围网格矩形框，且仅修改检查边界不改变 `cell_box`），在 40 份参考图（`640` 次 `table_overflow` 机会）下误报为 `0`。
 
@@ -50,4 +50,4 @@
 - `uv run python evals/mutate.py --out .tmp/mutate-report.md`：
   - `规则数：41；变异数：45；检出：45；检出率：1.0；参考图误报：0；跳过用例：0；债务冻结精确：True`
   - 含 `table_overflow`（3/3, 100%, 0 FP）、`table_style_gb`（1/1, 100%, 0 FP）、`title_style_gb`（1/1, 100%, 0 FP）、`logo_external_ref`（1/1, 100%, 0 FP）。
-- 全量 `uv run pytest -q` 在最终提交前统一执行，完整结果附于 PR 正文与后续进度记录。
+- `uv run pytest -q`：`1578 passed, 1 skipped`（0 失败，包含新增 `test_logo.py`、`test_table.py`、`test_metrics.py`、`test_catalog_mutation.py` 与全套回归）。
