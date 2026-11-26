@@ -87,10 +87,17 @@ W2：PR-2 与 PR-3 并行（两个 Worker）← 文件基本不重叠
 遇到 SPEC 未定：停下来问，不扩范围。
 ```
 
-## 8. 收尾
+## 8. 收尾（PR-4）与发布归属
 
-- 三卡合并且 main 全绿后：写 `docs/milestones/v0.1.3/HANDOVER.md`（做了什么、怎么验证、证据、已知缺口、偏离），更新 `docs/ROADMAP.md` 看板。
-- **不要**打 tag / 建 Release：`v0.1.3` 由用户执行 `scripts/release.py 0.1.3`。
+三卡合并且 main 全绿后，做一张收口 PR（不占功能卡名额）：
+
+1. `pyproject.toml` 版本号 → `0.1.3`；
+2. `docs/releases/v0.1.3.md`（做了什么、验证证据、已知缺口、升级说明）；
+3. `docs/milestones/v0.1.3/HANDOVER.md`（交付、怎么验证、偏离）；
+4. `docs/ROADMAP.md` 看板（状态更新，tag 列留空）；
+5. 全局安装验证：`uv tool install --reinstall .` 后 `lcad --version` = 0.1.3。
+
+合入后 STOP：**正式发布（`git tag` / `gh release create`）由 DSH 执行 `scripts/release.py 0.1.3`**，agy **不要**自己打 tag、建 Release，也不要推 tag。
 
 ## 9. 汇报节奏
 
@@ -104,7 +111,7 @@ agy 1.5.17 有 `gemini-pro-orchestrator-neon`（Orchestrator）与 `gemini-4-hyd
 |---|---|
 | 规划 / 派活 / 汇总证据 | Orchestrator（Neon xhigh），一个阶段一个会话 |
 | 写代码 | Worker：Hydrogen xhigh（在 brief 里写死，若 orchestrator 不能锁模型，就退回手动开 Worker 会话） |
-| 代码评审 | **独立会话**，优先跨族模型（`claude-opus-5-5-high` 或 `claude-sonnet-5-5-high`）；预算紧用 Hydrogen xhigh，但必须是新会话 |
+| 代码评审 | **agy 后台新建的独立会话**，模型固定 `gemini-4-hydrogen-xhigh`，只读；一轮不够再来一轮，最多 3 轮 |
 | 合并 / 关卡 | 你（或一个只读 Supervisor 会话）；orchestrator 不许合并 |
 
 **分两次 orchestrator 运行，不要一次跑完三张卡**：
@@ -118,7 +125,59 @@ agy 1.5.17 有 `gemini-pro-orchestrator-neon`（Orchestrator）与 `gemini-4-hyd
 
 - 每完成一张卡的 PR 就 STOP，等用户/评审结论，不自动进入下一张；
 - 不合并任何 PR、不打 tag、不改三份里程碑文档；
-- 所有 Worker 一律 `hydrogen-xhigh`；评审会话由用户另开，不由 orchestrator 生成；
+- 所有 Worker 一律 `hydrogen-xhigh`；评审会话由 agy 后台新建（命令见 §11），与开发会话分开；
 - 子任务开始前先输出"卡号 + 分支 + 验收命令"一行，便于用户核对。
 
+评审会话的固定命令（在独立 worktree 里跑，避免切走 Worker 现场）：
+
+```powershell
+git worktree add ..\rev-<PR号> origin/<分支>
+agy --print --mode plan --model gemini-4-hydrogen-xhigh --effort xhigh "<§6 reviewer brief + PR 号>"
+```
+
+`--mode plan` 让评审会话不动文件；`--print` 拿到一次性结论。
+
 如果 agy 的 orchestrator 无法锁定 executor 模型或无法在卡间停下，就**不要用它**，按 §7 手动开 Worker 会话——可控性优先于省事。
+## 11. 启动提示词（直接粘贴到新的 agy 窗口）
+
+```text
+V0.1.3 开发：agy Orchestrator mode：Neon(xhigh) + Hydrogen(xhigh)；code review 由 agy 后台新建会话（Gemini 4 Hydrogen XHigh）。
+
+你是 Liner-CAD v0.1.3 的执行 Agent，同时负责评审调度与验收。
+工作目录 D:\Industry\Claude-Code\Liner-CAD（Windows / PowerShell / uv / gh 已登录 / 全局 lcad 0.1.2）。
+本会话是 Orchestrator 模式（planner Gemini 4 Neon (XHigh)，executor Gemini 4 Hydrogen (XHigh)）。
+不要改模型，不要在命令里传 --model 或 --effort（评审会话除外，见第 6 步）。
+
+【第一步：只读，不改任何文件】
+1) 读仓库根 AGENTS.md（行为纪律）与 CLAUDE.md（开发约定）。
+2) 读 docs/milestones/v0.1.3/ 下的 v0.1.3-REQ.md、v0.1.3-SPEC.md、v0.1.3-CARDS.md、AGY-KICKOFF.md。
+3) 读 DESIGN.md 相关章节、docs/ROADMAP.md §1/§6、docs/RELEASING.md（只读，用于最后的收口）。
+4) 不要读 refs 下的 progress.md / status.json / 旧 milestone 全文；路径与版本以本提示词为准。
+
+【第二步：开场自检，贴原始输出，然后停下】
+执行并贴出：pwd、git status -sb、lcad --version、uv run pytest -q 的末行统计。
+我说"开始"之前：不要写代码、不要建分支、不要开 issue。
+
+【开工后：单卡闭环】
+1) gh issue create：标题 [v0.1.3/Cx] <名>，正文含 目标 / 范围 / 不做 / 验收 / 依赖（取自 CARDS 对应 PR）。
+2) git fetch origin && git switch -c v013/<card-slug> origin/main
+3) RED：先写会失败的测试，uv run pytest <test> -q，贴失败输出。
+4) GREEN：实现，uv run pytest -q 全绿。
+5) 门禁：uv run ruff check；uv run ruff format --check；PR-1/PR-3 再跑 uv run python evals/run.py --baseline。
+6) 评审（每卡最多 3 轮）：agy 后台新建只读会话，模型固定 Hydrogen XHigh：
+   git worktree add ..\rev-<PR号> origin/<分支>
+   agy --print --mode plan --model gemini-4-hydrogen-xhigh --effort xhigh "<§6 reviewer brief + PR 号>"
+   输出问题清单（文件:行号 / 严重度 blocker|major|minor / 依据）+ 结论行 REVIEW PASS 或 REVIEW ISSUES: n。
+   第 3 轮仍不过 → 停，报 CARD <id> BLOCKED — review escalation，复述 3 轮意见等仲裁。
+7) gh pr create（body 写 Closes #<issue>，贴验收证据）→ CI 四项绿 → 合并前 rebase 最新 main → gh pr merge --squash。
+
+【卡序】
+PR-1 单独先做 → 合入并等我试用确认 → PR-2 与 PR-3 并行（各一个 Worker、各一个分支）→ PR-4 收口。
+每完成一张卡的 PR 就 STOP，等我或评审结论，不自动进入下一张。
+
+【收口】PR-4：版本号 0.1.3、docs/releases/v0.1.3.md、HANDOVER.md、ROADMAP 看板、全局安装验证。
+合入后 STOP：正式发布（git tag / gh release create）由 DSH 执行 scripts/release.py 0.1.3，你不要打 tag、不要建 Release、不要推 tag。
+
+【禁止】直推 main、force-push、删除他人分支、改三份里程碑文档（REQ/SPEC/CARDS）、合并未过评审的 PR、替用户的图纸项目 commit 或打 tag、给 DSH 会话派活。
+遇到文档没写死的选择：停下来问，给"问题 + 两个选项 + 推荐"各一行，不自行扩范围。
+```
