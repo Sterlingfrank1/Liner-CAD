@@ -91,4 +91,18 @@
 3. **R4/R5**：画布实现左键框选（L→R 蓝实线全包含 / R→L 绿虚线相交，容差 `0.75 * sc`）、右/中键/Space+左键平移与右键菜单抑制；`Viewer.select` 默认截断上限 50（`LCAD_SELECTION_CAP`），`lcad context "@sel"` 超 10 返回摘要（保留 `items: []`）。
 4. **R7**：GB/ISO 标题栏全部 16 格（含空字段如 `T.title.company`）均输出 `cell_box` 与 SVG `cell-hit` 命中矩形并可点选/读取 `@sel`。
 5. **R8**：`GET /api/download?fmt=dxf|pdf|png[&preview=1]` 经临时目录出图后即删，无 git / 源码 / `.linercad/build` 副作用；带内部 `assets/logo.png` 的 DXF 自动打 `.zip`（`X-LCAD-Archive: zip`），越界外部图片路径拒绝（409）。
-6. 浏览器交互视觉手感（拖拽宽度、框选两态拖拽）待用户合入后试用确认。
+
+## Playwright Chromium 无头浏览器端到端交互实测
+
+- 校验：`node --check src/linercad/viewer/viewer.js` exit 0；Playwright Chromium (`1440x900` / `1050x800` / `780x800`) 实测 `page_errors: 0`、`non_csp_console_errors: 0`（仅存量 `p-tick` 存在行内 `style=` CSP 提示）。
+- 实测 JSON：
+  - `left_widths`: `{"init": 250, "dragged": 310, "reloaded": 310, "reset": 250}`
+  - `breakpoints`: `{"medium": "right-collapsed", "narrow": "right-collapsed left-collapsed", "wide": ""}`
+  - `pan_vb_changed`: `true`，`ctx_events_prevented`: `[true]`
+  - `title_cell_selected`: `["T.title.company"]`
+  - `downloads`: `LC-SH-01-e0.dxf` (109574 B) / `LC-SH-01-e0.pdf` (158114 B) / `LC-SH-01-e0.png` (52554 B)
+- 截图证据：
+  - L→R 蓝实线框选：`marquee-window.png`
+  - R→L 绿虚线框选（默认跳过 `table.cell`，检查器文案「已选中 14 个元素」）：`marquee-crossing.png`
+  - 单击空标题栏格 `T.title.company`：`title-cell-picked.png`
+
