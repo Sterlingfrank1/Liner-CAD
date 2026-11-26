@@ -2,11 +2,13 @@
 
 用户可能开着 `lcad view`（浏览器里看图、点选、拖参数滑块）；画完后 Viewer 也会被自动打开。
 
-## 自动打开与关闭（H3）
+## 自动打开与关闭（H3 / R1 / R2）
 
-- 图纸目录**第一次** `build` / `edit` 成功后，若没有运行中的 Viewer，harness 会在后台起一个并打开浏览器一次；命令 JSON 带 `viewer: {url, opened}`，打不开浏览器时把 url 告诉用户即可。已在运行则只刷新页面、不新开标签。
-- 关闭：本次命令加 `--no-view`，或设置 `LCAD_NO_VIEW=1`，CI 环境默认关。后台 Viewer 在空闲超时（默认 30 分钟，`LCAD_VIEW_IDLE_TIMEOUT` 秒）后自退，并删除状态文件。
-- 状态在 `.linercad/viewer.json`（pid / port / url），只是本地状态，不要提交或手改。
+- 图纸目录**第一次** `build` / `edit` 成功后，若没有运行中的 Viewer，harness 会在后台起一个并打开浏览器一次；命令 JSON 带 `viewer: {url, pid, started, opened, reused}`，打不开浏览器时把 `url` 告诉用户即可。已在运行则只刷新页面、不新开标签（`reused: true`、`opened: false`）。
+- **静默拉起（推荐）**：`lcad build --ensure-viewer` / `lcad edit ... --ensure-viewer` 静默起后台守护进程、**不弹系统浏览器**（`opened: false`），且显式覆盖 `LCAD_NO_VIEW=1`、`LCAD_NO_VIEWER=1` 与 `CI`；把返回的 `viewer.url` 放进回复里即可。
+- **关闭**：本次命令加 `--no-viewer` / `--no-view`（与 `--ensure-viewer` 互斥），或设置 `LCAD_NO_VIEW=1` / `LCAD_NO_VIEWER=1`，CI 环境默认关。后台 Viewer 在空闲超时（默认 30 分钟，`LCAD_VIEW_IDLE_TIMEOUT` 秒）后自退，并删除状态文件。
+- **端口回退**：`lcad view` 默认绑定 `8765`，若被占用自动回退到随机空闲端口并把真实端口写入 `.linercad/viewer.json`；显式传 `--port <N>` 且被占用时直接报错退出（`error.code == "viewer_bind"`）。
+- 状态在 `.linercad/viewer.json`（pid / port / url / started），只是本地状态，不要提交或手改。
 
 ## 选择同步到对话（H4）
 

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import errno
 import io
 import json
 import math
@@ -815,6 +816,7 @@ class _Server(ThreadingHTTPServer):
 
 STATE_PATH = Path(".linercad") / "viewer.json"
 LOG_PATH = Path(".linercad") / "viewer.log"
+DEFAULT_PORT = 8765
 DEFAULT_IDLE_TIMEOUT = 1800.0  # seconds without a request before the background Viewer exits
 
 
@@ -910,11 +912,15 @@ def _idle_timeout(value=None) -> float:
         return DEFAULT_IDLE_TIMEOUT
 
 
-def _suppressed(disabled=False) -> bool:
-    """--no-view, the env switch and CI all keep the auto-open off (tests open no browser)."""
-    if disabled or os.environ.get("LCAD_NO_VIEW"):
+def _suppressed(disabled=False, *, ensure=False) -> bool:
+    """--no-view / --no-viewer, env switches and CI keep auto-start off; --ensure-viewer wins."""
+    if disabled:
         return True
-    return bool(os.environ.get("CI"))
+    if ensure:
+        return False
+    return bool(
+        os.environ.get("LCAD_NO_VIEW") or os.environ.get("LCAD_NO_VIEWER") or os.environ.get("CI")
+    )
 
 
 def _viewer_identity(doc, dir):
@@ -1057,13 +1063,16 @@ def _viewer_lock(dir):
                 pass
 
 
-def autostart(dir, disabled=False, open_browser=True):
+def autostart(dir, disabled=False, open_browser=None, *, ensure=False):
     """After a successful build / edit: make sure a Viewer runs and open it once.
 
-    Returns {"url": ..., "opened": bool}; None when auto-opening is off (--no-view,
-    LCAD_NO_VIEW or CI). An already running Viewer is reused without opening a new tab.
+    Returns ``{"url", "pid", "started", "opened", "reused"}``; None when suppressed.
+    ``ensure=True`` (--ensure-viewer) overrides ``LCAD_NO_VIEW`` / ``LCAD_NO_VIEWER`` / ``CI`` and
+    keeps browser auto-open off by default. An already running Viewer is reused without a new tab.
     """
-    if _suppressed(disabled):
+    if open_browser is None:
+        open_browser = not ensure
+    if _suppressed(disabled, ensure=ensure):
         return None
     dir = Path(dir).resolve()  # --dir and the child cwd must agree for lcad -C <relative>
     _reap_children()
@@ -1071,7 +1080,13 @@ def autostart(dir, disabled=False, open_browser=True):
         with _viewer_lock(dir):
             running = _running(dir)
             if running is not None:
-                return {"url": running["url"], "opened": False}
+                return {
+                    "url": running["url"],
+                    "pid": int(running["pid"]),
+                    "started": running.get("started"),
+                    "opened": False,
+                    "reused": True,
+                }
             log = _log_path(dir)
             log.parent.mkdir(parents=True, exist_ok=True)
             args = [
@@ -1142,7 +1157,13 @@ def autostart(dir, disabled=False, open_browser=True):
             opened = bool(webbrowser.open(url))
         except Exception:  # noqa: BLE001 - no browser is a supported degradation
             opened = False
-    return {"url": url, "opened": opened}
+    return {
+        "url": url,
+        "pid": int(state["pid"]),
+        "started": state.get("started"),
+        "opened": opened,
+        "reused": False,
+    }
 
 
 def _serve_until_idle(httpd, v, idle_timeout):
@@ -1154,17 +1175,48 @@ def _serve_until_idle(httpd, v, idle_timeout):
             return
 
 
-def _start_server(dir, port):
+def _is_addr_in_use(err: OSError) -> bool:
+    """Detect port-in-use errors cross-platform (Windows SO_EXCLUSIVEADDRUSE may raise 10013)."""
+    return err.errno in (errno.EADDRINUSE, 10048, 98, 48) or getattr(err, "winerror", None) in (
+        10048,
+        10013,
+    )
+
+
+def _start_server(dir, port, *, allow_fallback=False):
     """Bind the Viewer server and publish its state; the caller owns the lock/idle loop."""
+    target = int(port)
+    if not 0 <= target <= 65535:
+        raise InvalidArgument(f"端口号 {target} 超出范围（0..65535）", values={"port": target})
     v = Viewer(dir)
     v.last_active = time.monotonic()  # the idle clock starts when the service is ready
-    httpd = _Server(("127.0.0.1", int(port)), make_handler(v))
-    url = f"http://127.0.0.1:{httpd.server_address[1]}/"
+    handler = make_handler(v)
+    try:
+        httpd = _Server(("127.0.0.1", target), handler)
+    except OSError as e:
+        if allow_fallback and target != 0 and _is_addr_in_use(e):
+            try:
+                httpd = _Server(("127.0.0.1", 0), handler)
+            except OSError as e2:
+                raise LinerError(
+                    f"无法绑定端口（默认 {target} 被占用且自动回退失败）：{e2}",
+                    code="viewer_bind",
+                    values={"port": target},
+                ) from e2
+        else:
+            raise LinerError(
+                f"无法绑定端口 127.0.0.1:{target}：{e}",
+                code="viewer_bind",
+                values={"port": target},
+                hint="改用其他 --port 或省略 --port 自动分配空闲端口",
+            ) from e
+    actual_port = int(httpd.server_address[1])
+    url = f"http://127.0.0.1:{actual_port}/"
     _write_json(
         _state_path(dir),
         {
             "pid": os.getpid(),
-            "port": int(httpd.server_address[1]),
+            "port": actual_port,
             "url": url,
             "started": datetime.now(UTC).isoformat(timespec="seconds"),
         },
@@ -1181,16 +1233,17 @@ def _open(url):
         return False
 
 
-def serve(dir, port=8765, open_browser=True, idle_timeout=None, background=False):
+def serve(dir, port=None, open_browser=True, idle_timeout=None, background=False):
     """Start the Viewer on 127.0.0.1:<port> (blocks). Writes .linercad/viewer.json for H3.
 
-    ``background`` is the autostart child: its parent holds the spawn lock, so the child must not
-    take it again (that would deadlock the two of them). An explicit ``lcad view`` reuses a live
-    Viewer and opens its URL when asked; it never overwrites a live process' state file.
+    When ``port`` is omitted (``None``) and not ``background``, binds ``DEFAULT_PORT`` (8765) and
+    falls back once to port 0 if occupied. An explicit ``--port`` fails with ``viewer_bind``.
     """
     dir = Path(dir).resolve()
+    allow_fallback = (port is None) and not background
+    target = DEFAULT_PORT if port is None else int(port)
     if background:
-        v, httpd, url = _start_server(dir, port)
+        v, httpd, url = _start_server(dir, target)
     else:
         with _viewer_lock(dir):
             existing = _running(dir)
@@ -1207,7 +1260,7 @@ def serve(dir, port=8765, open_browser=True, idle_timeout=None, background=False
                 if open_browser:
                     _open(existing["url"])
                 return
-            v, httpd, url = _start_server(dir, port)
+            v, httpd, url = _start_server(dir, target, allow_fallback=allow_fallback)
     print(json.dumps({"ok": True, "url": url, "dir": str(v.dir)}, ensure_ascii=False), flush=True)
     if open_browser:
         _open(url)

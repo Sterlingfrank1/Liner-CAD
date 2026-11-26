@@ -40,7 +40,7 @@ Liner-CAD 是一个 2D 工程图 harness：你写 Python，它负责画法、布
 - **零试探起步**：只读 `lcad skill api` 与当前零件族对应的**那 1 张**卡片，禁止遍读无关零件族、禁止在图纸目录建临时参考目录、禁止翻 `.linercad/build/drawing.dxf` 或在首图前跑试探脚本。需画参数表时优先用 `d.table(name, rows, headers=..., title=...)`（默认右对齐叠放在标题栏 / 技术要求上方；需要手写位置 `at=(x, y)` 时从 `d.template["frame"]` 与 `d.template["title_block"]`（`origin`/`size`）计算；GB 档 A3 默认图框 `[25, 5, 415, 292]`、标题栏 `[235, 5, 415, 61]` 仅作默认示例，非默认图幅或 ISO 档勿照抄）；手工附加图元用 `d.raw_add("LINE", ...)` / `d.raw_add("TEXT", ...)`，图层 `THICK`/`THIN`/`TEXT`。
 - **不重复调用**：`build --png` / `edit --png` 已返回全部 `errors` 与 `warnings`，内层迭代不重复跑 `lcad check`（仅交付前核验一次）；每轮用**一次**写全 `drawing.py` 或**一个**批量脚本完成修改，不拆成多次零散修改。
 - **不自行抛光**：不做用户没要求、也不属于达标必需的改动；但达标所需的修复必须做完。
-- **Viewer**：出图/改图时设 `LCAD_NO_VIEW=1`，不要弹系统浏览器；需要交互时用后台进程（daemon / PowerShell `Start-Process lcad -ArgumentList "view","--no-open" -WindowStyle Hidden`；直接运行 `lcad view --no-open` 会阻塞前台）启动 Viewer 并从 `.linercad/viewer.json` 取 URL 给用户（DSH 里点链接默认在右侧边栏打开），用户点选后 `lcad context "@sel"` 读取。
+- **Viewer**：交付轮 `lcad build --png --ensure-viewer` / `lcad edit ... --png --ensure-viewer`（静默起后台守护进程、不弹系统浏览器，且**覆盖** `LCAD_NO_VIEW` / `CI`），并在回复中附上返回的 `viewer.url`；显式抑制用 `--no-viewer` / `--no-view`。用户点选后用 `lcad context "@sel"` 读取；手动 `lcad view --no-open` 仅作备用。
 - **工作目录**：在图纸目录里直接 `lcad ...`，不要读 Liner-CAD 源码仓库，也不要 `uv run`（除非本机没有全局 `lcad`）。
 
 ## 2. 临时脚本
@@ -66,7 +66,7 @@ def apply(d):
 |---|---|
 | 写 / 改 drawing.py：几何、规定画法（螺纹、键槽、中心孔、花键）、视图（剖视、断面、局部放大）、尺寸与公差、形位公差、粗糙度、查询与元素操作、资源库 | `lcad skill api` |
 | 想沉淀一张图成可复用模板，或按已有用户模板 / 内置范例出图（匹配即从模板起步） | `lcad skill api` 的「用户模板」 |
-| 用户开着 Viewer、说“这个 / 我选中的 / @sel”、在拖参数滑块；或首次 build/edit 自动打开了 Viewer（`--no-view` / CI 关） | `lcad skill viewer` |
+| 用户开着 Viewer、说“这个 / 我选中的 / @sel”、在拖参数滑块；或首次 build/edit 自动打开了 Viewer（`--ensure-viewer` / `--no-viewer`） | `lcad skill viewer` |
 | 有 3D 模型（`model.py` / STEP），或要由模型投影出视图、剖视 | `lcad skill 3d` |
 | 画装配图（组件、标准件、序号、明细栏） | `lcad skill assembly` |
 | 读懂 `error.code`、检查规则包（drafting / dimensioning / tolerancing / surface / layout） | `lcad skill checks` |
