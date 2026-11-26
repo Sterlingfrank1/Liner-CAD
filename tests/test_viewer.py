@@ -1110,6 +1110,8 @@ def test_r4_marquee_selection_hooks_and_pan_bindings():
         "auxclick",
         "elBoxes",
         "已选 ",
+        "activeElement.blur()",
+        '$("marquee").hidden = true',
     ):
         assert needle in js, needle
 

@@ -102,7 +102,7 @@
   - `title_cell_selected`: `["T.title.company"]`
   - `downloads`: `LC-SH-01-e0.dxf` (109574 B) / `LC-SH-01-e0.pdf` (158114 B) / `LC-SH-01-e0.png` (52554 B)
 - 截图证据：
-  - L→R 蓝实线框选：`marquee-window.png`
-  - R→L 绿虚线框选（默认跳过 `table.cell`，检查器文案「已选中 14 个元素」）：`marquee-crossing.png`
+  - L→R 蓝实线框选（拖拽中截图）：`marquee-window.png`
+  - R→L 绿虚线框选（拖拽中截图，默认跳过 `table.cell`）：`marquee-crossing.png`
   - 单击空标题栏格 `T.title.company`：`title-cell-picked.png`
 

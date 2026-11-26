@@ -242,6 +242,10 @@ function marqueeHits(d, ev) {
 }
 canvas.addEventListener("mousedown", (ev) => {
   if (!S.svg) return;
+  suppressCtx = false;
+  if (document.activeElement && document.activeElement !== document.body && document.activeElement.blur) {
+    document.activeElement.blur();
+  }
   if (ev.button === 1 || ev.button === 2 || (ev.button === 0 && spaceDown)) {
     if (ev.button !== 2) ev.preventDefault();
     down = { mode: "pan", button: ev.button, x: ev.clientX, y: ev.clientY, vb: S.vb.slice(), moved: false };
@@ -281,7 +285,10 @@ window.addEventListener("mouseup", (ev) => {
   const d = down; down = null;
   $("marquee").hidden = true;
   if (d.mode === "pan") {
-    if (d.button === 2 && Math.hypot(ev.clientX - d.x, ev.clientY - d.y) > 4) suppressCtx = true;
+    if (d.button === 2 && d.moved) {
+      suppressCtx = true;
+      setTimeout(() => { suppressCtx = false; }, 0);
+    }
     if (d.moved) viewChanged();
     return;
   }
@@ -319,7 +326,7 @@ window.addEventListener("keydown", (ev) => {
   if (ev.key === "0" && idle && S.svg) { setVB(S.full.slice()); viewChanged(); }
 });
 window.addEventListener("keyup", (ev) => { if (ev.code === "Space") spaceDown = false; });
-window.addEventListener("blur", () => { spaceDown = false; });
+window.addEventListener("blur", () => { spaceDown = false; down = null; $("marquee").hidden = true; });
 
 // nearest element under the cursor: geometric picking on cached child boxes (hairline strokes are
 // too thin for the browser's own hit-testing)
