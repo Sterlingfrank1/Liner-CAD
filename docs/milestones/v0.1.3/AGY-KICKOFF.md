@@ -97,7 +97,15 @@ W2：PR-2 与 PR-3 并行（两个 Worker）← 文件基本不重叠
 4. `docs/ROADMAP.md` 看板（状态更新，tag 列留空）；
 5. 全局安装验证：`uv tool install --reinstall .` 后 `lcad --version` = 0.1.3。
 
-合入后 STOP：**正式发布（`git tag` / `gh release create`）由 DSH 执行 `scripts/release.py 0.1.3`**，agy **不要**自己打 tag、建 Release，也不要推 tag。
+合入后由**你（agy）执行发布**：
+
+```powershell
+uv run python scripts/release.py 0.1.3 --dry-run
+uv run python scripts/release.py 0.1.3
+gh release view v0.1.3
+```
+
+脚本自检 main / 工作区 / 同步 / 版本号 / 发布说明 / tag 占用 / main CI；**tag 推送后不可移动**，失败只能发新 patch。DSH 只做事后核对。
 
 ## 9. 汇报节奏
 
@@ -112,7 +120,8 @@ agy 1.5.17 有 `gemini-pro-orchestrator-neon`（Orchestrator）与 `gemini-4-hyd
 | 规划 / 派活 / 汇总证据 | Orchestrator（Neon xhigh），一个阶段一个会话 |
 | 写代码 | Worker：Hydrogen xhigh（在 brief 里写死，若 orchestrator 不能锁模型，就退回手动开 Worker 会话） |
 | 代码评审 | **agy 后台新建的独立会话**，模型固定 `gemini-4-hydrogen-xhigh`，只读；一轮不够再来一轮，最多 3 轮 |
-| 合并 / 关卡 | 你（或一个只读 Supervisor 会话）；orchestrator 不许合并 |
+| 合并 / 关卡 | orchestrator 在评审 PASS + CI 绿后 squash 合并（合并前 rebase 最新 main） |
+| 发布 | orchestrator 在 PR-4 合入后执行 `scripts/release.py 0.1.3`（tag + Release） |
 
 **分两次 orchestrator 运行，不要一次跑完三张卡**：
 
@@ -124,7 +133,7 @@ agy 1.5.17 有 `gemini-pro-orchestrator-neon`（Orchestrator）与 `gemini-4-hyd
 **给 orchestrator 的额外约束（写进 kickoff 的启动语）**：
 
 - 每完成一张卡的 PR 就 STOP，等用户/评审结论，不自动进入下一张；
-- 不合并任何 PR、不打 tag、不改三份里程碑文档；
+- 合并只允许在评审 PASS + CI 绿之后；release 只允许在 PR-4 合入之后；不改三份里程碑文档；
 - 所有 Worker 一律 `hydrogen-xhigh`；评审会话由 agy 后台新建（命令见 §11），与开发会话分开；
 - 子任务开始前先输出"卡号 + 分支 + 验收命令"一行，便于用户核对。
 
@@ -176,8 +185,8 @@ PR-1 单独先做 → 合入并等我试用确认 → PR-2 与 PR-3 并行（各
 每完成一张卡的 PR 就 STOP，等我或评审结论，不自动进入下一张。
 
 【收口】PR-4：版本号 0.1.3、docs/releases/v0.1.3.md、HANDOVER.md、ROADMAP 看板、全局安装验证。
-合入后 STOP：正式发布（git tag / gh release create）由 DSH 执行 scripts/release.py 0.1.3，你不要打 tag、不要建 Release、不要推 tag。
+合入后由你执行发布：uv run python scripts/release.py 0.1.3 --dry-run → uv run python scripts/release.py 0.1.3 → gh release view v0.1.3 验证。tag 推送后不可移动，失败只能发新 patch。
 
-【禁止】直推 main、force-push、删除他人分支、改三份里程碑文档（REQ/SPEC/CARDS）、合并未过评审的 PR、替用户的图纸项目 commit 或打 tag、给 DSH 会话派活。
+【禁止】直推 main、force-push、删除他人分支、改三份里程碑文档（REQ/SPEC/CARDS）、合并未过评审的 PR、在 PR-4 之前打 tag、替用户的图纸项目 commit 或打 tag、给 DSH 会话派活。
 遇到文档没写死的选择：停下来问，给"问题 + 两个选项 + 推荐"各一行，不自行扩范围。
 ```
