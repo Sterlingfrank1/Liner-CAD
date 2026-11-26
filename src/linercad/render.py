@@ -29,6 +29,7 @@ def render_png(doc, sheet_size, out, *, focus_bbox=None, focus_id=None, dpi=None
         focus_id=focus_id,
         dpi=dpi,
         scaling=LINEWEIGHT_SCALING,
+        adjust_figure=False,
     )
 
 
@@ -46,8 +47,22 @@ def _render(
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from ezdxf.addons.drawing import Frontend, RenderContext
-    from ezdxf.addons.drawing.config import BackgroundPolicy, Configuration, LineweightPolicy
+    from ezdxf.addons.drawing.config import (
+        BackgroundPolicy,
+        Configuration,
+        ImagePolicy,
+        LineweightPolicy,
+    )
     from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
+    from matplotlib.transforms import Affine2D
+
+    class _Backend(MatplotlibBackend):
+        def draw_image(self, image_data, properties):
+            super().draw_image(image_data, properties)
+            if self.ax.images:
+                img = self.ax.images[-1]
+                # AxesImage spans [-0.5, w-0.5] in local px; shift +0.5 px so (0,0) aligns to insert
+                img.set_transform(Affine2D().translate(0.5, 0.5) + img.get_transform())
 
     W, H = sheet_size
     x0, y0, x1, y1 = focus_bbox or (0.0, 0.0, W, H)
@@ -57,13 +72,16 @@ def _render(
         lineweight_policy=LineweightPolicy.ABSOLUTE,
         lineweight_scaling=scaling,
         min_lineweight=0.05,
+        image_policy=ImagePolicy.DISPLAY,
     )
     fig = plt.figure(figsize=((x1 - x0) / 25.4, (y1 - y0) / 25.4))
     ax = fig.add_axes([0, 0, 1, 1])
     ax.set_axis_off()
-    frontend = Frontend(
-        RenderContext(doc), MatplotlibBackend(ax, adjust_figure=adjust_figure), config=cfg
-    )
+    ctx = RenderContext(doc)
+    doc_dir = getattr(doc, "_lcad_dir", None)
+    if doc_dir is not None:
+        ctx.document_dir = doc_dir
+    frontend = Frontend(ctx, _Backend(ax, adjust_figure=adjust_figure), config=cfg)
 
     def colour(entity, props):
         props.color = "#ff0000" if focus_id and _xid(entity) == focus_id else "#000000"

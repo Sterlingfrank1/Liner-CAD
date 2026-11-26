@@ -82,6 +82,7 @@ class Element:
 
     kind = "element"
     SETTABLE: tuple = ()  # intent fields accepted by set()
+    ALIASES: dict[str, str] = {}  # legacy/alias names -> canonical SETTABLE names
     LAYOUT: tuple = ()  # placement fields accepted by place()
     READ: tuple = ()  # extra read-only properties, listed in error hints
 
@@ -170,8 +171,9 @@ class Element:
         if name.startswith("_"):  # internal state (layout results etc.)
             object.__setattr__(self, name, value)
             return
-        if name in self.SETTABLE:
-            self.set(**{name: value})
+        canon = self.ALIASES.get(name, name)
+        if canon in self.SETTABLE:
+            self.set(**{canon: value})
             return
         raise UnknownAttribute(
             f"不能直接给 {self._id}.{name} 赋值",
@@ -180,9 +182,24 @@ class Element:
             hint="意图字段用 set(...) 或直接赋值 candidates 里的字段；布局用 place(...)/move(...)",
         )
 
+    def _resolve_aliases(self, fields: dict) -> dict:
+        if not self.ALIASES:
+            return fields
+        out = {}
+        for k, v in fields.items():
+            canon = self.ALIASES.get(k, k)
+            if canon in out:
+                raise InvalidArgument(
+                    f"{self._id} 不能同时指定 {canon} 和其别名 {k}",
+                    id=self._id,
+                )
+            out[canon] = v
+        return out
+
     # ---- modifications (recorded in temp scripts) --------------------------------------
     @mutator("set")
     def set(self, **fields):
+        fields = self._resolve_aliases(fields)
         bad = [k for k in fields if k not in self.SETTABLE]
         if bad:
             raise InvalidArgument(
@@ -353,6 +370,13 @@ class Drawing:
 
         drawing_title(self, **fields)
 
+    @mutator("logo")
+    def logo(self, cell="company", path="", width=None, height=None, align="center"):
+        """Place a PNG logo inside title-block cell ``cell`` → ``T.title.logo.<cell>``."""
+        from .annotate import drawing_logo
+
+        return drawing_logo(self, cell=cell, path=path, width=width, height=height, align=align)
+
     @mutator("table")
     def table(
         self,
@@ -364,6 +388,7 @@ class Drawing:
         cols=None,
         row_height=None,
         text_height=None,
+        border_width=None,
         at=None,
         wrap=True,
     ):
@@ -379,6 +404,7 @@ class Drawing:
             cols=cols,
             row_height=row_height,
             text_height=text_height,
+            border_width=border_width,
             at=at,
             wrap=wrap,
         )

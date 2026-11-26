@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, replace
+from pathlib import Path
 
-from .errors import InvalidArgument
+from .errors import BuildError, InvalidArgument
 from .text import text_size
 from .views import wavy_points
 
@@ -24,6 +25,7 @@ class Line:
     q: tuple
     layer: str
     ltscale: float = 1.0
+    width: float | None = None
 
 
 @dataclass(frozen=True)
@@ -58,6 +60,7 @@ class Text:
     align: tuple | None = None  # (halign, valign) of the source TEXT / MTEXT
     anchor: tuple | None = None  # sheet-coordinate insertion point of the source entity
     anchor2: tuple | None = None  # second alignment point (ALIGNED / FIT)
+    bold: bool = False
 
 
 @dataclass(frozen=True)
@@ -86,6 +89,15 @@ class Poly:
     layer: str
 
 
+@dataclass(frozen=True)
+class Image:
+    path: str
+    resolved_path: str
+    box: tuple  # (x0, y0, x1, y1)
+    pixel_size: tuple  # (px_w, px_h)
+    layer: str = "thin"
+
+
 def _mv(p, dx, dy):
     return (p[0] + dx, p[1] + dy)
 
@@ -96,6 +108,9 @@ def move_prim(pr, dx, dy):
         return replace(pr, p=_mv(pr.p, dx, dy), q=_mv(pr.q, dx, dy))
     if isinstance(pr, (Circle, Arc)):
         return replace(pr, c=_mv(pr.c, dx, dy))
+    if isinstance(pr, Image):
+        b = pr.box
+        return replace(pr, box=(b[0] + dx, b[1] + dy, b[2] + dx, b[3] + dy))
     if isinstance(pr, Text):
         b = pr.box
         anchor = _mv(pr.anchor, dx, dy) if pr.anchor is not None else None
@@ -151,7 +166,7 @@ def prim_segments(pr):
 
 
 def prim_bbox(pr):
-    if isinstance(pr, Text):
+    if isinstance(pr, (Text, Image)):
         return pr.box
     if isinstance(pr, Circle):
         return (pr.c[0] - pr.r, pr.c[1] - pr.r, pr.c[0] + pr.r, pr.c[1] + pr.r)
@@ -350,6 +365,7 @@ def make_text(
     align=None,
     anchor=None,
     anchor2=None,
+    bold=False,
 ):
     w, hh = text_size(s, h, std, cjk)
     if abs(rot % 180 - 90) < 1e-9:
@@ -374,6 +390,7 @@ def make_text(
         align,
         anchor,
         anchor2,
+        bold,
     )
 
 
@@ -2453,23 +2470,104 @@ class _Layout:
                 continue
             spec = tb["fields"][e._intent["field"]]
             x0, y0, x1, y1 = spec["box"]
-            e._resolved["cell_box"] = [ox + x0, oy + y0, ox + x1, oy + y1]
+            bx0, by0, bx1, by1 = ox + x0, oy + y0, ox + x1, oy + y1
+            e._resolved["cell_box"] = [bx0, by0, bx1, by1]
             text = e._intent["text"]
             if not text:
                 e._prims = []
                 continue
-            # the largest height of the GB/T 14691 series (up to the slot's) that fits the slot
-            fit = [
-                s
-                for s in std["text"]["heights"]
-                if s <= spec["height"] + 1e-9
-                and text_size(text, s, std)[0] <= (x1 - x0) - 1
-                and text_size(text, s, std)[1] <= y1 - y0
-            ]
-            h = max(fit) if fit else std["text"]["heights"][0]
+            if e._intent.get("text_height") is not None:
+                h = float(e._intent["text_height"])
+            else:
+                # the largest height of the GB/T 14691 series (up to the slot's) that fits the slot
+                fit = [
+                    s
+                    for s in std["text"]["heights"]
+                    if s <= spec["height"] + 1e-9
+                    and text_size(text, s, std)[0] <= (x1 - x0) - 1
+                    and text_size(text, s, std)[1] <= y1 - y0
+                ]
+                h = max(fit) if fit else std["text"]["heights"][0]
+            wrap = bool(e._intent.get("wrap", False))
+            align = e._intent.get("align") or "center"
+            bold = bool(e._intent.get("bold", False))
+            lines = _wrap_table_cell(text, x1 - x0, h, std, wrap, pad_x=0.5)
+            e._prims = _cell_text_prims(
+                lines, bx0, by0, bx1, by1, h, std, align=align, bold=bold, pad_x=0.5
+            )
+        for e in d._els.values():
+            if e.kind != "logo":
+                continue
+            spec = tb["fields"][e._intent["cell"]]
+            x0, y0, x1, y1 = spec["box"]
+            cx0, cy0, cx1, cy1 = ox + x0, oy + y0, ox + x1, oy + y1
+            cw, ch = cx1 - cx0, cy1 - cy0
+            raw_p = Path(e._intent["path"])
+            base_dir = Path(d._dir) if getattr(d, "_dir", None) else Path.cwd()
+            resolved = raw_p if raw_p.is_absolute() else (base_dir / raw_p)
+            if not resolved.is_file():
+                raise BuildError(
+                    f"找不到 Logo 图片：{resolved}",
+                    id=e.id,
+                    values={"path": str(resolved)},
+                    hint="确认 PNG 文件存在且路径正确",
+                )
+            from PIL import Image as PILImage
+
+            try:
+                with PILImage.open(resolved) as im:
+                    if im.format != "PNG":
+                        raise BuildError(
+                            f"Logo 图片必须是 PNG 格式（实际 {im.format}）：{resolved}",
+                            id=e.id,
+                            values={"path": str(resolved)},
+                        )
+                    px_w, px_h = im.size
+            except BuildError:
+                raise
+            except Exception as ex:  # noqa: BLE001
+                raise BuildError(
+                    f"无法读取 PNG 图片 {resolved}：{ex}",
+                    id=e.id,
+                    values={"path": str(resolved)},
+                ) from ex
+            aspect = px_w / max(px_h, 1)
+            req_w, req_h = e._intent.get("width"), e._intent.get("height")
+            if req_w is not None and req_h is not None:
+                w, h = float(req_w), float(req_h)
+            elif req_w is not None:
+                w = float(req_w)
+                h = w / aspect
+            elif req_h is not None:
+                h = float(req_h)
+                w = h * aspect
+            else:
+                scale = min(cw / max(px_w, 1), ch / max(px_h, 1))
+                w, h = px_w * scale, px_h * scale
+            align = e._intent.get("align") or "center"
+            if align == "left":
+                bx0 = cx0
+            elif align == "right":
+                bx0 = cx1 - w
+            else:
+                bx0 = (cx0 + cx1 - w) / 2
+            by0 = (cy0 + cy1 - h) / 2
+            box = (bx0, by0, bx0 + w, by0 + h)
+            res_abs = resolved.resolve()
+            try:
+                stored_path = res_abs.relative_to(base_dir.resolve()).as_posix()
+            except ValueError:
+                stored_path = res_abs.as_posix()
             e._prims = [
-                make_text(text, (ox + (x0 + x1) / 2, oy + (y0 + y1) / 2), h, std, layer="text")
+                Image(
+                    path=stored_path,
+                    resolved_path=str(res_abs),
+                    box=box,
+                    pixel_size=(int(px_w), int(px_h)),
+                    layer="thin",
+                )
             ]
+            e._resolved["bbox"] = [bx0, by0, bx0 + w, by0 + h]
         bom = d._els.get("T.bom")
         if bom is not None and bom.kind == "bom":
             from .assembly import bom_rows
@@ -2816,7 +2914,7 @@ TBL_PAD_Y = 1.0
 TBL_LINE_GAP = 0.8
 
 
-def _wrap_table_cell(text, width, h, std, wrap):
+def _wrap_table_cell(text, width, h, std, wrap, pad_x=TBL_PAD_X):
     """Split cell text into rendered lines; wraps at cell padding only when ``wrap`` is True."""
     s = str(text).strip()
     if not s:
@@ -2824,7 +2922,7 @@ def _wrap_table_cell(text, width, h, std, wrap):
     raw_lines = [ln for ln in s.splitlines() if ln.strip()]
     if not wrap:
         return raw_lines
-    avail = max(width - 2 * TBL_PAD_X, 0.1)
+    avail = max(width - 2 * pad_x, 0.1)
     lines = []
     for raw in raw_lines:
         cur = ""
@@ -2837,6 +2935,32 @@ def _wrap_table_cell(text, width, h, std, wrap):
         if cur:
             lines.append(cur.rstrip())
     return lines or raw_lines
+
+
+def _cell_content_h(lines, h, std):
+    if not lines:
+        return 0.0
+    hs = [text_size(ln, h, std)[1] for ln in lines]
+    return sum(hs) + TBL_LINE_GAP * max(0, len(hs) - 1)
+
+
+def _cell_text_prims(lines, x0, y0, x1, y1, h, std, *, align="center", bold=False, pad_x=TBL_PAD_X):
+    if not lines:
+        return []
+    hs = [text_size(ln, h, std)[1] for ln in lines]
+    total_h = sum(hs) + TBL_LINE_GAP * max(0, len(hs) - 1)
+    yc = (y0 + y1) / 2 + total_h / 2
+    out = []
+    for ln, lh in zip(lines, hs):
+        if align == "left":
+            xc = x0 + pad_x + text_size(ln, h, std)[0] / 2
+        elif align == "right":
+            xc = x1 - pad_x - text_size(ln, h, std)[0] / 2
+        else:
+            xc = (x0 + x1) / 2
+        out.append(make_text(ln, (xc, yc - lh / 2), h, std, layer="text", bold=bold))
+        yc -= lh + TBL_LINE_GAP
+    return out
 
 
 def _avoid_obstacles(gb, obstacles, F, gap, margin):
@@ -2892,6 +3016,10 @@ def _layout_tables(d, F, TB, TN, std):
         min_rh = max(TBL_ROW, th + 2 * TBL_PAD_Y)
         wrap = bool(i.get("wrap", True))
         cells = [[d._els[f"T.{name}.{r}.{c}"] for c in range(1, nc + 1)] for r in range(1, nr + 1)]
+        cell_ths = [
+            [float(cells[r][c]._intent.get("text_height") or th) for c in range(nc)]
+            for r in range(nr)
+        ]
 
         if i.get("cols") is not None:
             col_ws = [float(w) for w in i["cols"]]
@@ -2899,25 +3027,30 @@ def _layout_tables(d, F, TB, TN, std):
             col_ws = []
             for c in range(nc):
                 max_w = 0.0
+                max_cth = th
                 for r in range(nr):
+                    cth = cell_ths[r][c]
+                    max_cth = max(max_cth, cth)
                     for part in str(cells[r][c]._intent["text"]).splitlines() or [""]:
-                        max_w = max(max_w, text_size(part, th, std)[0])
-                col_ws.append(max(12.0, th * 3.0, math.ceil(max_w + 2 * TBL_PAD_X + 2.0)))
+                        max_w = max(max_w, text_size(part, cth, std)[0])
+                col_ws.append(max(12.0, max_cth * 3.0, math.ceil(max_w + 2 * TBL_PAD_X + 2.0)))
             if i.get("title"):
                 need = math.ceil(text_size(i["title"], th, std)[0] + 2 * TBL_PAD_X + 2.0)
                 if sum(col_ws) < need:
                     extra = (need - sum(col_ws)) / nc
                     col_ws = [w + extra for w in col_ws]
 
-        def content_h(lines, _th=th):
-            if not lines:
-                return 0.0
-            hs = [text_size(ln, _th, std)[1] for ln in lines]
-            return sum(hs) + TBL_LINE_GAP * max(0, len(hs) - 1)
-
         wrapped = [
             [
-                _wrap_table_cell(cells[r][c]._intent["text"], col_ws[c], th, std, wrap)
+                _wrap_table_cell(
+                    cells[r][c]._intent["text"],
+                    col_ws[c],
+                    cell_ths[r][c],
+                    std,
+                    wrap
+                    if cells[r][c]._intent.get("wrap") is None
+                    else bool(cells[r][c]._intent["wrap"]),
+                )
                 for c in range(nc)
             ]
             for r in range(nr)
@@ -2927,8 +3060,12 @@ def _layout_tables(d, F, TB, TN, std):
         else:
             row_hs = [
                 max(
-                    min_rh,
-                    max((content_h(wrapped[r][c]) for c in range(nc)), default=0.0) + 2 * TBL_PAD_Y,
+                    TBL_ROW,
+                    *(cell_ths[r][c] + 2 * TBL_PAD_Y for c in range(nc)),
+                    *(
+                        _cell_content_h(wrapped[r][c], cell_ths[r][c], std) + 2 * TBL_PAD_Y
+                        for c in range(nc)
+                    ),
                 )
                 for r in range(nr)
             ]
@@ -2960,11 +3097,12 @@ def _layout_tables(d, F, TB, TN, std):
             ys_rows.append(ys_rows[-1] - rh)
 
         top = y0 + total_h
+        outer_w = float(i["border_width"]) if i.get("border_width") is not None else None
         prims = [
-            Line((x0, y0), (x0 + total_w, y0), "thick"),
-            Line((x0, top), (x0 + total_w, top), "thick"),
-            Line((x0, y0), (x0, top), "thick"),
-            Line((x0 + total_w, y0), (x0 + total_w, top), "thick"),
+            Line((x0, y0), (x0 + total_w, y0), "thick", width=outer_w),
+            Line((x0, top), (x0 + total_w, top), "thick", width=outer_w),
+            Line((x0, y0), (x0, top), "thick", width=outer_w),
+            Line((x0 + total_w, y0), (x0 + total_w, top), "thick", width=outer_w),
         ]
         for x in xs[1:-1]:
             prims.append(Line((x, y0), (x, body_top), "thin"))
@@ -2986,17 +3124,17 @@ def _layout_tables(d, F, TB, TN, std):
                 cell = cells[r][c]
                 cell._resolved["cell_box"] = [xs[c], yb, xs[c + 1], yt]
                 lines = wrapped[r][c]
-                if not lines:
-                    cell._prims = []
-                    continue
-                hs = [text_size(ln, th, std)[1] for ln in lines]
-                yc = (yb + yt) / 2 + content_h(lines) / 2
-                xc = (xs[c] + xs[c + 1]) / 2
-                cprims = []
-                for ln, lh in zip(lines, hs):
-                    cprims.append(make_text(ln, (xc, yc - lh / 2), th, std, layer="text"))
-                    yc -= lh + TBL_LINE_GAP
-                cell._prims = cprims
+                cell._prims = _cell_text_prims(
+                    lines,
+                    xs[c],
+                    yb,
+                    xs[c + 1],
+                    yt,
+                    cell_ths[r][c],
+                    std,
+                    align=cell._intent.get("align") or "center",
+                    bold=bool(cell._intent.get("bold", False)),
+                )
 
         if title_text:
             tbl._resolved["title_box"] = [x0, body_top, x0 + total_w, top]

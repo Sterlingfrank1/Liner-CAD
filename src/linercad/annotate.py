@@ -962,12 +962,43 @@ def _cell_parts(value):
     return str(value), None, []
 
 
+ALIGNS = ("left", "center", "right")
+
+
+def _check_align(v, eid=None):
+    if v not in ALIGNS:
+        raise InvalidArgument(
+            f"align 只能是 {', '.join(ALIGNS)}，收到 {v!r}",
+            id=eid,
+            candidates=list(ALIGNS),
+        )
+    return v
+
+
+def _check_bool(v, what, eid=None):
+    if not isinstance(v, bool):
+        raise InvalidArgument(f"{what} 必须是 bool", id=eid)
+    return v
+
+
 class Cell(Element):
     """A title-block field or semantic table cell."""
 
     kind = "table.cell"
-    SETTABLE = ("text",)
-    READ = ("text", "field", "table", "row", "col", "header")
+    SETTABLE = ("text", "text_height", "align", "wrap", "bold")
+    ALIASES = {"font_size": "text_height"}
+    READ = (
+        "text",
+        "field",
+        "table",
+        "row",
+        "col",
+        "header",
+        "text_height",
+        "align",
+        "wrap",
+        "bold",
+    )
 
     text = property(lambda s: s._intent["text"])
     field = property(lambda s: s._intent.get("field"))
@@ -975,15 +1006,44 @@ class Cell(Element):
     row = property(lambda s: s._intent.get("row"))
     col = property(lambda s: s._intent.get("col"))
     header = property(lambda s: s._intent.get("header"))
+    text_height = property(lambda s: s._intent.get("text_height"))
+    align = property(lambda s: s._intent.get("align", "center"))
+    wrap = property(lambda s: s._intent.get("wrap"))
+    bold = property(lambda s: bool(s._intent.get("bold", False)))
 
     def _apply_set(self, fields):
-        text, expr, covers = _cell_parts(fields["text"])
-        self._intent["text"] = text
-        if expr is not None:
-            self._intent["expr"] = expr
-        else:
-            self._intent.pop("expr", None)
-        self._covers[:] = covers
+        if "text" in fields:
+            text, expr, covers = _cell_parts(fields["text"])
+            self._intent["text"] = text
+            if expr is not None:
+                self._intent["expr"] = expr
+            else:
+                self._intent.pop("expr", None)
+            self._covers[:] = covers
+        if "text_height" in fields:
+            th = fields["text_height"]
+            if th is None:
+                self._intent.pop("text_height", None)
+            else:
+                self._intent["text_height"] = _check_positive(th, "text_height")
+        if "align" in fields:
+            al = fields["align"]
+            if al is None:
+                self._intent.pop("align", None)
+            else:
+                self._intent["align"] = _check_align(al, self._id)
+        if "wrap" in fields:
+            wp = fields["wrap"]
+            if wp is None:
+                self._intent.pop("wrap", None)
+            else:
+                self._intent["wrap"] = _check_bool(wp, "wrap", self._id)
+        if "bold" in fields:
+            bd = fields["bold"]
+            if bd is None:
+                self._intent.pop("bold", None)
+            else:
+                self._intent["bold"] = _check_bool(bd, "bold", self._id)
 
     def suppress(self):
         if "table" in self._intent and "field" not in self._intent:
@@ -1028,7 +1088,8 @@ class Table(Element):
     """Semantic sheet table (``d.table``): ``T.<name>`` owns 1-based ``T.<name>.<r>.<c>`` cells."""
 
     kind = "table"
-    SETTABLE = ("title", "cols", "row_height", "text_height", "wrap")
+    SETTABLE = ("title", "cols", "row_height", "text_height", "wrap", "border_width")
+    ALIASES = {"col_widths": "cols", "font_size": "text_height"}
     LAYOUT = ("at",)
     READ = (
         "name",
@@ -1037,6 +1098,7 @@ class Table(Element):
         "row_height",
         "text_height",
         "wrap",
+        "border_width",
         "nrows",
         "ncols",
         "at",
@@ -1055,6 +1117,7 @@ class Table(Element):
     row_height = property(lambda s: s._intent.get("row_height"))
     text_height = property(lambda s: s._intent.get("text_height"))
     wrap = property(lambda s: s._intent.get("wrap", True))
+    border_width = property(lambda s: s._intent.get("border_width"))
     nrows = property(lambda s: s._intent["nrows"])
     ncols = property(lambda s: s._intent["ncols"])
     headers = property(lambda s: s._intent.get("headers"))
@@ -1095,6 +1158,11 @@ class Table(Element):
             if not isinstance(fields["wrap"], bool):
                 raise InvalidArgument("wrap 必须是 bool")
             self._intent["wrap"] = fields["wrap"]
+        if "border_width" in fields:
+            bw = fields["border_width"]
+            self._intent["border_width"] = (
+                None if bw is None else _check_positive(bw, "border_width")
+            )
 
     def _apply_place(self, fields):
         if "at" in fields:
@@ -1115,6 +1183,45 @@ class Frame(Element):
     """Sheet border, inner frame and title-block lines (from the template)."""
 
     kind = "frame"
+
+
+def _check_logo_path(path, eid=None) -> str:
+    s = str(path or "").strip()
+    if not s or not s.lower().endswith(".png"):
+        raise InvalidArgument(
+            f"Logo 图片只支持 PNG（.png），收到 {path!r}",
+            id=eid,
+            values={"path": path},
+            hint="传入 .png 文件路径，如 'assets/logo.png'",
+        )
+    return s
+
+
+class Logo(Element):
+    """PNG logo placed inside a title-block cell (``T.title.logo.<cell>``)."""
+
+    kind = "logo"
+    SETTABLE = ("path", "width", "height", "align")
+    READ = ("cell", "path", "width", "height", "align")
+
+    cell = property(lambda s: s._intent["cell"])
+    path = property(lambda s: s._intent["path"])
+    width = property(lambda s: s._intent.get("width"))
+    height = property(lambda s: s._intent.get("height"))
+    align = property(lambda s: s._intent.get("align", "center"))
+
+    def _apply_set(self, fields):
+        if "path" in fields:
+            self._intent["path"] = _check_logo_path(fields["path"], self._id)
+        if "width" in fields:
+            w = fields["width"]
+            self._intent["width"] = None if w is None else _check_positive(w, "width")
+        if "height" in fields:
+            h = fields["height"]
+            self._intent["height"] = None if h is None else _check_positive(h, "height")
+        if "align" in fields:
+            al = fields["align"]
+            self._intent["align"] = "center" if al is None else _check_align(al, self._id)
 
 
 class Hatch(Element):
@@ -1306,6 +1413,28 @@ def drawing_title(self, **fields):
         cells[k].set(text=v)
 
 
+def drawing_logo(self, cell="company", path="", width=None, height=None, align="center"):
+    tb_fields = self.template["title_block"]["fields"]
+    c = str(cell or "").strip()
+    if c.startswith("T.title."):
+        c = c[len("T.title.") :]
+    if c not in tb_fields:
+        raise InvalidArgument(f"标题栏没有单元格 {cell!r}", candidates=sorted(tb_fields))
+    p_str = _check_logo_path(path)
+    w_v = None if width is None else _check_positive(width, "width")
+    h_v = None if height is None else _check_positive(height, "height")
+    al = _check_align("center" if align is None else align)
+    lid = f"T.title.logo.{c}"
+    return self._add(
+        Logo(
+            self,
+            lid,
+            {"cell": c, "path": p_str, "width": w_v, "height": h_v, "align": al},
+            refs=[f"T.title.{c}"],
+        )
+    )
+
+
 RESERVED_TABLE_NAMES = ("title", "bom", "frame")
 
 
@@ -1319,6 +1448,7 @@ def drawing_table(
     cols=None,
     row_height=None,
     text_height=None,
+    border_width=None,
     at=None,
     wrap=True,
 ):
@@ -1349,6 +1479,7 @@ def drawing_table(
     cols_v = None if cols is None else _check_table_cols(cols, ncols)
     rh_v = None if row_height is None else _check_positive(row_height, "row_height")
     th_v = None if text_height is None else _check_positive(text_height, "text_height")
+    bw_v = None if border_width is None else _check_positive(border_width, "border_width")
     at_v = _check_table_at(at)
 
     all_rows = ([list(headers)] if headers is not None else []) + [list(r) for r in rows]
@@ -1364,6 +1495,8 @@ def drawing_table(
         "ncols": ncols,
         "headers": bool(headers is not None),
     }
+    if bw_v is not None:
+        intent["border_width"] = bw_v
     tbl = self._add(Table(self, f"T.{name}", intent))
     if at_v is not None:
         tbl._layout["at"] = at_v

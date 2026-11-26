@@ -89,6 +89,9 @@ chain_limit = "ISO 129-1:2018"
 rough_syntax = "ISO 1302:2002"
 rough_default = "ISO 1302:2002"
 rough_fit = "ISO 1302:2002"
+title_style_gb = "ISO 7200:2004"
+table_style_gb = "ISO 3098-0:1997"
+logo_external_ref = "DESIGN §9.1"
 
 [assembly]
 basis = "convention：ISO 6433:1981 未给序号圆圈直径数值，取教材通行值；圆圈最小间距 δ 与对齐容差取 [placement].balloon_clearance / balloon_align_tol（单一来源，E5 A.place 同值）"

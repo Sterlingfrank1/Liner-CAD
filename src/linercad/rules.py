@@ -1077,6 +1077,103 @@ def rough_fit(d):
     return out, len(fits)
 
 
+def _check_gb_text_range(rule: str, eid: str, h: float, series, scope: str):
+    allowed = [s for s in series if 2.5 - 1e-6 <= s <= 5.0 + 1e-6]
+    if 2.5 - 1e-6 <= h <= 5.0 + 1e-6 and any(abs(h - s) < 1e-3 for s in series):
+        return None
+    return _f(
+        rule,
+        eid,
+        f"{eid} 的字高 {h:g} mm 超出{scope}推荐范围 [2.5, 5.0] 或不在字高系列 {allowed} 内",
+        measured={"text_height": h},
+        expected={"range": [2.5, 5.0], "heights": allowed},
+        candidates=[f'd["{eid}"].set(text_height={s:g})' for s in allowed],
+    )
+
+
+def title_style_gb(d):
+    out = []
+    series = d.std["text"]["heights"]
+    n = 0
+    for e in d._els.values():
+        if e.kind != "table.cell" or e._intent.get("table") != "title" or "field" not in e._intent:
+            continue
+        if e._intent.get("text_height") is None:
+            continue
+        n += 1
+        f = _check_gb_text_range(
+            "title_style_gb", e.id, float(e._intent["text_height"]), series, "标题栏"
+        )
+        if f is not None:
+            out.append(f)
+    return out, n
+
+
+def table_style_gb(d):
+    out = []
+    series = d.std["text"]["heights"]
+    n = 0
+    for e in d._els.values():
+        if e.kind == "table":
+            if e._intent.get("text_height") is not None:
+                n += 1
+                f = _check_gb_text_range(
+                    "table_style_gb", e.id, float(e._intent["text_height"]), series, "表格"
+                )
+                if f is not None:
+                    out.append(f)
+            if e._intent.get("border_width") is not None:
+                n += 1
+                bw = float(e._intent["border_width"])
+                if not any(abs(bw - w) < 1e-6 for w in LINE_SERIES):
+                    out.append(
+                        _f(
+                            "table_style_gb",
+                            e.id,
+                            f"{e.id} 边框线宽 {bw:g} mm 不在线宽系列内",
+                            measured={"border_width": bw},
+                            expected={"widths": list(LINE_SERIES)},
+                            candidates=[
+                                f'd["{e.id}"].set(border_width={w:g})' for w in LINE_SERIES
+                            ],
+                        )
+                    )
+        elif (
+            e.kind == "table.cell"
+            and e._intent.get("table") != "title"
+            and e._intent.get("text_height") is not None
+        ):
+            n += 1
+            f = _check_gb_text_range(
+                "table_style_gb", e.id, float(e._intent["text_height"]), series, "表格"
+            )
+            if f is not None:
+                out.append(f)
+    return out, n
+
+
+def logo_external_ref(d):
+    out = []
+    n = 0
+    for e in d._els.values():
+        if e.kind != "logo":
+            continue
+        n += 1
+        out.append(
+            _f(
+                "logo_external_ref",
+                e.id,
+                f"{e.id} 引用外部 PNG 图片 {e._intent['path']}（DXF 不自包含，归档需随附图片）",
+                measured={"path": e._intent["path"], "cell": e._intent["cell"]},
+                expected={"self_contained": False, "export": "复制外部图片或 Viewer 打包 zip"},
+                candidates=[
+                    f'd.accept("logo_external_ref", "{e.id}", "使用 lcad export 或 Viewer zip 随附图片")'
+                ],
+            )
+        )
+    return out, n
+
+
 #: What each rule checks, as the clause statement it implements (benchmark-metrics §2 clause).
 #: The standard number is prefixed at run time from the active profile's [checks] table; the exact
 #: clause / table numbers arrive with the rule catalog (E2, rules/catalog.toml).
@@ -1102,11 +1199,25 @@ CLAUSES = {
     "rough_syntax": "表面粗糙度参数值应取优先系列（资源库只录了优选系列）",
     "rough_default": "有表面粗糙度要求时应给出“其余”统一注法",
     "rough_fit": "IT≤7 的配合表面应标注表面粗糙度",
+    "title_style_gb": "标题栏字体高度应符合推荐范围 [2.5, 5.0] mm 及标准字高系列",
+    "table_style_gb": "表格字体高度应符合 [2.5, 5.0] mm 且边框线宽应在线宽系列内",
+    "logo_external_ref": "DXF 外部图片引用在独立归档或传输时需随附图片文件",
 }
 
 
 PACKS = {
-    "drafting": (line_width, text_height, scale, sheet, conv_dim, section_ref, center_mark),
+    "drafting": (
+        line_width,
+        text_height,
+        scale,
+        sheet,
+        conv_dim,
+        section_ref,
+        center_mark,
+        title_style_gb,
+        table_style_gb,
+        logo_external_ref,
+    ),
     "dimensioning": (duplicate, closed_loop, missing, param_cover),
     "tolerancing": (
         dev_order,

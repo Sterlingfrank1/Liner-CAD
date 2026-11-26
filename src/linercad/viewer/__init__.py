@@ -64,6 +64,8 @@ def label(e) -> str:
         return i.get("text", "")
     if e.kind == "table":
         return i.get("title") or i.get("name", "")
+    if e.kind == "logo":
+        return Path(i.get("path", "")).name or i.get("cell", "")
     return i.get("type") or i.get("shape") or ""
 
 
@@ -623,42 +625,18 @@ def _sanitize_filename(name: str) -> str:
 
 def _dxf_external_images(doc, base_dir: Path) -> list[tuple[str, Path]]:
     """Collect ``IMAGEDEF`` external image files relative to ``base_dir``."""
-    out = []
-    seen = set()
-    base_resolved = base_dir.resolve()
-    for idef in doc.objects.query("IMAGEDEF"):
-        raw = str(getattr(idef.dxf, "filename", "") or "").strip()
-        if not raw:
-            continue
-        rel_path = Path(raw)
-        src = (base_dir / rel_path).resolve() if not rel_path.is_absolute() else rel_path.resolve()
-        try:
-            arc_rel = src.relative_to(base_resolved).as_posix()
-        except ValueError as e:
-            raise _DownloadBuildError(
-                f"DXF 引用的外部图片不在图纸目录内：{raw}",
-                code="build",
-                values={"path": str(src)},
-            ) from e
-        if not src.is_file():
-            raise _DownloadBuildError(
-                f"DXF 引用的外部图片不存在：{raw}",
-                code="build",
-                values={"path": str(src)},
-            )
-        if arc_rel not in seen:
-            seen.add(arc_rel)
-            out.append((arc_rel, src))
-    return out
+    from .. import dxfout
+
+    return dxfout.external_images(doc, base_dir, error_cls=_DownloadBuildError)
 
 
 def _content_bbox(d):
-    """Union of the drawn elements' boxes (sheet coordinates) without the sheet frame and the
-    title-block cells: what the initial view fits to. ``None`` for an empty drawing."""
+    """Union of the drawn elements' boxes (sheet coordinates) without the sheet frame,
+    title-block cells and logos: what the initial view fits to. ``None`` for an empty drawing."""
     boxes = [
         e.bbox
         for e in d._els.values()
-        if e._prims and e.bbox and e.kind not in ("frame", "table.cell")
+        if e._prims and e.bbox and e.kind not in ("frame", "table.cell", "logo")
     ]
     if not boxes:
         return None
@@ -769,6 +747,14 @@ def _brief_intent(e):
         "nrows",
         "ncols",
         "wrap",
+        "text_height",
+        "align",
+        "bold",
+        "border_width",
+        "cell",
+        "path",
+        "width",
+        "height",
     )
     return {k: v for k, v in e.to_dict()["intent"].items() if k in keep}
 

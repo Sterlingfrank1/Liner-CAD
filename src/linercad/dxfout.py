@@ -6,6 +6,7 @@ Prims (sheet coordinates) → ezdxf entities. Every entity carries XDATA
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -13,9 +14,10 @@ from pathlib import Path
 import ezdxf
 from ezdxf.document import CREATED_BY_EZDXF
 from ezdxf.enums import TextEntityAlignment
+from ezdxf.lldxf.const import VALID_DXF_LINEWEIGHTS
 
 from .errors import InvalidArgument
-from .layout import Arc, Circle, Hatch, Line, Poly, Solid, Text
+from .layout import Arc, Circle, Hatch, Image, Line, Poly, Solid, Text
 from .text import dxf_height
 
 APPID = "LINERCAD"
@@ -108,11 +110,18 @@ def _alignment(align) -> TextEntityAlignment:
     return getattr(TextEntityAlignment, name, TextEntityAlignment.MIDDLE_CENTER)
 
 
+def _dxf_lineweight(width_mm: float) -> int:
+    w = int(round(width_mm * 100))
+    return min(VALID_DXF_LINEWEIGHTS, key=lambda v: (abs(v - w), v))
+
+
 def _write(msp, pr, std, text_boxes):
     lay = {"layer": _layer(std, pr.layer)}
     if isinstance(pr, Line):
         if pr.ltscale != 1.0:
             lay["ltscale"] = pr.ltscale
+        if getattr(pr, "width", None) is not None:
+            lay["lineweight"] = _dxf_lineweight(pr.width)
         return msp.add_line(pr.p, pr.q, dxfattribs=lay)
     if isinstance(pr, Circle):
         if pr.ltscale != 1.0:
@@ -146,14 +155,41 @@ def _write(msp, pr, std, text_boxes):
             else:
                 t.set_placement(pr.anchor, align=align)
             return t
+        style_name = "LC"
+        if getattr(pr, "bold", False):
+            doc = msp.doc
+            style_name = "LC_BOLD"
+            if not doc.styles.has_entry(style_name):
+                bs = doc.styles.add(style_name, font=std["text"]["font"])
+                bs.dxf.width = std["text"]["width_factor"]
+                with contextlib.suppress(Exception):
+                    bs.set_extended_font_data(font_family="SimFang", bold=True)
+            lay["lineweight"] = _dxf_lineweight(std["lines"]["thick"]["width"])
         t = msp.add_text(
             pr.text,
             height=dxf_height(pr.text, pr.height, std, pr.cjk),
             rotation=pr.rot,
-            dxfattribs={**lay, "style": "LC", "width": std["text"]["width_factor"]},
+            dxfattribs={**lay, "style": style_name, "width": std["text"]["width_factor"]},
         )
         t.set_placement(pr.at, align=TextEntityAlignment.MIDDLE_CENTER)
         return t
+    if isinstance(pr, Image):
+        doc = msp.doc
+        idef = next(
+            (x for x in doc.objects.query("IMAGEDEF") if x.dxf.filename == pr.path),
+            None,
+        )
+        if idef is None:
+            idef = doc.add_image_def(filename=pr.path, size_in_pixel=pr.pixel_size)
+        bx0, by0, bx1, by1 = pr.box
+        img = msp.add_image(
+            insert=(bx0, by0),
+            size_in_units=(bx1 - bx0, by1 - by0),
+            image_def=idef,
+            dxfattribs=lay,
+        )
+        img.dxf.flags = img.SHOW_IMAGE | img.USE_TRANSPARENCY
+        return img
     if isinstance(pr, Hatch):
         hs = std["hatch"]
         h = msp.add_hatch(dxfattribs=lay)
@@ -224,6 +260,8 @@ def to_doc(d):
     """
     std = d.std
     doc = ezdxf.new("R2018", setup=False)
+    if getattr(d, "_dir", None) is not None:
+        doc._lcad_dir = Path(d._dir).resolve()
     _setup(doc, std)
     msp = doc.modelspace()
     text_boxes = [p.box for e in d._els.values() for p in e._prims if isinstance(p, Text)]
@@ -261,12 +299,46 @@ def to_doc(d):
     return doc, index, failures
 
 
+def external_images(doc, base_dir: Path, *, error_cls=InvalidArgument) -> list[tuple[str, Path]]:
+    """Collect ``IMAGEDEF`` external image files inside ``base_dir`` as ``[(rel_posix, resolved)]``."""
+    out = []
+    seen = set()
+    base_resolved = Path(base_dir).resolve()
+    for idef in doc.objects.query("IMAGEDEF"):
+        raw = str(getattr(idef.dxf, "filename", "") or "").strip()
+        if not raw:
+            continue
+        rel_path = Path(raw)
+        src = (
+            (base_resolved / rel_path).resolve()
+            if not rel_path.is_absolute()
+            else rel_path.resolve()
+        )
+        try:
+            arc_rel = src.relative_to(base_resolved).as_posix()
+        except ValueError as e:
+            raise error_cls(
+                f"DXF 引用的外部图片不在图纸目录内：{raw}",
+                values={"path": str(src)},
+            ) from e
+        if not src.is_file():
+            raise error_cls(
+                f"DXF 引用的外部图片不存在：{raw}",
+                values={"path": str(src)},
+            )
+        if arc_rel not in seen:
+            seen.add(arc_rel)
+            out.append((arc_rel, src))
+    return out
+
+
 def save_doc(doc, path):
     """Save with fixed metadata (byte-identical output for identical input); atomic replace."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     old = ezdxf.options.write_fixed_meta_data_for_testing
+    old_filename = getattr(doc, "filename", None)
     ezdxf.options.write_fixed_meta_data_for_testing = True
     try:
         doc.classes.add_required_classes(doc.dxfversion)
@@ -275,6 +347,7 @@ def save_doc(doc, path):
         doc.saveas(tmp)
     finally:
         ezdxf.options.write_fixed_meta_data_for_testing = old
+        doc.filename = old_filename
     os.replace(tmp, path)
     return path
 

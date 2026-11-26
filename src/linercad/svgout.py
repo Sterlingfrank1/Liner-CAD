@@ -4,10 +4,12 @@ sub-prim index (``data-k``) that the DXF XDATA holds."""
 
 from __future__ import annotations
 
+import base64
 import math
 from html import escape
+from pathlib import Path
 
-from .layout import Arc, Circle, Hatch, Line, Poly, Solid, Text
+from .layout import Arc, Circle, Hatch, Image, Line, Poly, Solid, Text
 from .text import dxf_height, has_cjk
 
 
@@ -118,8 +120,9 @@ def svg(d) -> str:
     return "\n".join(x for x in out if x)
 
 
-def _stroke(std, widths, layer, ltscale=1.0):
-    return f' class="r-{layer}" stroke-width="{_f(widths.get(layer, 0.25))}"{_dash(std, layer, ltscale)}'
+def _stroke(std, widths, layer, ltscale=1.0, width=None):
+    w = widths.get(layer, 0.25) if width is None else width
+    return f' class="r-{layer}" stroke-width="{_f(w)}"{_dash(std, layer, ltscale)}'
 
 
 def _prim(pr, k, std, widths, P, H):
@@ -127,7 +130,7 @@ def _prim(pr, k, std, widths, P, H):
         (x1, y1), (x2, y2) = pr.p, pr.q
         return (
             f'<line data-k="{k}" x1="{_f(x1)}" y1="{_f(H - y1)}" x2="{_f(x2)}" y2="{_f(H - y2)}"'
-            f"{_stroke(std, widths, pr.layer, pr.ltscale)}/>"
+            f"{_stroke(std, widths, pr.layer, pr.ltscale, getattr(pr, 'width', None))}/>"
         )
     if isinstance(pr, Circle):
         return (
@@ -182,9 +185,18 @@ def _prim(pr, k, std, widths, P, H):
         size = pr.height if cjk else dxf_height(pr.text, pr.height, std) / 0.72
         wf = std["text"]["width_factor"]
         x, y = pr.at[0], H - pr.at[1]
+        weight = ' font-weight="bold"' if getattr(pr, "bold", False) else ""
         return (
             f'<text data-k="{k}" transform="translate({_f(x)},{_f(y)}) rotate({_f(-pr.rot)}) scale({_f(wf)},1)" '
-            f'font-size="{_f(size)}" text-anchor="middle" dominant-baseline="central">{escape(pr.text)}</text>'
+            f'font-size="{_f(size)}"{weight} text-anchor="middle" dominant-baseline="central">{escape(pr.text)}</text>'
+        )
+    if isinstance(pr, Image):
+        bx0, by0, bx1, by1 = pr.box
+        b64 = base64.b64encode(Path(pr.resolved_path).read_bytes()).decode("ascii")
+        return (
+            f'<image data-k="{k}" x="{_f(bx0)}" y="{_f(H - by1)}" '
+            f'width="{_f(bx1 - bx0)}" height="{_f(by1 - by0)}" '
+            f'href="data:image/png;base64,{b64}" preserveAspectRatio="none"/>'
         )
     return ""
 
