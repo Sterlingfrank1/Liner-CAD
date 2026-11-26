@@ -12,6 +12,7 @@ A template directory never carries a ``kind`` field and never enters a drawing's
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -28,6 +29,8 @@ BASELINE_LOG = "baseline.actions.jsonl"
 COPY_FILES = (SRC, "model.py")
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 TRUST_EXTERNAL_WARNING = "模板含可执行 drawing.py，确认后再用"
+SEMANTIC_OPS = frozenset({"accept", "general_tol", "rough_default"})
+SEMANTIC_PREFIXES = ("D.", "N.", "G.", "R.", "DT.", "T.", "A.", "B.", "K.", "V.")
 
 
 def home() -> Path:
@@ -222,6 +225,92 @@ def resolve_template(
     raise InvalidArgument(f"没有范例或用户模板（含项目模板）{name!r}", candidates=cands)
 
 
+def is_semantic_op(rec: dict) -> bool:
+    """True if a log op operates on policies or semantic IDs (safe to preserve across param changes)."""
+    if rec.get("op") in SEMANTIC_OPS:
+        return True
+    rid = rec.get("id")
+    return isinstance(rid, str) and rid.startswith(SEMANTIC_PREFIXES)
+
+
+def filter_baseline_ops(ops: list[dict]) -> tuple[list[dict], list[str], dict]:
+    """Keep semantic ops rewritten to ``edit="e0"``; return ``(kept_ops, lines, stats)``."""
+    from . import record
+
+    kept: list[dict] = []
+    lines: list[str] = []
+    dropped_samples: list[dict] = []
+    dropped = 0
+    for rec in ops:
+        if is_semantic_op(rec):
+            item = {
+                "edit": "e0",
+                "op": rec["op"],
+                "id": rec.get("id"),
+                "args": rec.get("args", {}),
+                "_line": len(kept) + 1,
+            }
+            kept.append(item)
+            lines.append(record.dumps(item))
+        else:
+            dropped += 1
+            if len(dropped_samples) < 5:
+                dropped_samples.append(
+                    {
+                        "line": rec.get("_line"),
+                        "edit": rec.get("edit"),
+                        "op": rec.get("op"),
+                        "id": rec.get("id"),
+                    }
+                )
+    return kept, lines, {"kept": len(kept), "dropped": dropped, "dropped_samples": dropped_samples}
+
+
+def _norm_hash_val(v):
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)):
+        r = round(float(v), 3)
+        return 0.0 if r == 0 else r
+    if isinstance(v, dict):
+        return {str(k): _norm_hash_val(x) for k, x in sorted(v.items())}
+    if isinstance(v, (list, tuple)):
+        return [_norm_hash_val(x) for x in v]
+    return v
+
+
+def model_hash(d) -> str:
+    """Canonical sha256 over sorted ``d._els`` (intent/resolved/refs/status, floats to 3 decimals)."""
+    elements = [
+        _norm_hash_val(
+            {
+                "id": e._id,
+                "kind": e.kind,
+                "intent": e._intent,
+                "resolved": e.placement["resolved"],
+                "refs": e._refs,
+                "status": e._status,
+            }
+        )
+        for e in sorted(d._els.values(), key=lambda x: x._id)
+    ]
+    payload = json.dumps(elements, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _compute_staged_model_hash(staged_dir: Path) -> str:
+    from . import runtime
+
+    with tempfile.TemporaryDirectory(prefix="lcad-hash-") as td:
+        work = Path(td) / "tpl"
+        shutil.copytree(staged_dir, work)
+        base = work / BASELINE_LOG
+        if base.is_file():
+            (work / runtime.LOG).write_bytes(base.read_bytes())
+        res = runtime.build(work, dxf=True)
+        return model_hash(res.d)
+
+
 def save(
     source_dir,
     name,
@@ -236,6 +325,7 @@ def save(
     extra_files: list[tuple[str, Path]] = (),
     probe: dict | None = None,
     model_hash: str | None = None,
+    compute_hash: bool = False,
     dry_run: bool = False,
     on_ready=None,
 ) -> dict:
@@ -302,6 +392,11 @@ def save(
         )
         if validate is not None:
             validate(tmp, manifest)
+        if compute_hash and manifest.get("model_hash") is None:
+            manifest["model_hash"] = _compute_staged_model_hash(tmp)
+            (tmp / MANIFEST).write_text(
+                json.dumps(manifest, ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
+            )
         if dry_run:
             return manifest
         if callable(on_ready):

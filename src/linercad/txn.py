@@ -20,7 +20,7 @@ from .errors import BuildError, DirtySource, GitError, InvalidArgument, NoOps, U
 from .runtime import BUILD_DIR, LOG, SRC, TMP_DIR, build, edit_number, run_script, write_artifacts
 
 REF_DXF = "ref.dxf"  # what `lcad init --from-dxf` copies in
-SOURCES = (SRC, LOG, ".gitignore", ".gitattributes", "templates")
+SOURCES = (SRC, LOG, ".gitignore", ".gitattributes", "templates", "assets")
 GITIGNORE = ".linercad/\n"
 GITATTRIBUTES = "* text=auto eol=lf\n"
 EXAMPLES = tuple(  # every package example directory with a drawing.py (adding one needs no code)
@@ -296,8 +296,10 @@ def init(dir, from_=None, sheet=None, from_dxf=None, sets=None, *, project=None)
     dir.mkdir(parents=True, exist_ok=True)
     created = []
     had_repo = repo_root(dir) is not None
+    baseline_warnings: list = []
     try:
         extras = []
+        log_text = ""
         if dxf_src is not None:
             text0 = DXF_STARTER.format(ref=REF_DXF, sheet=sheet, scale=guess["scale"])
             if not (dir / REF_DXF).exists():
@@ -307,6 +309,16 @@ def init(dir, from_=None, sheet=None, from_dxf=None, sets=None, *, project=None)
             files = usertemplates.init_files(str(from_), folder=tpl_folder)
             text0 = dict(files)[SRC].decode("utf-8")
             extras = [(n, b) for n, b in files if n != SRC]
+            base_file = tpl_folder / usertemplates.BASELINE_LOG
+            if base_file.is_file():
+                log_text = base_file.read_text(encoding="utf-8")
+            elif usertemplates.BASELINE_LOG in (tpl_manifest.get("files") or []):
+                baseline_warnings.append(
+                    {
+                        "code": "missing_baseline",
+                        "message": "模板清单包含 baseline.actions.jsonl，但文件缺失；已按无基线初始化",
+                    }
+                )
         elif example_name:
             text0 = (resources.files("linercad") / "examples" / example_name / SRC).read_text(
                 encoding="utf-8"
@@ -325,7 +337,7 @@ def init(dir, from_=None, sheet=None, from_dxf=None, sets=None, *, project=None)
         for name, text in (
             (SRC, text0),
             *extras,
-            (LOG, ""),
+            (LOG, log_text),
             (".gitignore", GITIGNORE),
             (".gitattributes", GITATTRIBUTES),
         ):
@@ -340,6 +352,23 @@ def init(dir, from_=None, sheet=None, from_dxf=None, sets=None, *, project=None)
         if not had_repo:
             git(dir, "init", "-q")
         res = build(dir)
+        if tpl_folder is not None:
+            if _errors(res.findings) > 0:
+                raise BuildError(
+                    f"模板初始化检查失败（{_errors(res.findings)} 个 error）",
+                    values={"errors": _errors(res.findings)},
+                )
+            if not sets and tpl_manifest is not None and tpl_manifest.get("model_hash"):
+                actual_hash = usertemplates.model_hash(res.d)
+                expected_hash = tpl_manifest["model_hash"]
+                if actual_hash != expected_hash:
+                    raise BuildError(
+                        f"模板实例化 model_hash 不一致：期望 {expected_hash}，实际 {actual_hash}",
+                        values={"expected": expected_hash, "actual": actual_hash},
+                    )
+            for s in res.stale:
+                if usertemplates.is_semantic_op(s):
+                    baseline_warnings.append(s)
     except BaseException:
         for p in created:
             p.unlink(missing_ok=True)
@@ -382,7 +411,7 @@ def init(dir, from_=None, sheet=None, from_dxf=None, sets=None, *, project=None)
         if trust_warn:
             out["trust_warning"] = trust_warn
         if tpl_folder is not None:
-            out["baseline_warnings"] = []
+            out["baseline_warnings"] = baseline_warnings
     if sets:
         out["sets"] = dict(sets)
     if dxf_src is not None:

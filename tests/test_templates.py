@@ -67,10 +67,15 @@ def test_save_template_requires_check_zero_errors(tmp_path):
 
 def test_save_template_warns_when_the_revision_layer_exists(drawing):
     script = drawing / ".linercad" / "tmp" / "m.py"
-    script.write_text('def apply(d):\n    d["D.L"].place(side="top")\n', encoding="utf-8")
-    assert txn.edit(drawing, script, "挪")["ok"]
+    script.write_text(
+        'def apply(d):\n    d["D.L"].place(side="top")\n    d.view("front").line((0, 0), (10, 0), name="xtra")\n',
+        encoding="utf-8",
+    )
+    assert txn.edit(drawing, script, "挪并与补线")["ok"]
     out = commands.save_template(drawing, "with-actions", "带修订层")
-    assert "修订层" in out["warning"] and "不保存" in out["warning"]
+    assert "丢弃" in out["warning"] and out["baseline_stats"]["kept"] == 1
+    assert out["baseline_stats"]["dropped"] == 1
+    assert "baseline.actions.jsonl" in out["template"]["files"]
     assert "drawing.actions.jsonl" not in out["template"]["files"]
 
 
@@ -192,11 +197,9 @@ def test_save_template_rejects_a_drawing_that_needs_the_revision_layer(tmp_path)
     assert txn.build_commit(p, "加螺纹")["errors"] == 1  # committed but a check error
     script = p / ".linercad" / "tmp" / "fix.py"
     script.parent.mkdir(parents=True, exist_ok=True)
-    script.write_text(
-        'def apply(d):\n    d.view("front").dim.thread("t", "F.front.thr")\n',
-        encoding="utf-8",
-    )
-    assert txn.edit(p, script, "补螺纹尺寸")["ok"]  # current drawing is 0 error again
+    # suppress F.front.thr is a non-semantic F.* op so R10 baseline filtering drops it
+    script.write_text('def apply(d):\n    d["F.front.thr"].suppress()\n', encoding="utf-8")
+    assert txn.edit(p, script, "临时脚本删除未注螺纹")["ok"]  # current drawing is 0 error again
     with pytest.raises(LinerError) as err:
         commands.save_template(p, "needs-rev")
     assert "单独构建" in err.value.message

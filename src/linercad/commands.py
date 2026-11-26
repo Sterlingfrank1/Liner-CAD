@@ -611,31 +611,39 @@ def template_import(dir, file, name):
 
 def _validate_template_dir(staged, manifest=None):
     """Build the staged template in a *fresh* interpreter (no cached local helpers); raise if bad."""
+    import shutil
     import subprocess
     import sys
+    import tempfile
 
     env = dict(os.environ)
     env["PYTHONIOENCODING"] = "utf-8"
     env["LCAD_NO_VIEW"] = "1"
-    try:
-        r = subprocess.run(
-            [sys.executable, "-m", "linercad", "check"],
-            cwd=staged,
-            capture_output=True,
-            env=env,
-            timeout=120,
-        )
-        out = json.loads(r.stdout.decode("utf-8"))
-    except Exception as e:  # noqa: BLE001 - any failure means the template is not self-contained
-        detail = getattr(e, "message", str(e))
-        raise InvalidArgument(
-            f"模板单独构建失败（新进程）：{detail}",
-            hint="模板只打包 drawing.py / model.py / templates/；把本地 helper 一起打包，或去掉依赖",
-        ) from e
+    with tempfile.TemporaryDirectory(prefix="lcad-val-") as td:
+        work = Path(td) / "tpl"
+        shutil.copytree(staged, work)
+        base = work / "baseline.actions.jsonl"
+        if base.is_file():
+            (work / LOG).write_bytes(base.read_bytes())
+        try:
+            r = subprocess.run(
+                [sys.executable, "-m", "linercad", "check"],
+                cwd=work,
+                capture_output=True,
+                env=env,
+                timeout=120,
+            )
+            out = json.loads(r.stdout.decode("utf-8"))
+        except Exception as e:  # noqa: BLE001 - any failure means the template is not self-contained
+            detail = getattr(e, "message", str(e))
+            raise InvalidArgument(
+                f"模板单独构建失败（新进程）：{detail}",
+                hint="模板只打包 drawing.py / model.py / templates/ / assets/；把本地 helper 一起打包，或去掉依赖",
+            ) from e
     if not out.get("ok"):
         raise InvalidArgument(
             f"模板单独构建失败（新进程）：{(out.get('error') or {}).get('message', '构建失败')}",
-            hint="模板只打包 drawing.py / model.py / templates/；把本地 helper 一起打包，或去掉依赖",
+            hint="模板只打包 drawing.py / model.py / templates/ / assets/；把本地 helper 一起打包，或去掉依赖",
         )
     errors = out.get("errors") or 0
     if errors:
@@ -647,9 +655,9 @@ def _validate_template_dir(staged, manifest=None):
             if f.get("severity") == "error" and f.get("id")
         ][:10]
         raise InvalidArgument(
-            f"模板只保存构建层，单独构建有 {errors} 个 error，不能作为模板",
+            f"模板只保存构建层与语义基线，单独构建有 {errors} 个 error，不能作为模板",
             candidates=ids,
-            hint="修订层补的尺寸 / accept 不随模板保存；先把修订层改动并入 drawing.py 再 save",
+            hint="非语义操作（如增改几何）不随模板保存；先把这类改动并入 drawing.py 再 save",
         )
 
 
@@ -706,15 +714,24 @@ def save_template(
             candidates=[f.get("id") for f in errors if f.get("id")][:10],
             hint="先把 error 修好（lcad check 看详情），只允许带 warning 保存",
         )
+    from .dxfout import external_images
+    from .runtime import load_log
+
+    extra_files = external_images(res.doc, anchor)
     warnings = []
-    log = dir / LOG
-    if log.is_file():
-        ops = [ln for ln in log.read_text(encoding="utf-8").splitlines() if ln.strip()]
-        if ops:
-            warnings.append(
-                f"修订层有 {len(ops)} 条操作：模板只保存构建层 drawing.py，修订层不保存；"
-                "需要保留请先把这些修改并入 drawing.py 再 save"
+    raw_ops = load_log(dir)
+    if raw_ops:
+        _, baseline_lines, baseline_stats = usertemplates.filter_baseline_ops(raw_ops)
+        if baseline_stats["dropped"] > 0:
+            samples_txt = "、".join(
+                f"{s.get('op')}:{s.get('id')}" for s in baseline_stats["dropped_samples"]
             )
+            warnings.append(
+                f"基线过滤丢弃 {baseline_stats['dropped']} 条非语义操作（示例：{samples_txt}）"
+            )
+    else:
+        baseline_lines = []
+        baseline_stats = {"kept": 0, "dropped": 0, "dropped_samples": []}
     try:
         dirty = txn.dirty_sources(dir)
     except LinerError:  # a drawing without git (possible in tests / hand-made dirs) has no diff
@@ -733,6 +750,9 @@ def save_template(
         validate=_validate_template_dir,
         root=dest_root,
         tag=tag_clean,
+        baseline_lines=baseline_lines,
+        extra_files=extra_files,
+        compute_hash=True,
         dry_run=dry_run,
         on_ready=on_ready,
     )
@@ -740,6 +760,7 @@ def save_template(
         "ok": True,
         "scope": final_scope,
         "template": manifest,
+        "baseline_stats": baseline_stats,
         "path": str(target_path),
         "hint": f"lcad init <新目录> --from {manifest['name']} --set 参数=值 一步出图",
     }
