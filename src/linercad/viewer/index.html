@@ -10,7 +10,10 @@
 <body>
 <main id="app">
   <section id="params" aria-label="参数">
-    <h2>参数</h2>
+    <div class="panel-head">
+      <h2>参数</h2>
+      <button id="btn-toggle-left" class="panel-toggle" type="button" title="收起参数面板" aria-expanded="true">◀</button>
+    </div>
     <div id="param-list"></div>
     <div id="param-msg" class="msg"></div>
     <div class="row">
@@ -22,7 +25,10 @@
       <div id="ver-list"></div>
     </details>
   </section>
+  <div id="split-left" class="splitter" role="separator" aria-orientation="vertical" aria-label="调整参数面板宽度" title="拖动调整宽度，双击复位"></div>
   <section id="canvas-wrap" aria-label="图纸">
+    <button id="btn-expand-left" class="edge-expand left" type="button" title="展开参数面板" aria-expanded="false" hidden>▶ 参数</button>
+    <button id="btn-expand-right" class="edge-expand right" type="button" title="展开检查器" aria-expanded="false" hidden>检查器 ◀</button>
     <div id="canvas"></div>
     <div id="preview-badge" hidden>预览（未写回）</div>
     <div id="cmp-banner" hidden>
@@ -32,8 +38,12 @@
     </div>
     <div id="hint">滚轮缩放 · 拖动平移 · 单击选中 · Ctrl 多选 · Esc 清空 · F 适应内容 · 0 整张图纸</div>
   </section>
+  <div id="split-right" class="splitter" role="separator" aria-orientation="vertical" aria-label="调整检查器宽度" title="拖动调整宽度，双击复位"></div>
   <section id="inspector" aria-label="检查器">
-    <h2>检查器</h2>
+    <div class="panel-head">
+      <h2>检查器</h2>
+      <button id="btn-toggle-right" class="panel-toggle" type="button" title="收起检查器" aria-expanded="true">▶</button>
+    </div>
     <div id="insp-body"><p class="muted">点选图上的元素</p></div>
   </section>
   <footer id="status">

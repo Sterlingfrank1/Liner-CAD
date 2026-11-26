@@ -946,3 +946,48 @@ def test_selection_without_a_drawing_edit_is_stale(tmp_path):
     with pytest.raises(LinerError) as err:
         commands.context(p, ["@sel"])
     assert err.value.code == "selection_stale" and "未知版本" in err.value.message
+
+
+# ---- v0.1.3 PR-1 R3/R6: resizable & collapsible panels, narrow breakpoints, status text --------
+
+
+def test_r3_r6_panels_resize_collapse_breakpoints_and_status_text():
+    from importlib import resources
+
+    pkg = resources.files("linercad.viewer")
+    html = (pkg / "index.html").read_text(encoding="utf-8")
+    css = (pkg / "viewer.css").read_text(encoding="utf-8")
+    js = (pkg / "viewer.js").read_text(encoding="utf-8")
+
+    for needle in (
+        "split-left",
+        "split-right",
+        "btn-toggle-left",
+        "btn-toggle-right",
+        "btn-expand-left",
+        "btn-expand-right",
+        "aria-expanded",
+    ):
+        assert needle in html, needle
+
+    assert "--left-w" in css and "--right-w" in css
+    assert "250px 1fr 320px" not in css
+    for needle in (".left-collapsed", ".right-collapsed", ".splitter"):
+        assert needle in css, needle
+
+    for needle in (
+        "pointerdown",
+        "dblclick",
+        "lcad.leftW",
+        "lcad.rightW",
+        "180",
+        "520",
+        "1100",
+        "820",
+        "aria-expanded",
+        "已选中",
+        "Ctrl+Alt+C",
+    ):
+        assert needle in js, needle
+
+    assert "selection.json" not in js and "selection.json" not in html

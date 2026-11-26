@@ -2,7 +2,7 @@
 "use strict";
 const TOKEN = document.querySelector('meta[name="lcad-token"]').content;
 const $ = (id) => document.getElementById(id);
-const S = { version: -1, model: null, byId: {}, sel: [], svg: null, vb: null, full: null, params: [],
+const S = { version: -1, model: null, byId: {}, sel: [], selTotal: 0, selTruncated: false, svg: null, vb: null, full: null, params: [],
   values: {}, dragging: false, previewTimer: null, previewSeq: 0, fitted: false,
   versions: [], pick: [], cmp: null, busy: false,
   previewIds: new Set(), previewFindings: [], paramError: null, resolved: {}, previewActive: false, unplaced: [], statusOrig: {}, savedScroll: 0, previewPending: false };  // B3/B6
@@ -366,7 +366,7 @@ function inspect() {
   const els = S.sel.map((id) => S.byId[id]).filter(Boolean);
   const refs = selectionRefs();
   let h = previewPanel() + `<div class="row"><button class="primary" id="btn-copy" title="Ctrl+Alt+C">复制引用</button>
-    <span class="muted">${els.length} 个已写入 selection.json · Ctrl+Alt+C 也可复制</span></div>`;
+    <span class="muted">${S.selTruncated ? `已选 ${els.length}（共 ${S.selTotal}）` : `已选中 ${els.length} 个元素`}</span></div>`;
   for (const e of els) {
     h += `<h3>${esc(e.kind)}</h3><div class="idline">${esc(e.id)}</div><div class="kv">`;
     h += `<div class="k">显示</div><div class="v">${esc(e.label)}</div>`;
@@ -650,5 +650,82 @@ $("st-msg").onclick = () => {
   full.hidden = !full.hidden;
   $("st-msg").classList.toggle("expanded", !full.hidden);
 };
+
+// R3: resizable & collapsible side panels + two-tier narrow viewport adaptation
+const LEFT_W_KEY = "lcad.leftW", RIGHT_W_KEY = "lcad.rightW";
+const DEFAULT_LEFT_W = 250, DEFAULT_RIGHT_W = 320, MIN_PANEL_W = 180, MAX_PANEL_W = 520;
+function clampW(w) { return Math.min(MAX_PANEL_W, Math.max(MIN_PANEL_W, Math.round(w))); }
+function applyPanelWidth(side, w, save) {
+  const val = clampW(w);
+  const prop = side === "left" ? "--left-w" : "--right-w";
+  const key = side === "left" ? LEFT_W_KEY : RIGHT_W_KEY;
+  $("app").style.setProperty(prop, val + "px");
+  if (save) { try { localStorage.setItem(key, String(val)); } catch (e) {} }
+}
+function setCollapsed(side, collapsed) {
+  const app = $("app");
+  app.classList.toggle(side + "-collapsed", collapsed);
+  const tog = $("btn-toggle-" + side), exp = $("btn-expand-" + side);
+  if (tog) tog.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  if (exp) { exp.hidden = !collapsed; exp.setAttribute("aria-expanded", collapsed ? "false" : "true"); }
+}
+function viewportTier(w) { return w <= 820 ? "narrow" : w <= 1100 ? "medium" : "wide"; }
+(function initPanels() {
+  try {
+    const lw = localStorage.getItem(LEFT_W_KEY), rw = localStorage.getItem(RIGHT_W_KEY);
+    if (lw !== null && !Number.isNaN(+lw)) applyPanelWidth("left", +lw, false);
+    if (rw !== null && !Number.isNaN(+rw)) applyPanelWidth("right", +rw, false);
+  } catch (e) {}
+  function wireSplitter(id, side, defW) {
+    const sp = $(id);
+    if (!sp) return;
+    let drag = null;
+    sp.addEventListener("pointerdown", (ev) => {
+      if (ev.button !== 0) return;
+      ev.preventDefault();
+      const cur = parseFloat(getComputedStyle($("app")).getPropertyValue(side === "left" ? "--left-w" : "--right-w")) || defW;
+      drag = { x: ev.clientX, w: cur, pid: ev.pointerId };
+      sp.classList.add("dragging");
+      document.body.classList.add("resizing");
+      if (sp.setPointerCapture) sp.setPointerCapture(ev.pointerId);
+    });
+    sp.addEventListener("pointermove", (ev) => {
+      if (!drag) return;
+      const dx = ev.clientX - drag.x;
+      applyPanelWidth(side, side === "left" ? drag.w + dx : drag.w - dx, false);
+    });
+    function endDrag() {
+      if (!drag) return;
+      const cur = parseFloat($("app").style.getPropertyValue(side === "left" ? "--left-w" : "--right-w")) || defW;
+      applyPanelWidth(side, cur, true);
+      sp.classList.remove("dragging");
+      document.body.classList.remove("resizing");
+      if (sp.releasePointerCapture && sp.hasPointerCapture && sp.hasPointerCapture(drag.pid)) {
+        sp.releasePointerCapture(drag.pid);
+      }
+      drag = null;
+    }
+    sp.addEventListener("pointerup", endDrag);
+    sp.addEventListener("pointercancel", endDrag);
+    sp.addEventListener("dblclick", () => applyPanelWidth(side, defW, true));
+  }
+  wireSplitter("split-left", "left", DEFAULT_LEFT_W);
+  wireSplitter("split-right", "right", DEFAULT_RIGHT_W);
+  $("btn-toggle-left").onclick = () => setCollapsed("left", true);
+  $("btn-expand-left").onclick = () => setCollapsed("left", false);
+  $("btn-toggle-right").onclick = () => setCollapsed("right", true);
+  $("btn-expand-right").onclick = () => setCollapsed("right", false);
+  let lastTier = null;
+  function syncBreakpoints() {
+    const tier = viewportTier(window.innerWidth);
+    if (tier === lastTier) return;
+    lastTier = tier;
+    if (tier === "narrow") { setCollapsed("left", true); setCollapsed("right", true); }
+    else if (tier === "medium") { setCollapsed("left", false); setCollapsed("right", true); }
+    else { setCollapsed("left", false); setCollapsed("right", false); }
+  }
+  syncBreakpoints();
+  window.addEventListener("resize", syncBreakpoints);
+})();
 
 poll();
