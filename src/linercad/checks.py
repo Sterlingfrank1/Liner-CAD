@@ -82,7 +82,7 @@ LAYOUT_CLAUSES = {
     "overlap": "尺寸线、尺寸数字不得与其他图线或文字相交",
     "out_of_frame": "图样应布置在图纸幅面内，并避开标题栏和技术要求区域",
     "view_align": "基本视图之间应保持长对正、高平齐、宽相等",
-    "table_overflow": "语义表格单元格及标题文字不应超出其边框边界",
+    "table_overflow": "标题栏及语义表格单元格与标题文字不应超出其边框边界",
     "stale_op": "动作日志里的操作应能在当前图纸上重放",
 }
 
@@ -290,42 +290,77 @@ def _out_of_frame(d):
     return findings, n
 
 
+def _title_border_box(d, cb):
+    """Return the enclosing title-block grid box for a title cell box ``cb``."""
+    tb = d.template.get("title_block") or {}
+    ox, oy = tb.get("origin", (0.0, 0.0))
+    cx, cy = (cb[0] + cb[2]) / 2 - ox, (cb[1] + cb[3]) / 2 - oy
+    eps = 1e-6
+    lefts, rights, bottoms, tops = [], [], [], []
+    for ln in tb.get("lines", ()):
+        ax, ay = ln["p1"]
+        bx, by = ln["p2"]
+        if abs(ax - bx) < eps and min(ay, by) - eps <= cy <= max(ay, by) + eps:
+            (lefts if ax <= cx + eps else rights).append(ax)
+        if abs(ay - by) < eps and min(ax, bx) - eps <= cx <= max(ax, bx) + eps:
+            (bottoms if ay <= cy + eps else tops).append(ay)
+    if not (lefts and rights and bottoms and tops):
+        return cb
+    lx, rx, by, ty = max(lefts), min(rights), max(bottoms), min(tops)
+    cb_top_rel = cb[3] - oy
+    for lb in tb.get("labels", ()):
+        lax, lay = lb["at"]
+        if lx < lax < rx and cb_top_rel <= lay < ty:
+            ty = min(ty, lay - lb.get("height", 2.5) / 2)
+    return (min(cb[0], ox + lx), min(cb[1], oy + by), max(cb[2], ox + rx), max(cb[3], oy + ty))
+
+
 def _table_overflow(d):
     findings = []
     n = 0
     for e in d._els.values():
-        if e.kind != "table.cell" or "field" in e._intent or "cell_box" not in e._resolved:
+        if e.kind != "table.cell" or "cell_box" not in e._resolved:
             continue
+        is_title = e._intent.get("table") == "title" or "field" in e._intent
         n += 1
         tboxes = [p.box for p in e._prims if isinstance(p, Text)]
         tbox = union(tboxes)
         if tbox is None:
             continue
-        cb = e._resolved["cell_box"]
+        cb = _title_border_box(d, e._resolved["cell_box"]) if is_title else e._resolved["cell_box"]
         ox = max(cb[0] - tbox[0], tbox[2] - cb[2], 0.0)
         oy = max(cb[1] - tbox[1], tbox[3] - cb[3], 0.0)
         if ox <= 0.05 and oy <= 0.05:
             continue
         cw, ch = cb[2] - cb[0], cb[3] - cb[1]
         tw, th = tbox[2] - tbox[0], tbox[3] - tbox[1]
-        tbl = d._els.get(f"T.{e._intent['table']}")
         cands = []
-        if ox > 0.05 and tbl is not None:
-            need_w = round(tw + 2.4 + 0.5, 1)
-            cols = list(tbl.cols) if tbl.cols else []
-            col_idx = e._intent["col"] - 1
-            if 0 <= col_idx < len(cols):
-                new_cols = [round(w, 1) for w in cols]
-                new_cols[col_idx] = need_w
-                cands.append(f'd["{tbl.id}"].set(cols={new_cols})')
-            if not tbl.wrap:
-                cands.append(f'd["{tbl.id}"].set(wrap=True)')
-        if oy > 0.05 and tbl is not None:
-            need_h = round(th + 2.0 + 0.5, 1)
-            cands.append(f'd["{tbl.id}"].set(row_height={need_h})')
-            if tbl.row_height is not None:
-                cands.append(f'd["{tbl.id}"].set(row_height=None)')
-        cands.append(f'精简 d["{e._id}"] 文字或提高行列空间')
+        if is_title:
+            cur_h = max((p.height for p in e._prims if isinstance(p, Text)), default=3.5)
+            smaller = [s for s in d.std.get("text", {}).get("heights", ()) if s < cur_h - 1e-9]
+            if smaller:
+                cands.append(f'd["{e._id}"].set(text_height={max(smaller):g})')
+            if not bool(e._intent.get("wrap", False)) and ox > 0.05:
+                cands.append(f'd["{e._id}"].set(wrap=True)')
+            cands.append(f'精简 d["{e._id}"] 文字')
+        else:
+            tbl = d._els.get(f"T.{e._intent['table']}")
+            if ox > 0.05 and tbl is not None:
+                need_w = round(tw + 2.4 + 0.5, 1)
+                cols = list(tbl.cols) if tbl.cols else []
+                col_idx = e._intent["col"] - 1
+                if 0 <= col_idx < len(cols):
+                    new_cols = [round(w, 1) for w in cols]
+                    new_cols[col_idx] = need_w
+                    cands.append(f'd["{tbl.id}"].set(cols={new_cols})')
+                if not tbl.wrap:
+                    cands.append(f'd["{tbl.id}"].set(wrap=True)')
+            if oy > 0.05 and tbl is not None:
+                need_h = round(th + 2.0 + 0.5, 1)
+                cands.append(f'd["{tbl.id}"].set(row_height={need_h})')
+                if tbl.row_height is not None:
+                    cands.append(f'd["{tbl.id}"].set(row_height=None)')
+            cands.append(f'精简 d["{e._id}"] 文字或提高行列空间')
         findings.append(
             {
                 "rule": "table_overflow",

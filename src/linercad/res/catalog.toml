@@ -493,6 +493,32 @@ positive = "evals/mutate.py:FIXTURES['table_overflow']（干净 2×2 语义表�
 negative = "evals/mutate.py:MUTATORS['table_overflow'] 与 EXTRA_MUTATORS['table_overflow']（单元格及标题栏超宽溢出，检出率 1.0）"
 
 [[rule]]
+id = "table_style_gb"
+pack = "drafting"
+family = "G"
+fn = "table_style_gb"
+statement = "表格字体高度应符合 [2.5, 5.0] mm 且边框线宽应在线宽系列内"
+std = "GB/T 14691-1993"
+clause = "GB/T 14691-1993"
+clause_status = "pending"
+status = "done"
+positive = "evals/mutate.py:FIXTURES['table_style_gb']（干净 fixture，0 违规）"
+negative = "evals/mutate.py:MUTATORS['table_style_gb']（注入缺陷后检出率 1.0，target 见报告）"
+
+[[rule]]
+id = "title_style_gb"
+pack = "drafting"
+family = "G"
+fn = "title_style_gb"
+statement = "标题栏字体高度应符合推荐范围 [2.5, 5.0] mm 及标准字高系列"
+std = "GB/T 10609.1-2008"
+clause = "GB/T 10609.1-2008"
+clause_status = "pending"
+status = "done"
+positive = "evals/mutate.py:FIXTURES['title_style_gb']（干净 fixture，0 违规）"
+negative = "evals/mutate.py:MUTATORS['title_style_gb']（注入缺陷后检出率 1.0，target 见报告）"
+
+[[rule]]
 id = "text_height"
 pack = "drafting"
 family = "G"

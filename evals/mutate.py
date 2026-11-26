@@ -232,6 +232,8 @@ FIXTURES = {
     "chain_limit": _fx_chain,
     "stale_op": _fx_plain,
     "table_overflow": _fx_table,
+    "title_style_gb": _fx_table,
+    "table_style_gb": _fx_table,
     "place_balloon_align": _fx_balloons,
     "place_balloon_cross": _fx_balloons,
     "place_balloon_spacing": _fx_balloons,
@@ -572,6 +574,24 @@ def m_table_overflow_title(d):
     return "T.params"
 
 
+def m_table_overflow_title_cell(d):
+    d["T.title.material"].set(
+        text="超级无敌特别长的特种合金材料名称超出标题栏单元格", text_height=5.0, wrap=False
+    )
+    layout(d)
+    return "T.title.material"
+
+
+def m_title_style_gb(d):
+    d["T.title.material"].set(text_height=7.0)
+    return "T.title.material"
+
+
+def m_table_style_gb(d):
+    d["T.params"].set(text_height=7.0)
+    return "T.params"
+
+
 def m_view_align(d):
     for e in d._els.values():
         if e.kind == "edge" and e.view != "front" and e._intent.get("shape") == "line":
@@ -879,6 +899,8 @@ MUTATORS = {
     "out_of_frame": m_out_of_frame,
     "view_align": m_view_align,
     "table_overflow": m_table_overflow,
+    "title_style_gb": m_title_style_gb,
+    "table_style_gb": m_table_style_gb,
     "stale_op": m_stale_op,
     "place_dim_cross": m_place_dim_cross,
     "place_dim_outline": m_place_dim_outline,
@@ -898,7 +920,7 @@ MUTATORS = {
 #: additional scenarios per rule (a rule may need several shapes of the same defect)
 EXTRA_MUTATORS = {
     "place_leader_cross": [m_place_leader_cross_sphere, m_place_leader_cross_hyphen],
-    "table_overflow": [m_table_overflow_title],
+    "table_overflow": [m_table_overflow_title, m_table_overflow_title_cell],
 }
 
 

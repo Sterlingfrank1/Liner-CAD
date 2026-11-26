@@ -642,3 +642,72 @@ d.table("p", [["a", "1"], ["b", "2"]], headers=["k", "v"])
     assert rebuilt.d["T.title.name"].bold is True
     assert rebuilt.d["T.p"].cols == [25.0, 25.0]
     assert rebuilt.d["T.p"].border_width == 0.7
+
+
+# ---- 5. C3 (R14 RED -> GREEN): title_style_gb, table_style_gb & title table_overflow --------
+
+
+def test_r14_title_and_table_style_gb_and_title_overflow():
+    d = Drawing(sheet="A3")
+    d.view("front").rect((0, 0), 30, 20, name="r")
+    d.title(name="法兰盘", material="45", designer="Liner-CAD")
+    tbl = d.table("params", [["m", "2"], ["z", "20"]], headers=["参数", "值"], cols=[24, 24])
+    layout(d)
+
+    # Default untouched template T.title.name (spec height 7.0) and designer="Liner-CAD" stay clean
+    found0 = checks.run(d)
+    assert not [
+        f for f in found0 if f["rule"] in ("title_style_gb", "table_style_gb", "table_overflow")
+    ]
+
+    # Title-block style guard: out of [2.5, 5.0] warns, in [2.5, 5.0] passes
+    d["T.title.material"].set(text_height=7.0)
+    d["T.title.drawing_no"].set(text_height=1.8)
+    layout(d)
+    found1 = checks.run(d)
+    tsg = {f["id"]: f for f in found1 if f["rule"] == "title_style_gb"}
+    assert set(tsg) == {"T.title.material", "T.title.drawing_no"}
+    assert all(f["severity"] == "warn" and f["pack"] == "drafting" for f in tsg.values())
+    assert all(f["candidates"] for f in tsg.values())
+
+    d["T.title.material"].set(text_height=3.5)
+    d["T.title.drawing_no"].set(text_height=None)
+    layout(d)
+    assert not [f for f in checks.run(d) if f["rule"] == "title_style_gb"]
+
+    # Table & table.cell GB guard (text_height and border_width)
+    tbl.set(text_height=7.0, border_width=0.33)
+    d["T.params.2.1"].set(text_height=1.8)
+    layout(d)
+    tabg = [f for f in checks.run(d) if f["rule"] == "table_style_gb"]
+    assert len(tabg) >= 2
+    assert any(f["id"] == "T.params" for f in tabg)
+    assert any(f["id"] == "T.params.2.1" for f in tabg)
+    assert all(f["severity"] == "warn" for f in tabg)
+
+    tbl.set(text_height=3.5, border_width=0.5)
+    d["T.params.2.1"].set(text_height=None)
+    layout(d)
+    assert not [f for f in checks.run(d) if f["rule"] == "table_style_gb"]
+
+    # table_overflow extended to title-block 16 fields (horizontal + wrap vertical)
+    d["T.title.material"].set(
+        text="超级无敌特别长的特种耐热不锈钢合金牌号与热处理工艺状态及检验要求",
+        text_height=5.0,
+        wrap=False,
+    )
+    layout(d)
+    ov_h = [
+        f for f in checks.run(d) if f["rule"] == "table_overflow" and f["id"] == "T.title.material"
+    ]
+    assert ov_h and ov_h[0]["severity"] == "warn"
+    assert ov_h[0]["measured"]["overflow_x"] > 0
+    assert any("wrap=True" in c for c in ov_h[0]["candidates"])
+
+    d["T.title.material"].set(wrap=True)
+    layout(d)
+    ov_v = [
+        f for f in checks.run(d) if f["rule"] == "table_overflow" and f["id"] == "T.title.material"
+    ]
+    assert ov_v and ov_v[0]["measured"]["overflow_y"] > 0
+    assert any("text_height=" in c for c in ov_v[0]["candidates"])

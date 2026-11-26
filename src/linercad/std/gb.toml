@@ -163,6 +163,8 @@ chain_limit = "GB/T 5847-2004"
 rough_syntax = "GB/T 131-2006 / GB/T 1031-2009"
 rough_default = "GB/T 131-2006"
 rough_fit = "GB/T 131-2006"
+title_style_gb = "GB/T 10609.1-2008"
+table_style_gb = "GB/T 14691-1993"
 
 [placement]  # E5 D.place / A.place 指标的数值约定（企业档可覆盖；ISO 档继承）
 basis = "GB/T 4458.4-2003 / GB/T 4458.2-2003 只规定画法，不给下列毫米数：排距取 [dim].row_pitch，尺寸界线超出取 [dim].ext_beyond；气球间隙、对齐容差与尺寸界线起点间隙为 convention（取本实现布局的通行值）"

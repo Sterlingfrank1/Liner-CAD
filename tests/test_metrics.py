@@ -120,12 +120,22 @@ def _section_problems():
     return d
 
 
+def _style_problems():
+    d = Drawing(sheet="A3")
+    d.view("front").rect((0, 0), 30, 20, name="b")
+    d["T.title.material"].set(text_height=7.0)
+    t = d.table("st", [["a", "1"]], cols=[20, 20])
+    t.set(text_height=7.0)
+    return d
+
+
 # name -> (builder, after-layout mutation)
 FIXTURES = {
     "layout": (_layout_problems, None),
     "profile": (_profile_problems, None),
     "annotation": (_annotation_problems, _dev_order),
     "section": (_section_problems, _section_ref),
+    "style": (_style_problems, None),
 }
 
 STALE = [
