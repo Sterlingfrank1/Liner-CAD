@@ -96,3 +96,29 @@ W2：PR-2 与 PR-3 并行（两个 Worker）← 文件基本不重叠
 
 - 每次回复不超过三行：`Cx / PR# / 测试结果 / review 结论`；卡住时给"问题 + 两个选项 + 推荐"。
 - 每完成一个 gate，把证据路径写进 PROGRESS.md，不靠聊天记忆。
+## 10. 与 agy orchestrator 模式的配合（推荐做法）
+
+agy 1.5.17 有 `gemini-pro-orchestrator-neon`（Orchestrator）与 `gemini-4-hydrogen-xhigh` 等模型。建议**只把 orchestrator 用在开发轴**，评审与门禁不要交给它：
+
+| 环节 | 用谁 |
+|---|---|
+| 规划 / 派活 / 汇总证据 | Orchestrator（Neon xhigh），一个阶段一个会话 |
+| 写代码 | Worker：Hydrogen xhigh（在 brief 里写死，若 orchestrator 不能锁模型，就退回手动开 Worker 会话） |
+| 代码评审 | **独立会话**，优先跨族模型（`claude-opus-5-5-high` 或 `claude-sonnet-5-5-high`）；预算紧用 Hydrogen xhigh，但必须是新会话 |
+| 合并 / 关卡 | 你（或一个只读 Supervisor 会话）；orchestrator 不许合并 |
+
+**分两次 orchestrator 运行，不要一次跑完三张卡**：
+
+1. **Phase A**：会话只做 PR-1，交付 PR 后**停下来等用户试用确认**；
+2. **Phase B**：新会话做 PR-2 + PR-3（可并行），每张卡结束同样停下等 review 结论。
+
+理由：一次长会话会积累上下文、漂移范围；两段式天然对齐 W1/W2 门禁，也避免它自动连做三张卡。
+
+**给 orchestrator 的额外约束（写进 kickoff 的启动语）**：
+
+- 每完成一张卡的 PR 就 STOP，等用户/评审结论，不自动进入下一张；
+- 不合并任何 PR、不打 tag、不改三份里程碑文档；
+- 所有 Worker 一律 `hydrogen-xhigh`；评审会话由用户另开，不由 orchestrator 生成；
+- 子任务开始前先输出"卡号 + 分支 + 验收命令"一行，便于用户核对。
+
+如果 agy 的 orchestrator 无法锁定 executor 模型或无法在卡间停下，就**不要用它**，按 §7 手动开 Worker 会话——可控性优先于省事。
