@@ -24,6 +24,12 @@ body.resizing { cursor: col-resize; user-select: none; }
 .edge-expand { position: absolute; top: 10px; z-index: 6; font-size: 11px; padding: 3px 8px; background: rgba(255,255,255,.92); border: 1px solid var(--line); box-shadow: 0 1px 4px rgba(0,0,0,.12); }
 .edge-expand.left { left: 10px; }
 .edge-expand.right { right: 10px; }
+#download-bar { position: absolute; top: 10px; right: 10px; z-index: 6; }
+#app.right-collapsed #download-bar { right: 86px; }
+#btn-download { font-size: 11px; padding: 3px 8px; background: rgba(255,255,255,.92); border: 1px solid var(--line); box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+#dl-menu { position: absolute; right: 0; top: 100%; margin-top: 3px; min-width: 96px; background: #fff; border: 1px solid var(--line); border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,.15); display: flex; flex-direction: column; padding: 3px; gap: 2px; }
+#dl-menu button { text-align: left; border: 0; background: transparent; font-size: 12px; padding: 4px 8px; border-radius: 3px; }
+#dl-menu button:hover { background: #eef3fa; }
 .panel-toggle { font-size: 11px; line-height: 1; padding: 2px 6px; color: var(--muted); }
 h2 { font-size: 13px; margin: 2px 0 8px; color: var(--muted); font-weight: 600; letter-spacing: .05em; }
 h3 { font-size: 12px; margin: 10px 0 4px; color: var(--muted); }

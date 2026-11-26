@@ -31,3 +31,8 @@ Viewer 的选择是唯一事实源：`.linercad/selection.json`（`ids` + 每个
 - 用户在试的参数值在 `.linercad/snapshot.json` 的 `params`（只是预览，没写进 drawing.py）；用户要定下来时，改 drawing.py 里那个 `Param` 的默认值再 `lcad build -m`，或请用户点 Viewer 的「写回源码」。
 - 你提交后 Viewer 会自动刷新，状态栏显示新的编号。
 - 命令是 `lcad -C <图纸目录> view`（目录用全局 `-C`，不是位置参数）。Viewer 只面向本机单用户：只监听 127.0.0.1，令牌随首页下发，不防同机其他用户 / 进程。共享主机上不要替用户开，也不要把端口暴露给他人。
+
+## 无副作用下载（R8）
+
+- Viewer 右上角「下载」菜单可导出当前 DXF / PDF / PNG 产物（滑块预览中导出会带 `-preview` 后缀）；若 DXF 引用了外部图片（如 Logo），下载端自动打包为 `.zip`（保留相对路径）。
+- Viewer 下载**无副作用**：不改 `drawing.py` / `.linercad/build`、不写修订号、不产生 git commit 或 git tag；正式归档发布仍由用户确认后走 `lcad export`。

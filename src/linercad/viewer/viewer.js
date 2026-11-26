@@ -830,4 +830,57 @@ function viewportTier(w) { return w <= 820 ? "narrow" : w <= 1100 ? "medium" : "
   window.addEventListener("resize", syncBreakpoints);
 })();
 
+// R8: side-effect-free artifact download (DXF/PDF/PNG, preview suffix, external image zip)
+function parseFilename(disp, fallback) {
+  if (!disp) return fallback;
+  const mStar = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(disp);
+  if (mStar) { try { return decodeURIComponent(mStar[1].trim()); } catch (e) {} }
+  const mPlain = /filename\s*=\s*"([^"]+)"/i.exec(disp) || /filename\s*=\s*([^;\s]+)/i.exec(disp);
+  return mPlain ? mPlain[1].trim() : fallback;
+}
+async function downloadArtifact(fmt) {
+  const qs = new URLSearchParams({ fmt });
+  if (S.previewActive) qs.set("preview", "1");
+  try {
+    const r = await fetch("/api/download?" + qs.toString(), { headers: { "X-LCAD-Token": TOKEN } });
+    if (!r.ok) {
+      let msg = "下载失败 (" + r.status + ")";
+      try { const j = await r.json(); if (j.error && j.error.message) msg = "下载失败：" + j.error.message; } catch (e) {}
+      $("st-extra").textContent = msg;
+      return;
+    }
+    const archive = r.headers.get("X-LCAD-Archive") || "single";
+    const blob = await r.blob();
+    const ext = archive === "zip" ? "zip" : fmt;
+    const fname = parseFilename(r.headers.get("Content-Disposition"), "drawing." + ext);
+    const u = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = u; a.download = fname; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(u), 1000);
+    $("st-extra").textContent = "已下载：" + fname;
+  } catch (e) {
+    $("st-extra").textContent = "下载出错：" + e;
+  }
+}
+(function initDownload() {
+  const btn = $("btn-download"), menu = $("dl-menu");
+  if (!btn || !menu) return;
+  btn.onclick = (ev) => {
+    ev.stopPropagation();
+    const open = menu.hidden;
+    menu.hidden = !open;
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+  };
+  for (const item of menu.querySelectorAll("button[data-fmt]")) {
+    item.onclick = () => {
+      menu.hidden = true;
+      btn.setAttribute("aria-expanded", "false");
+      downloadArtifact(item.dataset.fmt);
+    };
+  }
+  document.addEventListener("click", () => {
+    if (!menu.hidden) { menu.hidden = true; btn.setAttribute("aria-expanded", "false"); }
+  });
+})();
+
 poll();

@@ -29,6 +29,14 @@
   <section id="canvas-wrap" aria-label="图纸">
     <button id="btn-expand-left" class="edge-expand left" type="button" title="展开参数面板" aria-expanded="false" hidden>▶ 参数</button>
     <button id="btn-expand-right" class="edge-expand right" type="button" title="展开检查器" aria-expanded="false" hidden>检查器 ◀</button>
+    <div id="download-bar">
+      <button id="btn-download" type="button" aria-haspopup="true" aria-expanded="false">下载 ▾</button>
+      <div id="dl-menu" hidden>
+        <button type="button" data-fmt="dxf">下载 DXF</button>
+        <button type="button" data-fmt="pdf">下载 PDF</button>
+        <button type="button" data-fmt="png">下载 PNG</button>
+      </div>
+    </div>
     <div id="canvas"></div>
     <div id="marquee" hidden></div>
     <div id="preview-badge" hidden>预览（未写回）</div>
