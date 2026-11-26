@@ -19,7 +19,22 @@ def _isolated_home(tmp_path, monkeypatch):
 @pytest.fixture
 def drawing(tmp_path):
     p = tmp_path / "d"
-    txn.init(p, from_="shaft")
+    txn.init(p)
+    (p / "drawing.py").write_text(
+        "from linercad import Drawing, Param\n"
+        'd = Drawing(sheet="A3", std="GB", scale="1:1")\n'
+        "P = d.params(\n"
+        '    L=Param(160, min=80, max=240, step=1, label="总长"),\n'
+        '    l1=Param(40, min=20, max=80, step=1, label="高度"),\n'
+        ")\n"
+        'front = d.view("front")\n'
+        'front.rect((0, 0), P.L, P.l1, name="body")\n'
+        'front.dim.linear("L", (0, 0), (P.L, 0), value=P.L, side="bottom")\n'
+        'front.dim.linear("H", (0, 0), (0, P.l1), value=P.l1, side="left")\n'
+        'd.title(name="参数化试件", drawing_no="LC-TPL-01", material="45")\n',
+        encoding="utf-8",
+    )
+    assert txn.build_commit(p, "clean param fixture")["errors"] == 0
     return p
 
 

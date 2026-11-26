@@ -121,6 +121,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--project", default=None)
     s.add_argument("--tag", default=None)
     s.add_argument("--dry-run", dest="dry_run", action="store_true")
+    s.add_argument("--no-probe", dest="no_probe", action="store_true")
+    s.add_argument("--force-probe-fail", dest="force_probe_fail", action="store_true")
     s = ts.add_parser("list")
     s.add_argument("--project", default=None)
     return p
@@ -238,6 +240,8 @@ def _run(args, parser) -> int:
                 project=getattr(args, "project", None),
                 tag=getattr(args, "tag", None),
                 dry_run=getattr(args, "dry_run", False),
+                no_probe=getattr(args, "no_probe", False),
+                force_probe_fail=getattr(args, "force_probe_fail", False),
             )
         elif args.action == "list":
             out = commands.template_list(dir=d, project=getattr(args, "project", None))

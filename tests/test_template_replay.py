@@ -273,3 +273,184 @@ def test_template_save_packages_logo_assets_and_rejects_external_image(tmp_path)
         commands.save_template(src_out, "bad-logo", scope="project", project=str(proj))
     assert "outside.png" in str(err.value.to_dict())
     assert not (proj / "lcad-templates" / "bad-logo").exists()
+
+
+def test_probe_clean_bounds_none_and_eq_skip_and_16_cap_and_non_failures(tmp_path):
+    from linercad.usertemplates import probe_template
+
+    # 1. None & min==max skipped; clean bounds pass cleanly with 0 failures & 0 side effects
+    part = _init_part(
+        tmp_path / "clean-probe",
+        "from linercad import Drawing, Param\n"
+        'd = Drawing(sheet="A3", std="GB", scale="1:1")\n'
+        "P = d.params(\n"
+        '    L=Param(100, min=40, max=200, label="L"),\n'
+        '    H=Param(50, min=20, label="H_open"),\n'
+        '    FIXED=Param(10, min=10, max=10, label="equal"),\n'
+        ")\n"
+        'front = d.view("front")\n'
+        'front.rect((0, 0), P.L, P.H, name="body")\n'
+        'front.dim.linear("L", (0, 0), (P.L, 0), value=P.L, side="bottom")\n'
+        'front.dim.linear("H", (0, 0), (0, P.H), value=P.H, side="left")\n'
+        'd.title(name="边界试件")\n',
+    )
+    # Add an extra E.* op that turns stale if geometry alters + an E.* line -> only E.* stale must NOT fail probe
+    sc = part / ".linercad" / "tmp" / "w.py"
+    sc.parent.mkdir(parents=True, exist_ok=True)
+    sc.write_text('def apply(d):\n    d["D.L"].place(side="top")\n', encoding="utf-8")
+    assert txn.edit(part, sc, "调整标注")["ok"]
+
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    code, saved = _cli(
+        "-C",
+        str(part),
+        "template",
+        "save",
+        "clean-probe",
+        "--scope",
+        "project",
+        "--project",
+        str(proj),
+    )
+    assert code == 0 and saved["ok"]
+    probe = saved["template"]["probe"]
+    # L has min+max (2 builds), H has min only (1 build), FIXED min==max (0 builds) -> total 3 builds
+    assert probe["builds"] == 3 and probe["failed"] == [] and probe["stale_semantic"] == []
+    assert probe["skipped"] == []
+
+    # 2. Direct probe_template ignores E.* stale & warn findings while respecting 16-build cap
+    ten_params = [f"P{i}=Param(10, min=5, max=15)" for i in range(10)]
+    many_src = (
+        "from linercad import Drawing, Param\n"
+        'd = Drawing(sheet="A3", std="GB", scale="1:1")\n'
+        f"P = d.params({', '.join(ten_params)})\n"
+        'front = d.view("front")\n'
+        'front.rect((0, 0), P.P0 * 5, 40, name="body")\n'
+        'front.dim.linear("L", (0, 0), (P.P0 * 5, 0), value=P.P0 * 5, side="bottom")\n'
+        'front.dim.linear("H", (0, 0), (0, 40), value=40, side="left")\n'
+        'd.title(name="超限参数")\n'
+    )
+    many_dir = _init_part(tmp_path / "many", many_src)
+    (many_dir / "drawing.actions.jsonl").write_text(
+        '{"edit":"e0","op":"move","id":"E.front.missing_e","args":{"dx":1}}\n',
+        encoding="utf-8",
+    )
+    res_many = runtime.build(many_dir)
+    p_report = probe_template(
+        many_dir,
+        [
+            {
+                "name": n,
+                "value": res_many.d.P[n].value,
+                "min": res_many.d.P[n].min,
+                "max": res_many.d.P[n].max,
+            }
+            for n in res_many.d.P.names()
+        ],
+        max_builds=16,
+    )
+    assert p_report["builds"] == 16 and len(p_report["skipped"]) == 4
+    assert p_report["failed"] == [] and p_report["stale_semantic"] == []
+
+
+def test_probe_rejects_failures_on_rule_check_stale_or_shaft_and_supports_force_or_noprobe(
+    tmp_path,
+):
+    proj = tmp_path / "proj"
+    proj.mkdir()
+
+    # 1. Built-in shaft example has coupled Param.rules -> fails default probe cleanly without creating marker
+    shaft_dir = tmp_path / "shaft-src"
+    txn.init(shaft_dir, from_="shaft")
+    dirty_before = (shaft_dir / "drawing.py").read_text(encoding="utf-8")
+    code, err_out = _cli(
+        "-C",
+        str(shaft_dir),
+        "template",
+        "save",
+        "shaft-copy",
+        "--scope",
+        "project",
+        "--project",
+        str(proj),
+    )
+    assert code == 1 and not err_out["ok"]
+    assert not (proj / "linercad.project.toml").exists()
+    assert not (proj / "lcad-templates").exists()
+    assert (shaft_dir / "drawing.py").read_text(encoding="utf-8") == dirty_before
+
+    # --force-probe-fail saves honestly with probe failures recorded
+    code, forced = _cli(
+        "-C",
+        str(shaft_dir),
+        "template",
+        "save",
+        "shaft-forced",
+        "--scope",
+        "project",
+        "--project",
+        str(proj),
+        "--force-probe-fail",
+    )
+    assert code == 0 and forced["ok"]
+    assert len(forced["template"]["probe"]["failed"]) >= 1
+    assert "warning" in forced
+
+    # --no-probe skips probing cleanly
+    code, nop = _cli(
+        "-C",
+        str(shaft_dir),
+        "template",
+        "save",
+        "shaft-noprobe",
+        "--scope",
+        "project",
+        "--project",
+        str(proj),
+        "--no-probe",
+    )
+    assert code == 0 and nop["ok"]
+    assert nop["template"]["probe"]["disabled"] is True and nop["template"]["probe"]["builds"] == 0
+
+    # 2. Check error at boundary bound (conv_dim error at K=0) & semantic stale op both fail default probe
+    err_part = _init_part(
+        tmp_path / "bound-err",
+        "from linercad import Drawing, Param\n"
+        'd = Drawing(sheet="A3", std="GB", scale="1:1")\n'
+        'P = d.params(K=Param(1, min=0, max=1, label="K"))\n'
+        'front = d.view("front")\n'
+        'front.rect((0, 0), 80, 50, name="body")\n'
+        'front.dim.linear("L", (0, 0), (80, 0), value=80, side="bottom")\n'
+        'front.dim.linear("H", (0, 0), (0, 50), value=50, side="left")\n'
+        "if P.K < 0.5:\n"
+        '    front.thread("thr", "M20x1.5", 0, 20, axis=0)\n'
+        'd.title(name="边界错误")\n',
+    )
+    with pytest.raises(LinerError) as err_bound:
+        commands.save_template(err_part, "oom-bound", scope="project", project=str(proj))
+    assert any(
+        "conv_dim" in (f.get("rules") or []) for f in err_bound.value.values["probe"]["failed"]
+    )
+
+    # Semantic baseline op referencing missing note when bound changes fails stale_semantic check
+    stale_part = _init_part(
+        tmp_path / "sem-stale",
+        "from linercad import Drawing, Param\n"
+        'd = Drawing(sheet="A3", std="GB", scale="1:1")\n'
+        'P = d.params(K=Param(1, min=0, max=1, label="开关"))\n'
+        'front = d.view("front")\n'
+        'front.rect((0, 0), 80, 40, name="body")\n'
+        'front.dim.linear("L", (0, 0), (80, 0), value=80, side="bottom")\n'
+        'front.dim.linear("H", (0, 0), (0, 40), value=40, side="left")\n'
+        "if P.K > 0.5:\n"
+        '    front.note("OPT", "可选备注", (40, 20))\n'
+        'd.title(name="条件注释")\n',
+    )
+    sc_opt = stale_part / ".linercad" / "tmp" / "opt.py"
+    sc_opt.parent.mkdir(parents=True, exist_ok=True)
+    sc_opt.write_text('def apply(d):\n    d["N.OPT"].place(dir=45, length=12)\n', encoding="utf-8")
+    assert txn.edit(stale_part, sc_opt, "移动可选注释")["ok"]
+    with pytest.raises(LinerError) as err:
+        commands.save_template(stale_part, "opt-fail", scope="project", project=str(proj))
+    assert len(err.value.values["probe"]["stale_semantic"]) >= 1

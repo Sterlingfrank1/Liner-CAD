@@ -671,6 +671,8 @@ def save_template(
     project=None,
     tag=None,
     dry_run=False,
+    no_probe=False,
+    force_probe_fail=False,
 ):
     """Save the current drawing as a reusable template (requires check 0 error)."""
     from . import project as proj_mod
@@ -739,6 +741,11 @@ def save_template(
     if dirty:
         warnings.append("有未提交的源文件改动：按当前文件保存")
 
+    probe_override = (
+        {"builds": 0, "failed": [], "stale_semantic": [], "skipped": [], "disabled": True}
+        if no_probe
+        else None
+    )
     on_ready = (lambda: proj_mod.ensure_project_dir(proj)) if proj is not None else None
     target_path = usertemplates.path(name, root=dest_root).resolve()
     manifest = usertemplates.save(
@@ -752,10 +759,21 @@ def save_template(
         tag=tag_clean,
         baseline_lines=baseline_lines,
         extra_files=extra_files,
+        probe=probe_override,
         compute_hash=True,
+        run_probe=not no_probe,
+        force_probe_fail=force_probe_fail,
         dry_run=dry_run,
         on_ready=on_ready,
     )
+    probe_res = manifest.get("probe") or {}
+    if probe_res.get("failed") or probe_res.get("stale_semantic"):
+        warnings.append(
+            f"参数边界自检存在失败项（已按 --force-probe-fail 保留，failed={len(probe_res.get('failed', []))}, "
+            f"stale_semantic={len(probe_res.get('stale_semantic', []))}）"
+        )
+    if probe_res.get("skipped"):
+        warnings.append(f"参数边界自检达到 16 次上限，跳过 {len(probe_res['skipped'])} 个边界")
     out = {
         "ok": True,
         "scope": final_scope,

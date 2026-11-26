@@ -311,6 +311,82 @@ def _compute_staged_model_hash(staged_dir: Path) -> str:
         return model_hash(res.d)
 
 
+def probe_template(work_dir: Path, params: list[dict], max_builds: int = 16) -> dict:
+    """Evaluate each param's non-None min/max bounds (if min != max) up to ``max_builds``."""
+    from . import runtime
+
+    work_src = Path(work_dir)
+    with tempfile.TemporaryDirectory(prefix="lcad-probe-") as td:
+        work = Path(td) / "tpl"
+        shutil.copytree(work_src, work)
+        base = work / BASELINE_LOG
+        log_file = work / runtime.LOG
+        if base.is_file() and not log_file.exists():
+            log_file.write_bytes(base.read_bytes())
+        candidates: list[tuple[str, str, float]] = []
+        for p in params or ():
+            name = p.get("name")
+            lo, hi = p.get("min"), p.get("max")
+            if not name:
+                continue
+            if lo is not None and hi is not None and lo == hi:
+                continue
+            if lo is not None:
+                candidates.append((str(name), "min", float(lo)))
+            if hi is not None:
+                candidates.append((str(name), "max", float(hi)))
+        builds = 0
+        failed: list[dict] = []
+        stale_semantic: list[dict] = []
+        skipped: list[dict] = []
+        for name, bound, val in candidates:
+            if builds >= max_builds:
+                skipped.append({"param": name, "bound": bound, "value": val})
+                continue
+            builds += 1
+            try:
+                res = runtime.build(work, params={name: val}, dxf=True)
+            except Exception as e:  # noqa: BLE001
+                failed.append(
+                    {
+                        "param": name,
+                        "bound": bound,
+                        "value": val,
+                        "reason": f"{type(e).__name__}: {e}",
+                    }
+                )
+                continue
+            errs = [f for f in res.findings if f.get("severity") == "error"]
+            if errs:
+                failed.append(
+                    {
+                        "param": name,
+                        "bound": bound,
+                        "value": val,
+                        "reason": f"check 有 {len(errs)} 个 error",
+                        "rules": [f.get("rule") for f in errs[:5]],
+                    }
+                )
+            for s in res.stale:
+                if is_semantic_op(s):
+                    stale_semantic.append(
+                        {
+                            "param": name,
+                            "bound": bound,
+                            "value": val,
+                            "id": s.get("id"),
+                            "op": s.get("op"),
+                            "reason": s.get("reason"),
+                        }
+                    )
+        return {
+            "builds": builds,
+            "failed": failed,
+            "stale_semantic": stale_semantic,
+            "skipped": skipped,
+        }
+
+
 def save(
     source_dir,
     name,
@@ -326,6 +402,8 @@ def save(
     probe: dict | None = None,
     model_hash: str | None = None,
     compute_hash: bool = False,
+    run_probe: bool = False,
+    force_probe_fail: bool = False,
     dry_run: bool = False,
     on_ready=None,
 ) -> dict:
@@ -394,9 +472,19 @@ def save(
             validate(tmp, manifest)
         if compute_hash and manifest.get("model_hash") is None:
             manifest["model_hash"] = _compute_staged_model_hash(tmp)
-            (tmp / MANIFEST).write_text(
-                json.dumps(manifest, ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
-            )
+        if run_probe and manifest.get("probe") is None:
+            probe_res = probe_template(tmp, manifest["params"])
+            manifest["probe"] = probe_res
+            if (probe_res["failed"] or probe_res["stale_semantic"]) and not force_probe_fail:
+                raise InvalidArgument(
+                    f"保存前参数边界自检失败（{len(probe_res['failed'])} 项构建/检查失败，"
+                    f"{len(probe_res['stale_semantic'])} 项语义基线失效）",
+                    values={"probe": probe_res},
+                    hint="修复参数范围 / Param.rule / 基线引用，或使用 --force-probe-fail 强制保存",
+                )
+        (tmp / MANIFEST).write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
+        )
         if dry_run:
             return manifest
         if callable(on_ready):
