@@ -202,15 +202,75 @@ canvas.addEventListener("wheel", (ev) => {
   const [x, y, w, h] = S.vb;
   setVB([px - (px - x) * k, py - (py - y) * k, w * k, h * k]); viewChanged();
 }, { passive: false });
-let down = null;
-canvas.addEventListener("mousedown", (ev) => { if (S.svg) down = { x: ev.clientX, y: ev.clientY, vb: S.vb.slice(), moved: false }; });
+let down = null, spaceDown = false, suppressCtx = false;
+function updateMarquee(d, ev) {
+  const mq = $("marquee"), wrap = $("canvas-wrap").getBoundingClientRect();
+  const x0 = Math.min(d.x, ev.clientX) - wrap.left, y0 = Math.min(d.y, ev.clientY) - wrap.top;
+  const w = Math.abs(ev.clientX - d.x), h = Math.abs(ev.clientY - d.y);
+  const crossing = ev.clientX < d.x;
+  mq.style.left = x0 + "px"; mq.style.top = y0 + "px";
+  mq.style.width = w + "px"; mq.style.height = h + "px";
+  mq.className = crossing ? "marquee-crossing" : "marquee-window";
+  mq.hidden = false;
+}
+function marqueeHits(d, ev) {
+  if (!S.svg || !S.boxes || S.cmp) return [];
+  const [sx0, sy0, sc] = toSvg({ clientX: d.x, clientY: d.y });
+  const [sx1, sy1] = toSvg(ev);
+  const rx0 = Math.min(sx0, sx1), rx1 = Math.max(sx0, sx1);
+  const ry0 = Math.min(sy0, sy1), ry1 = Math.max(sy0, sy1);
+  const crossing = ev.clientX < d.x;
+  const includeCells = !!(ev.ctrlKey || ev.metaKey || d.ctrl);
+  const hits = [], seen = new Set();
+  if (!crossing) {
+    for (const b of S.elBoxes || []) {
+      if (!includeCells && b.kind === "table.cell") continue;
+      if (b.x0 >= rx0 && b.x1 <= rx1 && b.y0 >= ry0 && b.y1 <= ry1 && !seen.has(b.id)) {
+        seen.add(b.id); hits.push(b.id);
+      }
+    }
+  } else {
+    const tol = 0.75 * sc;
+    for (const b of S.boxes || []) {
+      if (!includeCells && b.kind === "table.cell") continue;
+      if (b.x1 >= rx0 - tol && b.x0 <= rx1 + tol && b.y1 >= ry0 - tol && b.y0 <= ry1 + tol && !seen.has(b.id)) {
+        seen.add(b.id); hits.push(b.id);
+      }
+    }
+  }
+  return hits;
+}
+canvas.addEventListener("mousedown", (ev) => {
+  if (!S.svg) return;
+  if (ev.button === 1 || ev.button === 2 || (ev.button === 0 && spaceDown)) {
+    if (ev.button !== 2) ev.preventDefault();
+    down = { mode: "pan", button: ev.button, x: ev.clientX, y: ev.clientY, vb: S.vb.slice(), moved: false };
+    return;
+  }
+  if (ev.button === 0) {
+    ev.preventDefault();
+    down = { mode: "select", button: 0, x: ev.clientX, y: ev.clientY, moved: false,
+      ctrl: ev.ctrlKey || ev.metaKey, shift: ev.shiftKey };
+  }
+});
+canvas.addEventListener("contextmenu", (ev) => {
+  if (suppressCtx || (down && down.mode === "pan" && down.button === 2 && down.moved)) {
+    ev.preventDefault();
+    suppressCtx = false;
+  }
+});
+canvas.addEventListener("auxclick", (ev) => { if (ev.button === 1) ev.preventDefault(); });
 window.addEventListener("mousemove", (ev) => {
   if (down) {
     const dx = ev.clientX - down.x, dy = ev.clientY - down.y;
-    if (Math.abs(dx) + Math.abs(dy) > 4) down.moved = true;
+    if (Math.hypot(dx, dy) >= 4) down.moved = true;
     if (down.moved) {
-      const sc = toSvg(ev)[2];
-      setVB([down.vb[0] - dx * sc, down.vb[1] - dy * sc, down.vb[2], down.vb[3]]);
+      if (down.mode === "pan") {
+        const sc = toSvg(ev)[2];
+        setVB([down.vb[0] - dx * sc, down.vb[1] - dy * sc, down.vb[2], down.vb[3]]);
+      } else if (down.mode === "select" && !S.cmp) {
+        updateMarquee(down, ev);
+      }
       return;
     }
   }
@@ -219,10 +279,29 @@ window.addEventListener("mousemove", (ev) => {
 window.addEventListener("mouseup", (ev) => {
   if (!down) return;
   const d = down; down = null;
-  if (d.moved) { viewChanged(); return; }
+  $("marquee").hidden = true;
+  if (d.mode === "pan") {
+    if (d.button === 2 && Math.hypot(ev.clientX - d.x, ev.clientY - d.y) > 4) suppressCtx = true;
+    if (d.moved) viewChanged();
+    return;
+  }
+  if (d.moved) {
+    if (S.cmp) return;
+    const hits = marqueeHits(d, ev);
+    const append = !!(ev.ctrlKey || ev.metaKey || ev.shiftKey || d.ctrl || d.shift);
+    if (append) {
+      const set = new Set(S.sel);
+      for (const id of hits) if (!set.has(id)) { set.add(id); S.sel.push(id); }
+    } else {
+      S.sel = hits;
+    }
+    sendSel();
+    return;
+  }
   if (ev.target.closest && ev.target.closest("#canvas")) click(pick(ev), ev.ctrlKey || ev.metaKey);
 });
 window.addEventListener("keydown", (ev) => {
+  if (ev.code === "Space" && document.activeElement === document.body) { ev.preventDefault(); spaceDown = true; }
   // H4: copy the selected elements' references (one line) without leaving the canvas
   // Ctrl+Alt+C: Ctrl+Shift+C is the DevTools shortcut in Chrome/Edge/Firefox and never reaches us
   if ((ev.ctrlKey || ev.metaKey) && ev.altKey && ev.key.toLowerCase() === "c" && S.sel.length) {
@@ -233,21 +312,26 @@ window.addEventListener("keydown", (ev) => {
   if (ev.key === "Escape") {
     if (S.cmp) exitCompare();
     else if (S.previewActive || S.previewIds.size || S.paramError) releasePreview();  // B3: Esc
-    else { S.sel = []; sendSel(); }
+    else { S.sel = []; S.selTotal = 0; S.selTruncated = false; sendSel(); }
   }
   const idle = document.activeElement === document.body;
   if (ev.key === "f" && idle && S.svg) { setVB(fitBox()); viewChanged(); }
   if (ev.key === "0" && idle && S.svg) { setVB(S.full.slice()); viewChanged(); }
 });
+window.addEventListener("keyup", (ev) => { if (ev.code === "Space") spaceDown = false; });
+window.addEventListener("blur", () => { spaceDown = false; });
 
 // nearest element under the cursor: geometric picking on cached child boxes (hairline strokes are
 // too thin for the browser's own hit-testing)
 function cacheBoxes() {
   S.boxes = [];
+  S.elBoxes = [];
   const inv = S.svg.getScreenCTM().inverse();
   for (const g of S.svg.querySelectorAll("g[data-id]")) {
-    if (g.dataset.kind === "frame" || g.dataset.kind === "table" ||
-        (g.dataset.kind === "table.cell" && g.dataset.table === "title")) continue;
+    const kind = g.dataset.kind || "";
+    if (kind === "frame" || kind === "table" ||
+        (kind === "table.cell" && g.dataset.table === "title")) continue;
+    let ex0 = Infinity, ey0 = Infinity, ex1 = -Infinity, ey1 = -Infinity;
     for (const c of g.children) {
       const b = c.getBBox();  // in the child's own user space: map its corners to SVG units
       const m = inv.multiply(c.getScreenCTM());
@@ -255,8 +339,13 @@ function cacheBoxes() {
         .map(([x, y]) => new DOMPoint(x, y).matrixTransform(m));
       const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
       const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
-      S.boxes.push({ id: g.dataset.id, x0, y0, x1, y1, area: Math.max((x1 - x0) * (y1 - y0), 1e-3),
+      S.boxes.push({ id: g.dataset.id, kind, x0, y0, x1, y1, area: Math.max((x1 - x0) * (y1 - y0), 1e-3),
         text: c.tagName === "text" });
+      if (x0 < ex0) ex0 = x0; if (y0 < ey0) ey0 = y0;
+      if (x1 > ex1) ex1 = x1; if (y1 > ey1) ey1 = y1;
+    }
+    if (ex0 <= ex1 && ey0 <= ey1) {
+      S.elBoxes.push({ id: g.dataset.id, kind, x0: ex0, y0: ey0, x1: ex1, y1: ey1 });
     }
   }
 }
@@ -291,7 +380,21 @@ function click(id, multi) {
   else S.sel = [id];
   sendSel();
 }
-function sendSel() { markSel(); inspect(); api("/api/select", { ids: S.sel }); }
+async function sendSel() {
+  S.selTotal = S.sel.length; S.selTruncated = false;
+  markSel(); inspect();
+  try {
+    const r = await api("/api/select", { ids: S.sel });
+    if (r && r.ok) {
+      if (Array.isArray(r.ids)) S.sel = r.ids;
+      S.selTotal = typeof r.total === "number" ? r.total : S.sel.length;
+      S.selTruncated = !!r.truncated;
+      markSel(); inspect();
+      if (S.selTruncated) $("st-extra").textContent = `已选 ${r.count}（共 ${r.total}）`;
+      else if ($("st-extra").textContent.startsWith("已选 ")) $("st-extra").textContent = "";
+    }
+  } catch (e) {}
+}
 function markSel() {
   if (!S.svg || S.cmp) return;
   for (const g of S.svg.querySelectorAll("g[data-id]")) g.classList.toggle("sel", S.sel.includes(g.dataset.id));

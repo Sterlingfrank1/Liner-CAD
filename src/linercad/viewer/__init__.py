@@ -288,12 +288,16 @@ class Viewer:
     def select(self, ids):
         with self.lock:
             r = self._current()
-            items = []
+            valid = []
+            seen = set()
             for i in ids:
+                if i in seen:
+                    continue
+                seen.add(i)
                 e = r.d.get(i) if r else None
                 if e is None:
                     continue
-                items.append(
+                valid.append(
                     {
                         "id": e.id,
                         "kind": e.kind,
@@ -303,12 +307,23 @@ class Viewer:
                         "selector": svgout.selector(e),
                     }
                 )
+            total = len(valid)
+            cap = _selection_cap()
+            truncated = cap > 0 and total > cap
+            items = valid[:cap] if truncated else valid
+            kinds: dict[str, int] = {}
+            for x in items:
+                k = x["kind"]
+                kinds[k] = kinds.get(k, 0) + 1
             self.selection = items
-            edit, _, _ = self.edit_no()
             doc = {
                 "version": self._drawing_edit(),
                 "ids": [x["id"] for x in items],
                 "items": items,
+                "count": len(items),
+                "total": total,
+                "truncated": truncated,
+                "kinds": kinds,
                 "time": datetime.now(UTC).isoformat(timespec="seconds"),
             }
             _write_json(self.dir / ".linercad" / "selection.json", doc)
@@ -817,7 +832,19 @@ class _Server(ThreadingHTTPServer):
 STATE_PATH = Path(".linercad") / "viewer.json"
 LOG_PATH = Path(".linercad") / "viewer.log"
 DEFAULT_PORT = 8765
+DEFAULT_SELECTION_CAP = 50
 DEFAULT_IDLE_TIMEOUT = 1800.0  # seconds without a request before the background Viewer exits
+
+
+def _selection_cap() -> int:
+    """Maximum elements stored in selection.json (<=0 disables the cap, for tests)."""
+    raw = os.environ.get("LCAD_SELECTION_CAP")
+    if not raw:
+        return DEFAULT_SELECTION_CAP
+    try:
+        return int(raw)
+    except ValueError:
+        return DEFAULT_SELECTION_CAP
 
 
 def _state_path(dir):

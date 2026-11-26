@@ -991,3 +991,120 @@ def test_r3_r6_panels_resize_collapse_breakpoints_and_status_text():
         assert needle in js, needle
 
     assert "selection.json" not in js and "selection.json" not in html
+
+
+# ---- v0.1.3 PR-1 R4/R5: marquee selection, selection cap & @sel summary -----------------------
+
+
+def _many_elements_drawing(tmp_path):
+    p = tmp_path / "many"
+    txn.init(p)
+    lines = [
+        "from linercad import Drawing",
+        "d = Drawing(sheet='A3')",
+        "f = d.view('front')",
+    ]
+    for k in range(15):
+        lines.append(f"f.rect(({k * 12}, 0), 8, 8, name='r{k}')")
+    lines.append("d.title(name='many')")
+    (p / "drawing.py").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    txn.build_commit(p, msg="many elements")
+    return p
+
+
+def test_selection_cap_truncates_and_respects_env(tmp_path, monkeypatch):
+    from http.server import ThreadingHTTPServer
+
+    p = _many_elements_drawing(tmp_path)
+    v = Viewer(p)
+    ids60 = [e["id"] for e in v.model()["elements"] if e["kind"] == "edge"][:60]
+    assert len(ids60) == 60
+
+    out = v.select(ids60)
+    assert out["ok"] is True
+    assert out["count"] == 50
+    assert out["total"] == 60
+    assert out["truncated"] is True
+    assert len(out["ids"]) == 50 and len(out["items"]) == 50
+    assert out["kinds"] == {"edge": 50}
+    sel = json.loads((p / ".linercad/selection.json").read_text(encoding="utf-8"))
+    assert sel["count"] == 50 and sel["total"] == 60 and sel["truncated"] is True
+
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(v))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        base = f"http://127.0.0.1:{httpd.server_address[1]}"
+        code, body = req(base + "/api/select", {"ids": ids60}, {"X-LCAD-Token": v.token})
+        got = json.loads(body)
+        assert code == 200 and got["ok"] is True
+        assert got["count"] == 50 and got["total"] == 60 and got["truncated"] is True
+    finally:
+        httpd.shutdown()
+
+    monkeypatch.setenv("LCAD_SELECTION_CAP", "12")
+    out12 = v.select(ids60)
+    assert out12["count"] == 12 and out12["total"] == 60 and out12["truncated"] is True
+
+    for uncap in ("0", "-1"):
+        monkeypatch.setenv("LCAD_SELECTION_CAP", uncap)
+        out_all = v.select(ids60)
+        assert out_all["count"] == 60 and out_all["total"] == 60 and out_all["truncated"] is False
+        assert len(out_all["ids"]) == 60
+
+
+def test_context_at_sel_summarizes_over_10_and_keeps_items_empty(tmp_path):
+    p = _many_elements_drawing(tmp_path)
+    v = Viewer(p)
+    ids60 = [e["id"] for e in v.model()["elements"] if e["kind"] == "edge"][:60]
+
+    v.select(ids60[:10])
+    ctx10 = commands.context(p, ["@sel"])
+    assert "summary" not in ctx10 and len(ctx10["items"]) == 10
+
+    v.select(ids60[:12])
+    ctx12 = commands.context(p, ["@sel"])
+    assert ctx12["ok"] is True
+    assert ctx12["summary"] is True
+    assert ctx12["count"] == 12 and ctx12["total"] == 12 and ctx12["truncated"] is False
+    assert ctx12["items"] == []
+    assert ctx12["ids"] == ids60[:12]
+    assert ctx12["kinds"] == {"edge": 12}
+    assert "lcad context" in ctx12["hint"]
+
+    v.select(ids60)
+    ctx50 = commands.context(p, ["@sel"])
+    assert ctx50["summary"] is True
+    assert ctx50["count"] == 50 and ctx50["total"] == 60 and ctx50["truncated"] is True
+    assert ctx50["items"] == [] and len(ctx50["ids"]) == 50
+
+    v.select(ids60[:12])
+    src = p / "drawing.py"
+    src.write_text(
+        src.read_text(encoding="utf-8") + "\nraise RuntimeError('broken')\n", encoding="utf-8"
+    )
+    ctx_stale = commands.context(p, ["@sel"])
+    assert ctx_stale["stale"] is True and ctx_stale["summary"] is True
+    assert ctx_stale["items"] == [] and ctx_stale["count"] == 12 and ctx_stale["ids"] == ids60[:12]
+
+
+def test_r4_marquee_selection_hooks_and_pan_bindings():
+    from importlib import resources
+
+    pkg = resources.files("linercad.viewer")
+    html = (pkg / "index.html").read_text(encoding="utf-8")
+    css = (pkg / "viewer.css").read_text(encoding="utf-8")
+    js = (pkg / "viewer.js").read_text(encoding="utf-8")
+
+    assert 'id="marquee"' in html
+    assert ".marquee-window" in css and ".marquee-crossing" in css
+    for needle in (
+        "marquee-window",
+        "marquee-crossing",
+        "0.75 * sc",
+        "table.cell",
+        "contextmenu",
+        "auxclick",
+        "elBoxes",
+        "已选 ",
+    ):
+        assert needle in js, needle

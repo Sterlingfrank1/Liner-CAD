@@ -10,18 +10,18 @@
 - **端口回退**：`lcad view` 默认绑定 `8765`，若被占用自动回退到随机空闲端口并把真实端口写入 `.linercad/viewer.json`；显式传 `--port <N>` 且被占用时直接报错退出（`error.code == "viewer_bind"`）。
 - 状态在 `.linercad/viewer.json`（pid / port / url / started），只是本地状态，不要提交或手改。
 
-## 选择同步到对话（H4）
+## 选择同步到对话（H4 / R4 / R5）
 
-Viewer 的选择是唯一事实源：`.linercad/selection.json`（`ids` + 每个元素的 `ref` / 时间 / 版本）。两条路都支持，任何 Agent 通用：
+Viewer 的选择是唯一事实源：`.linercad/selection.json`（`ids` + 每个元素的 `ref` / 时间 / 版本 + `count` / `total` / `truncated` / `kinds`）。画布支持**左键单击**与**左键框选**（从左往右蓝实线全包含；从右往左绿虚线相交；`Shift+框选` 追加；`Ctrl+框选` 含表格单元格 `table.cell` 并追加），**右键 / 中键 / Space+左键**拖动平移，滚轮缩放。选择集上限默认 50（可用 `LCAD_SELECTION_CAP` 环境变量调节，`<=0` 不限）。两条同步路径都支持，任何 Agent 通用：
 
-1. **复制引用（推荐，用户点了按钮 / 快捷键）：** 用户在 Viewer 里单击点选、Ctrl 多选，点「复制引用」或按 Ctrl+Alt+C（Ctrl+Shift+C 是浏览器 DevTools 快捷键，页面拦不住），得到一行引用，例如
+1. **复制引用（推荐，用户点了按钮 / 快捷键）：** 用户在 Viewer 里单击或框选、Ctrl 多选，点「复制引用」或按 Ctrl+Alt+C（Ctrl+Shift+C 是浏览器 DevTools 快捷键，页面拦不住），得到一行引用，例如
    `@D.d1（Φ25k6，主视图） @D.d2（Φ30k6，主视图） @D.L（200，主视图）`。
    用户把它粘进对话后，把每个 `@ID` 当作该元素——可以直接 `lcad context "@D.d1（Φ25k6，主视图）" "@D.d2（Φ30k6，主视图）"`（PowerShell 里参数要用双引号包住整条引用），或按 ID 写临时脚本；不要要求用户再解释一遍。
 2. **自然语言指代（用户没复制）：** 用户说「选中的 / 这个 / 那个 / 当前对象 / 我选的」而消息里**没有 `@ID`** 时，先读当前选中再动手：
    ```powershell
    lcad context "@sel"      # PowerShell 里 @sel 要加引号
    ```
-   确认 `items` 里的 ID 后再写脚本 / 改参数；不要凭聊天上下文猜用户指的是哪个元素。
+   当选中元素超过 10 个时，`lcad context "@sel"` 自动返回摘要（`summary: true`、`count`、`total`、`truncated`、`kinds`、`ids`、`items: []`、`hint`），防止撑爆上下文；按需再用 `lcad context <ID>...` 查看具体元素详情。确认 `ids` / `items` 里的 ID 后再写脚本 / 改参数；不要凭聊天上下文猜用户指的是哪个元素。
    优先用 `lcad context`（它校验版本与 TTL）。**若直读 `.linercad/selection.json`：** 必须自己用 `lcad log` 的当前 `eN` 比较文件里的 `version`，并检查 `time` 不超过 15 分钟（默认 TTL）；版本不一致或超时就按「当前没有有效选中」处理，不要用旧选择。
 
 **选择过期时如实报告，不要猜：** `lcad context "@sel"` 会校验选择的新鲜度——版本必须与当前 `eN` 一致，且默认不超过 15 分钟（`LCAD_SELECTION_TTL` 秒数可调；**设为 0 或负值表示永不过期**，版本校验仍然生效，不要把它当成“立即过期”）。失败时返回的 `error.code` 是 `selection_stale`，消息形如「当前没有有效选中：选择来自 e0，当前是 e1」/「当前没有有效选中：选择已超过 900 秒（超时）」/「当前没有有效选中：还没有 selection.json」。这时**明确告诉用户当前没有有效选中**，请他在 Viewer 里重新点选或把 `@ID` 贴进对话；不要用旧选择硬改，也不要猜。
