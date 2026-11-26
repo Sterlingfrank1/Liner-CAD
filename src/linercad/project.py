@@ -157,7 +157,7 @@ def resolve_project(
         if not is_inside_drawing_dir(cur) and (cur / MARKER).is_file():
             tdir, _ = _read_marker(cur)
             return ProjectRoot(cur, tdir, cur / MARKER, True, "marker")
-        if idx > 0 and (cur / ".git").exists():
+        if idx > 0 and not is_inside_drawing_dir(cur) and (cur / ".git").exists():
             break
         if is_drive_root(cur):
             break

@@ -86,6 +86,16 @@ def test_project_root_precedence_cli_env_marker_parent(tmp_path, monkeypatch):
     ctx = resolve_project(draw, allow_create=False)
     assert ctx is not None and ctx.root == mark_root.resolve() and ctx.resolved_by == "marker"
 
+    # Upward search from a subdirectory inside a git-initialized drawing skips the drawing's own .git
+    sub_in_draw = draw / "sub"
+    sub_in_draw.mkdir()
+    ctx_sub = resolve_project(sub_in_draw, allow_create=False)
+    assert (
+        ctx_sub is not None
+        and ctx_sub.root == mark_root.resolve()
+        and ctx_sub.resolved_by == "marker"
+    )
+
     # 4. Ancestor .git stops upward search AFTER checking that .git dir
     outer = tmp_path / "outer"
     inner_repo = outer / "inner-repo"
