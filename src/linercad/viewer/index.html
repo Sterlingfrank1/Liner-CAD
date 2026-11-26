@@ -10,7 +10,10 @@
 <body>
 <main id="app">
   <section id="params" aria-label="参数">
-    <h2>参数</h2>
+    <div class="panel-head">
+      <h2>参数</h2>
+      <button id="btn-toggle-left" class="panel-toggle" type="button" title="收起参数面板" aria-expanded="true">◀</button>
+    </div>
     <div id="param-list"></div>
     <div id="param-msg" class="msg"></div>
     <div class="row">
@@ -22,18 +25,34 @@
       <div id="ver-list"></div>
     </details>
   </section>
+  <div id="split-left" class="splitter" role="separator" aria-orientation="vertical" aria-label="调整参数面板宽度" title="拖动调整宽度，双击复位"></div>
   <section id="canvas-wrap" aria-label="图纸">
+    <button id="btn-expand-left" class="edge-expand left" type="button" title="展开参数面板" aria-expanded="false" hidden>▶ 参数</button>
+    <button id="btn-expand-right" class="edge-expand right" type="button" title="展开检查器" aria-expanded="false" hidden>检查器 ◀</button>
+    <div id="download-bar">
+      <button id="btn-download" type="button" aria-haspopup="true" aria-expanded="false">下载 ▾</button>
+      <div id="dl-menu" hidden>
+        <button type="button" data-fmt="dxf">下载 DXF</button>
+        <button type="button" data-fmt="pdf">下载 PDF</button>
+        <button type="button" data-fmt="png">下载 PNG</button>
+      </div>
+    </div>
     <div id="canvas"></div>
+    <div id="marquee" hidden></div>
     <div id="preview-badge" hidden>预览（未写回）</div>
     <div id="cmp-banner" hidden>
       <span id="cmp-text"></span>
       <span class="legend"><i class="lg lg-a"></i>A <i class="lg lg-b"></i>B <i class="lg lg-add"></i>新增 <i class="lg lg-del"></i>删除 <i class="lg lg-chg"></i>改动</span>
       <button id="btn-exit-cmp" type="button">退出对比</button>
     </div>
-    <div id="hint">滚轮缩放 · 拖动平移 · 单击选中 · Ctrl 多选 · Esc 清空 · F 适应内容 · 0 整张图纸</div>
+    <div id="hint">左键框选/单击 · 右/中键或空格拖平移 · 滚轮缩放 · Ctrl 多选(含表格) · Esc 清空 · F 适应 · 0 全图</div>
   </section>
+  <div id="split-right" class="splitter" role="separator" aria-orientation="vertical" aria-label="调整检查器宽度" title="拖动调整宽度，双击复位"></div>
   <section id="inspector" aria-label="检查器">
-    <h2>检查器</h2>
+    <div class="panel-head">
+      <h2>检查器</h2>
+      <button id="btn-toggle-right" class="panel-toggle" type="button" title="收起检查器" aria-expanded="true">▶</button>
+    </div>
     <div id="insp-body"><p class="muted">点选图上的元素</p></div>
   </section>
   <footer id="status">

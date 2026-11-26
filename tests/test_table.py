@@ -424,12 +424,12 @@ d.table(
     assert 'class="cell-hit"' in groups[empty_id][1]
     assert 'data-table="title"' in groups["T.title.name"][1]
 
-    # viewer.js only skips frame, table, and title-block cells
+    # viewer.js only skips frame and table (title-block and semantic table cells are pickable)
     vjs = (
         Path(__file__).resolve().parents[1] / "src" / "linercad" / "viewer" / "viewer.js"
     ).read_text(encoding="utf-8")
-    assert 'g.dataset.kind === "frame"' in vjs
-    assert 'g.dataset.table === "title"' in vjs
+    assert 'kind === "frame"' in vjs and 'kind === "table"' in vjs
+    assert 'dataset.table === "title"' not in vjs
 
     # Viewer model + slider preview updates reactive Expr cells
     v = Viewer(tmp_path)

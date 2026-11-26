@@ -6,12 +6,15 @@ without opening a new tab; the background process exits when idle and removes it
 
 from __future__ import annotations
 
+import errno
 import json
 import os
+import socket
 import subprocess
 import sys
 import threading
 import time
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -266,3 +269,157 @@ def test_cli_survives_a_viewer_import_failure(repo, monkeypatch, capsys):
     out = json.loads(capsys.readouterr().out)
     assert code == 0 and out["ok"]
     assert out["viewer"]["url"] is None and "halted" in out["viewer"]["error"]
+
+
+# ---- v0.1.3 PR-1 R1/R2: --ensure-viewer / --no-viewer precedence & port fallback ------------------
+
+
+def test_ensure_viewer_overrides_env_and_ci_without_opening_browser(repo, monkeypatch, capsys):
+    monkeypatch.setenv("LCAD_NO_VIEW", "1")
+    monkeypatch.setenv("LCAD_NO_VIEWER", "1")
+    monkeypatch.setenv("CI", "1")
+    monkeypatch.setenv("LCAD_VIEW_IDLE_TIMEOUT", "15")
+    opened = []
+    monkeypatch.setattr("webbrowser.open", lambda url: opened.append(url) or True)
+    state = repo / ".linercad" / "viewer.json"
+    try:
+        code = cli.main(["-C", str(repo), "build", "--ensure-viewer"])
+        out = json.loads(capsys.readouterr().out)
+        assert code == 0 and out["ok"]
+        v = out["viewer"]
+        assert v["url"].startswith("http://127.0.0.1:")
+        assert isinstance(v["pid"], int) and v["pid"] > 0
+        assert isinstance(v["started"], str) and v["started"]
+        assert v["opened"] is False
+        assert v["reused"] is False
+        assert opened == []
+        assert state.is_file()
+
+        script = repo / ".linercad" / "tmp" / "r1.py"
+        script.parent.mkdir(parents=True, exist_ok=True)
+        script.write_text('def apply(d):\n    d.notes.tech("R1")\n', encoding="utf-8")
+        code2 = cli.main(
+            ["-C", str(repo), "edit", str(script), "-m", "R1 ensure", "--ensure-viewer"]
+        )
+        out2 = json.loads(capsys.readouterr().out)
+        assert code2 == 0 and out2["ok"]
+        v2 = out2["viewer"]
+        assert v2["url"] == v["url"]
+        assert v2["pid"] == v["pid"]
+        assert v2["opened"] is False
+        assert v2["reused"] is True
+        assert opened == []
+    finally:
+        _stop(state)
+
+
+def test_no_viewer_flag_and_env_suppress_and_reject_conflict(repo, monkeypatch, capsys):
+    monkeypatch.delenv("LCAD_NO_VIEW", raising=False)
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("LCAD_NO_VIEWER", raising=False)
+    state = repo / ".linercad" / "viewer.json"
+
+    code = cli.main(["-C", str(repo), "build", "--no-viewer"])
+    out = json.loads(capsys.readouterr().out)
+    assert code == 0 and out["ok"] and "viewer" not in out
+    assert not state.exists()
+
+    monkeypatch.setenv("LCAD_NO_VIEWER", "1")
+    code = cli.main(["-C", str(repo), "build"])
+    out = json.loads(capsys.readouterr().out)
+    assert code == 0 and out["ok"] and "viewer" not in out
+    assert not state.exists()
+
+    script = repo / ".linercad" / "tmp" / "conflict.py"
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text('def apply(d):\n    d.notes.tech("conflict")\n', encoding="utf-8")
+    for args in (
+        ["-C", str(repo), "build", "--ensure-viewer", "--no-viewer"],
+        ["-C", str(repo), "build", "--ensure-viewer", "--no-view"],
+        ["-C", str(repo), "edit", str(script), "-m", "conflict", "--ensure-viewer", "--no-viewer"],
+    ):
+        code = cli.main(args)
+        err = json.loads(capsys.readouterr().out)
+        assert code == 2 and not err["ok"] and err["error"]["code"] == "usage"
+    assert not state.exists()
+
+
+def test_view_default_port_falls_back_when_occupied(repo, monkeypatch, capsys):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+    sock.bind(("127.0.0.1", 0))
+    sock.listen(1)
+    occupied = sock.getsockname()[1]
+    monkeypatch.setattr(viewer, "DEFAULT_PORT", occupied)
+    state = repo / ".linercad" / "viewer.json"
+
+    seen_calls = []
+    monkeypatch.setattr(
+        viewer,
+        "serve",
+        lambda d, port=None, open_browser=True, **kw: seen_calls.append((d, port, open_browser)),
+    )
+    assert cli.main(["-C", str(repo), "view", "--no-open"]) == 0
+    assert seen_calls[-1][1] is None  # CLI leaves default port as sentinel None
+
+    monkeypatch.undo()
+    monkeypatch.setattr(viewer, "DEFAULT_PORT", occupied)
+    err_box = []
+    th = threading.Thread(
+        target=lambda: _run_serve(repo, None, 1.0, err_box),
+        daemon=True,
+    )
+    try:
+        th.start()
+        deadline = time.monotonic() + 10
+        doc = None
+        while time.monotonic() < deadline:
+            if state.is_file():
+                try:
+                    doc = json.loads(state.read_text(encoding="utf-8"))
+                    if doc.get("port") and viewer._port_open(doc["port"]):
+                        break
+                except (OSError, ValueError):
+                    pass
+            time.sleep(0.05)
+        assert not err_box, err_box
+        assert doc is not None and doc["port"] != occupied and doc["port"] > 0
+        assert doc["url"] == f"http://127.0.0.1:{doc['port']}/"
+        with urllib.request.urlopen(doc["url"] + "api/ping", timeout=2) as resp:
+            assert resp.status == 200 and json.loads(resp.read())["ok"] is True
+        capsys.readouterr()
+    finally:
+        sock.close()
+        th.join(5)
+
+
+def _run_serve(repo, port, idle_timeout, err_box):
+    try:
+        viewer.serve(repo, port=port, open_browser=False, idle_timeout=idle_timeout)
+    except Exception as e:  # noqa: BLE001
+        err_box.append(e)
+
+
+def test_view_explicit_occupied_port_and_retry_failure_report_error(repo, monkeypatch, capsys):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+    sock.bind(("127.0.0.1", 0))
+    sock.listen(1)
+    occupied = sock.getsockname()[1]
+    try:
+        code = cli.main(["-C", str(repo), "view", "--port", str(occupied), "--no-open"])
+        out = json.loads(capsys.readouterr().out)
+        assert code == 1 and not out["ok"] and out["error"]["code"] == "viewer_bind"
+        assert not (repo / ".linercad" / "viewer.json").exists()
+    finally:
+        sock.close()
+
+    def always_in_use(*a, **k):
+        raise OSError(errno.EADDRINUSE, "Address already in use")
+
+    monkeypatch.setattr(viewer, "_Server", always_in_use)
+    code = cli.main(["-C", str(repo), "view", "--no-open"])
+    out = json.loads(capsys.readouterr().out)
+    assert code == 1 and not out["ok"] and out["error"]["code"] == "viewer_bind"

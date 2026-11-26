@@ -12,6 +12,7 @@ from .model import check_name
 from .runtime import LOG, SRC, TMP_DIR, build
 
 SELECTION_TTL = 900.0  # seconds a Viewer selection stays actionable (H4); env override for tests
+SELECTION_SUMMARY_THRESHOLD = 10
 
 BRIEF_KINDS = (
     "view",
@@ -202,6 +203,42 @@ def _clean_ids(items):
     return out, dangling
 
 
+def _sel_summary(
+    ids: list[str],
+    kinds_seq,
+    seldoc: dict,
+    selection: dict,
+    *,
+    notes: list[str] | None = None,
+    stale_error=None,
+) -> dict:
+    """Summary payload for ``lcad context @sel`` when selection exceeds threshold."""
+    kinds: dict[str, int] = {}
+    for k in kinds_seq:
+        kinds[k] = kinds.get(k, 0) + 1
+    total = max(len(ids), int(seldoc.get("total") or 0))
+    out = {
+        "ok": True,
+        "summary": True,
+        "count": len(ids),
+        "total": total,
+        "truncated": bool(seldoc.get("truncated", False)),
+        "kinds": kinds,
+        "ids": ids,
+        "items": [],
+        "selection": selection,
+        "hint": f"已选 {len(ids)} 个元素（超过 {SELECTION_SUMMARY_THRESHOLD} 个），仅返回摘要；"
+        "按需用 lcad context <ID>... 查看详情",
+    }
+    if stale_error is not None:
+        out["stale"] = True
+        out["build_error"] = stale_error.to_dict()
+        out["hint"] = "构建失败，以上为上一版 model.json 的选择摘要；先修好 drawing.py / 脚本"
+    if notes:
+        out["warning"] = "；".join(notes)
+    return out
+
+
 def context(dir, ids=()):
     dir = Path(dir)
     seldoc = None
@@ -233,7 +270,8 @@ def context(dir, ids=()):
             raise
         m = json.loads(mp.read_text(encoding="utf-8"))
         els = {x["id"]: x for x in m["elements"]}
-        items = [{"element": els[i]} for i in ids if i in els] if ids else []
+        present = [els[i] for i in ids if i in els] if ids else []
+        items = [{"element": el} for el in present]
         gone = [i for i in ids if i not in els] if ids else []
         if seldoc is not None and ids and not items:
             raise InvalidArgument(
@@ -241,6 +279,22 @@ def context(dir, ids=()):
                 + (f"（{', '.join(gone)}）" if gone else ""),
                 code="selection_stale",
                 hint="请在 Viewer 里重新点选，或直接把 @ID 贴进对话；不要猜",
+            )
+        notes = []
+        if seldoc is not None and gone:
+            notes.append(f"已不存在：{', '.join(gone)}")
+        if dangling_warning:
+            notes.append(dangling_warning)
+        if seldoc is not None and (
+            max(len(present), int(seldoc.get("total") or 0)) > SELECTION_SUMMARY_THRESHOLD
+        ):
+            return _sel_summary(
+                [el["id"] for el in present],
+                (el.get("kind", "unknown") for el in present),
+                seldoc,
+                selection,
+                notes=notes,
+                stale_error=e,
             )
         out = {
             "ok": True,
@@ -250,11 +304,6 @@ def context(dir, ids=()):
             "elements": None if ids else sorted(els),
             "hint": "构建失败，以上是上一版 model.json；先修好 drawing.py / 脚本",
         }
-        notes = []
-        if seldoc is not None and gone:
-            notes.append(f"已不存在：{', '.join(gone)}")
-        if dangling_warning:
-            notes.append(dangling_warning)
         if notes:
             out["warning"] = "；".join(notes)
         if selection is not None:
@@ -302,6 +351,9 @@ def context(dir, ids=()):
             )
         if gone:
             warn = f"已不存在：{', '.join(gone)}"
+        notes = [x for x in (warn, dangling_warning) if x]
+        if max(len(ids), int(seldoc.get("total") or 0)) > SELECTION_SUMMARY_THRESHOLD:
+            return _sel_summary(ids, (d[i].kind for i in ids), seldoc, selection, notes=notes)
     for i in ids:
         e = d[i]
         b = e.bbox

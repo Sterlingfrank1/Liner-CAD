@@ -2,7 +2,7 @@
 "use strict";
 const TOKEN = document.querySelector('meta[name="lcad-token"]').content;
 const $ = (id) => document.getElementById(id);
-const S = { version: -1, model: null, byId: {}, sel: [], svg: null, vb: null, full: null, params: [],
+const S = { version: -1, model: null, byId: {}, sel: [], selTotal: 0, selTruncated: false, svg: null, vb: null, full: null, params: [],
   values: {}, dragging: false, previewTimer: null, previewSeq: 0, fitted: false,
   versions: [], pick: [], cmp: null, busy: false,
   previewIds: new Set(), previewFindings: [], paramError: null, resolved: {}, previewActive: false, unplaced: [], statusOrig: {}, savedScroll: 0, previewPending: false };  // B3/B6
@@ -202,15 +202,79 @@ canvas.addEventListener("wheel", (ev) => {
   const [x, y, w, h] = S.vb;
   setVB([px - (px - x) * k, py - (py - y) * k, w * k, h * k]); viewChanged();
 }, { passive: false });
-let down = null;
-canvas.addEventListener("mousedown", (ev) => { if (S.svg) down = { x: ev.clientX, y: ev.clientY, vb: S.vb.slice(), moved: false }; });
+let down = null, spaceDown = false, suppressCtx = false;
+function updateMarquee(d, ev) {
+  const mq = $("marquee"), wrap = $("canvas-wrap").getBoundingClientRect();
+  const x0 = Math.min(d.x, ev.clientX) - wrap.left, y0 = Math.min(d.y, ev.clientY) - wrap.top;
+  const w = Math.abs(ev.clientX - d.x), h = Math.abs(ev.clientY - d.y);
+  const crossing = ev.clientX < d.x;
+  mq.style.left = x0 + "px"; mq.style.top = y0 + "px";
+  mq.style.width = w + "px"; mq.style.height = h + "px";
+  mq.className = crossing ? "marquee-crossing" : "marquee-window";
+  mq.hidden = false;
+}
+function marqueeHits(d, ev) {
+  if (!S.svg || !S.boxes || S.cmp) return [];
+  const [sx0, sy0, sc] = toSvg({ clientX: d.x, clientY: d.y });
+  const [sx1, sy1] = toSvg(ev);
+  const rx0 = Math.min(sx0, sx1), rx1 = Math.max(sx0, sx1);
+  const ry0 = Math.min(sy0, sy1), ry1 = Math.max(sy0, sy1);
+  const crossing = ev.clientX < d.x;
+  const includeCells = !!(ev.ctrlKey || ev.metaKey || d.ctrl);
+  const hits = [], seen = new Set();
+  if (!crossing) {
+    for (const b of S.elBoxes || []) {
+      if (!includeCells && b.kind === "table.cell") continue;
+      if (b.x0 >= rx0 && b.x1 <= rx1 && b.y0 >= ry0 && b.y1 <= ry1 && !seen.has(b.id)) {
+        seen.add(b.id); hits.push(b.id);
+      }
+    }
+  } else {
+    const tol = 0.75 * sc;
+    for (const b of S.boxes || []) {
+      if (!includeCells && b.kind === "table.cell") continue;
+      if (b.x1 >= rx0 - tol && b.x0 <= rx1 + tol && b.y1 >= ry0 - tol && b.y0 <= ry1 + tol && !seen.has(b.id)) {
+        seen.add(b.id); hits.push(b.id);
+      }
+    }
+  }
+  return hits;
+}
+canvas.addEventListener("mousedown", (ev) => {
+  if (!S.svg) return;
+  suppressCtx = false;
+  if (document.activeElement && document.activeElement !== document.body && document.activeElement.blur) {
+    document.activeElement.blur();
+  }
+  if (ev.button === 1 || ev.button === 2 || (ev.button === 0 && spaceDown)) {
+    if (ev.button !== 2) ev.preventDefault();
+    down = { mode: "pan", button: ev.button, x: ev.clientX, y: ev.clientY, vb: S.vb.slice(), moved: false };
+    return;
+  }
+  if (ev.button === 0) {
+    ev.preventDefault();
+    down = { mode: "select", button: 0, x: ev.clientX, y: ev.clientY, moved: false,
+      ctrl: ev.ctrlKey || ev.metaKey, shift: ev.shiftKey };
+  }
+});
+canvas.addEventListener("contextmenu", (ev) => {
+  if (suppressCtx || (down && down.mode === "pan" && down.button === 2 && down.moved)) {
+    ev.preventDefault();
+    suppressCtx = false;
+  }
+});
+canvas.addEventListener("auxclick", (ev) => { if (ev.button === 1) ev.preventDefault(); });
 window.addEventListener("mousemove", (ev) => {
   if (down) {
     const dx = ev.clientX - down.x, dy = ev.clientY - down.y;
-    if (Math.abs(dx) + Math.abs(dy) > 4) down.moved = true;
+    if (Math.hypot(dx, dy) >= 4) down.moved = true;
     if (down.moved) {
-      const sc = toSvg(ev)[2];
-      setVB([down.vb[0] - dx * sc, down.vb[1] - dy * sc, down.vb[2], down.vb[3]]);
+      if (down.mode === "pan") {
+        const sc = toSvg(ev)[2];
+        setVB([down.vb[0] - dx * sc, down.vb[1] - dy * sc, down.vb[2], down.vb[3]]);
+      } else if (down.mode === "select" && !S.cmp) {
+        updateMarquee(down, ev);
+      }
       return;
     }
   }
@@ -219,10 +283,32 @@ window.addEventListener("mousemove", (ev) => {
 window.addEventListener("mouseup", (ev) => {
   if (!down) return;
   const d = down; down = null;
-  if (d.moved) { viewChanged(); return; }
+  $("marquee").hidden = true;
+  if (d.mode === "pan") {
+    if (d.button === 2 && d.moved) {
+      suppressCtx = true;
+      setTimeout(() => { suppressCtx = false; }, 0);
+    }
+    if (d.moved) viewChanged();
+    return;
+  }
+  if (d.moved) {
+    if (S.cmp) return;
+    const hits = marqueeHits(d, ev);
+    const append = !!(ev.ctrlKey || ev.metaKey || ev.shiftKey || d.ctrl || d.shift);
+    if (append) {
+      const set = new Set(S.sel);
+      for (const id of hits) if (!set.has(id)) { set.add(id); S.sel.push(id); }
+    } else {
+      S.sel = hits;
+    }
+    sendSel();
+    return;
+  }
   if (ev.target.closest && ev.target.closest("#canvas")) click(pick(ev), ev.ctrlKey || ev.metaKey);
 });
 window.addEventListener("keydown", (ev) => {
+  if (ev.code === "Space" && document.activeElement === document.body) { ev.preventDefault(); spaceDown = true; }
   // H4: copy the selected elements' references (one line) without leaving the canvas
   // Ctrl+Alt+C: Ctrl+Shift+C is the DevTools shortcut in Chrome/Edge/Firefox and never reaches us
   if ((ev.ctrlKey || ev.metaKey) && ev.altKey && ev.key.toLowerCase() === "c" && S.sel.length) {
@@ -233,21 +319,25 @@ window.addEventListener("keydown", (ev) => {
   if (ev.key === "Escape") {
     if (S.cmp) exitCompare();
     else if (S.previewActive || S.previewIds.size || S.paramError) releasePreview();  // B3: Esc
-    else { S.sel = []; sendSel(); }
+    else { S.sel = []; S.selTotal = 0; S.selTruncated = false; sendSel(); }
   }
   const idle = document.activeElement === document.body;
   if (ev.key === "f" && idle && S.svg) { setVB(fitBox()); viewChanged(); }
   if (ev.key === "0" && idle && S.svg) { setVB(S.full.slice()); viewChanged(); }
 });
+window.addEventListener("keyup", (ev) => { if (ev.code === "Space") spaceDown = false; });
+window.addEventListener("blur", () => { spaceDown = false; down = null; $("marquee").hidden = true; });
 
 // nearest element under the cursor: geometric picking on cached child boxes (hairline strokes are
 // too thin for the browser's own hit-testing)
 function cacheBoxes() {
   S.boxes = [];
+  S.elBoxes = [];
   const inv = S.svg.getScreenCTM().inverse();
   for (const g of S.svg.querySelectorAll("g[data-id]")) {
-    if (g.dataset.kind === "frame" || g.dataset.kind === "table" ||
-        (g.dataset.kind === "table.cell" && g.dataset.table === "title")) continue;
+    const kind = g.dataset.kind || "";
+    if (kind === "frame" || kind === "table") continue;
+    let ex0 = Infinity, ey0 = Infinity, ex1 = -Infinity, ey1 = -Infinity;
     for (const c of g.children) {
       const b = c.getBBox();  // in the child's own user space: map its corners to SVG units
       const m = inv.multiply(c.getScreenCTM());
@@ -255,8 +345,13 @@ function cacheBoxes() {
         .map(([x, y]) => new DOMPoint(x, y).matrixTransform(m));
       const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
       const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
-      S.boxes.push({ id: g.dataset.id, x0, y0, x1, y1, area: Math.max((x1 - x0) * (y1 - y0), 1e-3),
+      S.boxes.push({ id: g.dataset.id, kind, x0, y0, x1, y1, area: Math.max((x1 - x0) * (y1 - y0), 1e-3),
         text: c.tagName === "text" });
+      if (x0 < ex0) ex0 = x0; if (y0 < ey0) ey0 = y0;
+      if (x1 > ex1) ex1 = x1; if (y1 > ey1) ey1 = y1;
+    }
+    if (ex0 <= ex1 && ey0 <= ey1) {
+      S.elBoxes.push({ id: g.dataset.id, kind, x0: ex0, y0: ey0, x1: ex1, y1: ey1 });
     }
   }
 }
@@ -291,7 +386,21 @@ function click(id, multi) {
   else S.sel = [id];
   sendSel();
 }
-function sendSel() { markSel(); inspect(); api("/api/select", { ids: S.sel }); }
+async function sendSel() {
+  S.selTotal = S.sel.length; S.selTruncated = false;
+  markSel(); inspect();
+  try {
+    const r = await api("/api/select", { ids: S.sel });
+    if (r && r.ok) {
+      if (Array.isArray(r.ids)) S.sel = r.ids;
+      S.selTotal = typeof r.total === "number" ? r.total : S.sel.length;
+      S.selTruncated = !!r.truncated;
+      markSel(); inspect();
+      if (S.selTruncated) $("st-extra").textContent = `已选 ${r.count}（共 ${r.total}）`;
+      else if ($("st-extra").textContent.startsWith("已选 ")) $("st-extra").textContent = "";
+    }
+  } catch (e) {}
+}
 function markSel() {
   if (!S.svg || S.cmp) return;
   for (const g of S.svg.querySelectorAll("g[data-id]")) g.classList.toggle("sel", S.sel.includes(g.dataset.id));
@@ -366,7 +475,7 @@ function inspect() {
   const els = S.sel.map((id) => S.byId[id]).filter(Boolean);
   const refs = selectionRefs();
   let h = previewPanel() + `<div class="row"><button class="primary" id="btn-copy" title="Ctrl+Alt+C">复制引用</button>
-    <span class="muted">${els.length} 个已写入 selection.json · Ctrl+Alt+C 也可复制</span></div>`;
+    <span class="muted">${S.selTruncated ? `已选 ${els.length}（共 ${S.selTotal}）` : `已选中 ${els.length} 个元素`}</span></div>`;
   for (const e of els) {
     h += `<h3>${esc(e.kind)}</h3><div class="idline">${esc(e.id)}</div><div class="kv">`;
     h += `<div class="k">显示</div><div class="v">${esc(e.label)}</div>`;
@@ -650,5 +759,135 @@ $("st-msg").onclick = () => {
   full.hidden = !full.hidden;
   $("st-msg").classList.toggle("expanded", !full.hidden);
 };
+
+// R3: resizable & collapsible side panels + two-tier narrow viewport adaptation
+const LEFT_W_KEY = "lcad.leftW", RIGHT_W_KEY = "lcad.rightW";
+const DEFAULT_LEFT_W = 250, DEFAULT_RIGHT_W = 320, MIN_PANEL_W = 180, MAX_PANEL_W = 520;
+function clampW(w) { return Math.min(MAX_PANEL_W, Math.max(MIN_PANEL_W, Math.round(w))); }
+function applyPanelWidth(side, w, save) {
+  const val = clampW(w);
+  const prop = side === "left" ? "--left-w" : "--right-w";
+  const key = side === "left" ? LEFT_W_KEY : RIGHT_W_KEY;
+  $("app").style.setProperty(prop, val + "px");
+  if (save) { try { localStorage.setItem(key, String(val)); } catch (e) {} }
+}
+function setCollapsed(side, collapsed) {
+  const app = $("app");
+  app.classList.toggle(side + "-collapsed", collapsed);
+  const tog = $("btn-toggle-" + side), exp = $("btn-expand-" + side);
+  if (tog) tog.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  if (exp) { exp.hidden = !collapsed; exp.setAttribute("aria-expanded", collapsed ? "false" : "true"); }
+}
+function viewportTier(w) { return w <= 820 ? "narrow" : w <= 1100 ? "medium" : "wide"; }
+(function initPanels() {
+  try {
+    const lw = localStorage.getItem(LEFT_W_KEY), rw = localStorage.getItem(RIGHT_W_KEY);
+    if (lw !== null && !Number.isNaN(+lw)) applyPanelWidth("left", +lw, false);
+    if (rw !== null && !Number.isNaN(+rw)) applyPanelWidth("right", +rw, false);
+  } catch (e) {}
+  function wireSplitter(id, side, defW) {
+    const sp = $(id);
+    if (!sp) return;
+    let drag = null;
+    sp.addEventListener("pointerdown", (ev) => {
+      if (ev.button !== 0) return;
+      ev.preventDefault();
+      const cur = parseFloat(getComputedStyle($("app")).getPropertyValue(side === "left" ? "--left-w" : "--right-w")) || defW;
+      drag = { x: ev.clientX, w: cur, pid: ev.pointerId };
+      sp.classList.add("dragging");
+      document.body.classList.add("resizing");
+      if (sp.setPointerCapture) sp.setPointerCapture(ev.pointerId);
+    });
+    sp.addEventListener("pointermove", (ev) => {
+      if (!drag) return;
+      const dx = ev.clientX - drag.x;
+      applyPanelWidth(side, side === "left" ? drag.w + dx : drag.w - dx, false);
+    });
+    function endDrag() {
+      if (!drag) return;
+      const cur = parseFloat($("app").style.getPropertyValue(side === "left" ? "--left-w" : "--right-w")) || defW;
+      applyPanelWidth(side, cur, true);
+      sp.classList.remove("dragging");
+      document.body.classList.remove("resizing");
+      if (sp.releasePointerCapture && sp.hasPointerCapture && sp.hasPointerCapture(drag.pid)) {
+        sp.releasePointerCapture(drag.pid);
+      }
+      drag = null;
+    }
+    sp.addEventListener("pointerup", endDrag);
+    sp.addEventListener("pointercancel", endDrag);
+    sp.addEventListener("dblclick", () => applyPanelWidth(side, defW, true));
+  }
+  wireSplitter("split-left", "left", DEFAULT_LEFT_W);
+  wireSplitter("split-right", "right", DEFAULT_RIGHT_W);
+  $("btn-toggle-left").onclick = () => setCollapsed("left", true);
+  $("btn-expand-left").onclick = () => setCollapsed("left", false);
+  $("btn-toggle-right").onclick = () => setCollapsed("right", true);
+  $("btn-expand-right").onclick = () => setCollapsed("right", false);
+  let lastTier = null;
+  function syncBreakpoints() {
+    const tier = viewportTier(window.innerWidth);
+    if (tier === lastTier) return;
+    lastTier = tier;
+    if (tier === "narrow") { setCollapsed("left", true); setCollapsed("right", true); }
+    else if (tier === "medium") { setCollapsed("left", false); setCollapsed("right", true); }
+    else { setCollapsed("left", false); setCollapsed("right", false); }
+  }
+  syncBreakpoints();
+  window.addEventListener("resize", syncBreakpoints);
+})();
+
+// R8: side-effect-free artifact download (DXF/PDF/PNG, preview suffix, external image zip)
+function parseFilename(disp, fallback) {
+  if (!disp) return fallback;
+  const mStar = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(disp);
+  if (mStar) { try { return decodeURIComponent(mStar[1].trim()); } catch (e) {} }
+  const mPlain = /filename\s*=\s*"([^"]+)"/i.exec(disp) || /filename\s*=\s*([^;\s]+)/i.exec(disp);
+  return mPlain ? mPlain[1].trim() : fallback;
+}
+async function downloadArtifact(fmt) {
+  const qs = new URLSearchParams({ fmt });
+  if (S.previewActive) qs.set("preview", "1");
+  try {
+    const r = await fetch("/api/download?" + qs.toString(), { headers: { "X-LCAD-Token": TOKEN } });
+    if (!r.ok) {
+      let msg = "下载失败 (" + r.status + ")";
+      try { const j = await r.json(); if (j.error && j.error.message) msg = "下载失败：" + j.error.message; } catch (e) {}
+      $("st-extra").textContent = msg;
+      return;
+    }
+    const archive = r.headers.get("X-LCAD-Archive") || "single";
+    const blob = await r.blob();
+    const ext = archive === "zip" ? "zip" : fmt;
+    const fname = parseFilename(r.headers.get("Content-Disposition"), "drawing." + ext);
+    const u = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = u; a.download = fname; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(u), 1000);
+    $("st-extra").textContent = "已下载：" + fname;
+  } catch (e) {
+    $("st-extra").textContent = "下载出错：" + e;
+  }
+}
+(function initDownload() {
+  const btn = $("btn-download"), menu = $("dl-menu");
+  if (!btn || !menu) return;
+  btn.onclick = (ev) => {
+    ev.stopPropagation();
+    const open = menu.hidden;
+    menu.hidden = !open;
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+  };
+  for (const item of menu.querySelectorAll("button[data-fmt]")) {
+    item.onclick = () => {
+      menu.hidden = true;
+      btn.setAttribute("aria-expanded", "false");
+      downloadArtifact(item.dataset.fmt);
+    };
+  }
+  document.addEventListener("click", () => {
+    if (!menu.hidden) { menu.hidden = true; btn.setAttribute("aria-expanded", "false"); }
+  });
+})();
 
 poll();

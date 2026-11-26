@@ -42,7 +42,11 @@ def test_every_drawn_element_is_clickable(built, name):
     p, res = built[name]
     svg = svgout.svg(res.d)
     ids = set(re.findall(r'data-id="([^"]+)"', svg))
-    assert ids == {e.id for e in res.d._els.values() if e._prims}
+    assert ids == {
+        e.id
+        for e in res.d._els.values()
+        if e._prims or (e.kind == "table.cell" and "cell_box" in e._resolved)
+    }
 
 
 def test_selectors_find_the_same_edge(built):
@@ -946,3 +950,369 @@ def test_selection_without_a_drawing_edit_is_stale(tmp_path):
     with pytest.raises(LinerError) as err:
         commands.context(p, ["@sel"])
     assert err.value.code == "selection_stale" and "未知版本" in err.value.message
+
+
+# ---- v0.1.3 PR-1 R3/R6: resizable & collapsible panels, narrow breakpoints, status text --------
+
+
+def test_r3_r6_panels_resize_collapse_breakpoints_and_status_text():
+    from importlib import resources
+
+    pkg = resources.files("linercad.viewer")
+    html = (pkg / "index.html").read_text(encoding="utf-8")
+    css = (pkg / "viewer.css").read_text(encoding="utf-8")
+    js = (pkg / "viewer.js").read_text(encoding="utf-8")
+
+    for needle in (
+        "split-left",
+        "split-right",
+        "btn-toggle-left",
+        "btn-toggle-right",
+        "btn-expand-left",
+        "btn-expand-right",
+        "aria-expanded",
+    ):
+        assert needle in html, needle
+
+    assert "--left-w" in css and "--right-w" in css
+    assert "250px 1fr 320px" not in css
+    for needle in (".left-collapsed", ".right-collapsed", ".splitter"):
+        assert needle in css, needle
+
+    for needle in (
+        "pointerdown",
+        "dblclick",
+        "lcad.leftW",
+        "lcad.rightW",
+        "180",
+        "520",
+        "1100",
+        "820",
+        "aria-expanded",
+        "已选中",
+        "Ctrl+Alt+C",
+    ):
+        assert needle in js, needle
+
+    assert "selection.json" not in js and "selection.json" not in html
+
+
+# ---- v0.1.3 PR-1 R4/R5: marquee selection, selection cap & @sel summary -----------------------
+
+
+def _many_elements_drawing(tmp_path):
+    p = tmp_path / "many"
+    txn.init(p)
+    lines = [
+        "from linercad import Drawing",
+        "d = Drawing(sheet='A3')",
+        "f = d.view('front')",
+    ]
+    for k in range(15):
+        lines.append(f"f.rect(({k * 12}, 0), 8, 8, name='r{k}')")
+    lines.append("d.title(name='many')")
+    (p / "drawing.py").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    txn.build_commit(p, msg="many elements")
+    return p
+
+
+def test_selection_cap_truncates_and_respects_env(tmp_path, monkeypatch):
+    from http.server import ThreadingHTTPServer
+
+    p = _many_elements_drawing(tmp_path)
+    v = Viewer(p)
+    ids60 = [e["id"] for e in v.model()["elements"] if e["kind"] == "edge"][:60]
+    assert len(ids60) == 60
+
+    out = v.select(ids60)
+    assert out["ok"] is True
+    assert out["count"] == 50
+    assert out["total"] == 60
+    assert out["truncated"] is True
+    assert len(out["ids"]) == 50 and len(out["items"]) == 50
+    assert out["kinds"] == {"edge": 50}
+    sel = json.loads((p / ".linercad/selection.json").read_text(encoding="utf-8"))
+    assert sel["count"] == 50 and sel["total"] == 60 and sel["truncated"] is True
+
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(v))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        base = f"http://127.0.0.1:{httpd.server_address[1]}"
+        code, body = req(base + "/api/select", {"ids": ids60}, {"X-LCAD-Token": v.token})
+        got = json.loads(body)
+        assert code == 200 and got["ok"] is True
+        assert got["count"] == 50 and got["total"] == 60 and got["truncated"] is True
+    finally:
+        httpd.shutdown()
+
+    monkeypatch.setenv("LCAD_SELECTION_CAP", "12")
+    out12 = v.select(ids60)
+    assert out12["count"] == 12 and out12["total"] == 60 and out12["truncated"] is True
+
+    for uncap in ("0", "-1"):
+        monkeypatch.setenv("LCAD_SELECTION_CAP", uncap)
+        out_all = v.select(ids60)
+        assert out_all["count"] == 60 and out_all["total"] == 60 and out_all["truncated"] is False
+        assert len(out_all["ids"]) == 60
+
+
+def test_context_at_sel_summarizes_over_10_and_keeps_items_empty(tmp_path):
+    p = _many_elements_drawing(tmp_path)
+    v = Viewer(p)
+    ids60 = [e["id"] for e in v.model()["elements"] if e["kind"] == "edge"][:60]
+
+    v.select(ids60[:10])
+    ctx10 = commands.context(p, ["@sel"])
+    assert "summary" not in ctx10 and len(ctx10["items"]) == 10
+
+    v.select(ids60[:12])
+    ctx12 = commands.context(p, ["@sel"])
+    assert ctx12["ok"] is True
+    assert ctx12["summary"] is True
+    assert ctx12["count"] == 12 and ctx12["total"] == 12 and ctx12["truncated"] is False
+    assert ctx12["items"] == []
+    assert ctx12["ids"] == ids60[:12]
+    assert ctx12["kinds"] == {"edge": 12}
+    assert "lcad context" in ctx12["hint"]
+
+    v.select(ids60)
+    ctx50 = commands.context(p, ["@sel"])
+    assert ctx50["summary"] is True
+    assert ctx50["count"] == 50 and ctx50["total"] == 60 and ctx50["truncated"] is True
+    assert ctx50["items"] == [] and len(ctx50["ids"]) == 50
+
+    v.select(ids60[:12])
+    src = p / "drawing.py"
+    src.write_text(
+        src.read_text(encoding="utf-8") + "\nraise RuntimeError('broken')\n", encoding="utf-8"
+    )
+    ctx_stale = commands.context(p, ["@sel"])
+    assert ctx_stale["stale"] is True and ctx_stale["summary"] is True
+    assert ctx_stale["items"] == [] and ctx_stale["count"] == 12 and ctx_stale["ids"] == ids60[:12]
+
+
+def test_r4_marquee_selection_hooks_and_pan_bindings():
+    from importlib import resources
+
+    pkg = resources.files("linercad.viewer")
+    html = (pkg / "index.html").read_text(encoding="utf-8")
+    css = (pkg / "viewer.css").read_text(encoding="utf-8")
+    js = (pkg / "viewer.js").read_text(encoding="utf-8")
+
+    assert 'id="marquee"' in html
+    assert ".marquee-window" in css and ".marquee-crossing" in css
+    for needle in (
+        "marquee-window",
+        "marquee-crossing",
+        "0.75 * sc",
+        "table.cell",
+        "contextmenu",
+        "auxclick",
+        "elBoxes",
+        "已选 ",
+        "activeElement.blur()",
+        '$("marquee").hidden = true',
+    ):
+        assert needle in js, needle
+
+
+# ---- v0.1.3 PR-1 R8: side-effect-free /api/download (DXF/PDF/PNG, preview, zip) ----------------
+
+
+def _req_full(url, headers=None):
+    r = urllib.request.Request(url, headers=headers or {})
+    try:
+        with urllib.request.urlopen(r) as resp:
+            return resp.status, dict(resp.headers), resp.read()
+    except urllib.error.HTTPError as e:
+        return e.code, dict(e.headers), e.read()
+
+
+def _dir_snapshot(root):
+    if not root.exists():
+        return {}
+    return {
+        p.relative_to(root).as_posix(): p.read_bytes()
+        for p in sorted(root.rglob("*"))
+        if p.is_file()
+    }
+
+
+def test_download_guards_and_three_formats_zero_side_effects(server):
+    import io
+    import tempfile
+    from pathlib import Path
+
+    import ezdxf
+
+    v, base = server
+    tok = {"X-LCAD-Token": v.token}
+    assert _req_full(base + "/api/download?fmt=dxf")[0] == 403
+    assert (
+        _req_full(base + "/api/download?fmt=dxf", {**tok, "Origin": "http://evil.example"})[0]
+        == 403
+    )
+    assert _req_full(base + "/api/download?fmt=dxf", {**tok, "Host": "evil.example"})[0] == 403
+    assert _req_full(base + "/api/download?fmt=exe", tok)[0] == 400
+    assert _req_full(base + "/api/download", tok)[0] == 400
+    assert _req_full(base + "/api/download?fmt=dxf&preview=2", tok)[0] == 400
+
+    src_before = (v.dir / "drawing.py").read_bytes()
+    build_before = _dir_snapshot(v.dir / ".linercad" / "build")
+    tmp_root = Path(tempfile.gettempdir())
+    dl_before = {p.name for p in tmp_root.glob("lcad-dl-*")}
+    tags_before = subprocess.run(
+        ["git", "-C", str(v.dir), "tag"], capture_output=True, text=True, check=True
+    ).stdout
+    log_before = git_log(v.dir)
+
+    for fmt, ctype, ext in (
+        ("dxf", "application/dxf", ".dxf"),
+        ("pdf", "application/pdf", ".pdf"),
+        ("png", "image/png", ".png"),
+    ):
+        code, hdrs, body = _req_full(f"{base}/api/download?fmt={fmt}", tok)
+        assert code == 200, (fmt, body)
+        assert hdrs.get("Content-Type") == ctype, hdrs
+        assert hdrs.get("X-LCAD-Archive") == "single"
+        disp = hdrs.get("Content-Disposition", "")
+        assert "attachment;" in disp and f"-e0{ext}" in disp, disp
+        if fmt == "dxf":
+            doc = ezdxf.read(io.StringIO(body.decode("utf-8").replace("\r\n", "\n")))
+            assert len(list(doc.modelspace())) > 0
+        elif fmt == "pdf":
+            assert body.startswith(b"%PDF-")
+        else:
+            assert body.startswith(b"\x89PNG\r\n\x1a\n")
+
+    assert (
+        subprocess.run(
+            ["git", "-C", str(v.dir), "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        == ""
+    )
+    assert (
+        subprocess.run(
+            ["git", "-C", str(v.dir), "tag"], capture_output=True, text=True, check=True
+        ).stdout
+        == tags_before
+    )
+    assert git_log(v.dir) == log_before
+    assert (v.dir / "drawing.py").read_bytes() == src_before
+    assert _dir_snapshot(v.dir / ".linercad" / "build") == build_before
+    assert {p.name for p in tmp_root.glob("lcad-dl-*")} <= dl_before
+
+
+def test_download_preview_mode_and_broken_build_409(server):
+    import io
+
+    import ezdxf
+
+    v, base = server
+    tok = {"X-LCAD-Token": v.token}
+    ps = {p["name"]: p for p in v.params()["params"]}
+    name = next(n for n, p in ps.items() if p["max"] and p["max"] > p["value"] and not p["rule"])
+    new_val = int(ps[name]["value"] + 5)
+    assert v.do_preview({name: new_val})["ok"]
+
+    code, hdrs, body = _req_full(f"{base}/api/download?fmt=dxf&preview=1", tok)
+    assert code == 200
+    disp = hdrs.get("Content-Disposition", "")
+    assert "-e0-preview.dxf" in disp, disp
+    assert hdrs.get("X-LCAD-Archive") == "single"
+    doc = ezdxf.read(io.StringIO(body.decode("utf-8").replace("\r\n", "\n")))
+    assert len(list(doc.modelspace())) > 0
+
+    assert v.do_preview({})["ok"]
+    src = v.dir / "drawing.py"
+    src.write_text(
+        src.read_text(encoding="utf-8") + "\nraise RuntimeError('broken')\n", encoding="utf-8"
+    )
+    code, hdrs, body = _req_full(f"{base}/api/download?fmt=png", tok)
+    assert code == 409
+    err = json.loads(body)
+    assert err["ok"] is False and err["error"]["code"]
+
+
+def test_download_dxf_with_external_image_returns_zip(server, monkeypatch):
+    import io
+    import zipfile
+
+    import ezdxf
+
+    import linercad.viewer as viewer_mod
+
+    v, base = server
+    tok = {"X-LCAD-Token": v.token}
+    assets = v.dir / "assets"
+    assets.mkdir(exist_ok=True)
+    logo_path = assets / "logo.png"
+    logo_bytes = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+        b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\xc0"
+        b"\x00\x00\x03\x01\x01\x00\xc9\xfe\x92\xef\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+    logo_path.write_bytes(logo_bytes)
+
+    orig_build = viewer_mod.build
+
+    def build_with_logo(dir, **kw):
+        res = orig_build(dir, **kw)
+        if res.doc is not None:
+            idef = res.doc.add_image_def(filename="assets/logo.png", size_in_pixel=(1, 1))
+            res.doc.modelspace().add_image(insert=(10, 10), size_in_units=(5, 5), image_def=idef)
+        return res
+
+    monkeypatch.setattr(viewer_mod, "build", build_with_logo)
+    code, hdrs, body = _req_full(f"{base}/api/download?fmt=dxf", tok)
+    assert code == 200, body
+    assert hdrs.get("Content-Type") == "application/zip"
+    assert hdrs.get("X-LCAD-Archive") == "zip"
+    assert ".zip" in hdrs.get("Content-Disposition", "")
+    with zipfile.ZipFile(io.BytesIO(body)) as zf:
+        names = set(zf.namelist())
+        assert names == {"drawing.dxf", "assets/logo.png"}, names
+        assert zf.read("assets/logo.png") == logo_bytes
+        doc = ezdxf.read(io.StringIO(zf.read("drawing.dxf").decode("utf-8").replace("\r\n", "\n")))
+        assert len(list(doc.objects.query("IMAGEDEF"))) == 1
+
+    logo_path.unlink()
+    code, _hdrs, body = _req_full(f"{base}/api/download?fmt=dxf", tok)
+    assert code == 409 and json.loads(body)["ok"] is False
+
+    # External image escaping drawing directory is rejected with 409
+    outside = v.dir.parent / "outside.png"
+    outside.write_bytes(logo_bytes)
+
+    def build_with_escape(dir, **kw):
+        res = orig_build(dir, **kw)
+        if res.doc is not None:
+            idef = res.doc.add_image_def(filename="../outside.png", size_in_pixel=(1, 1))
+            res.doc.modelspace().add_image(insert=(10, 10), size_in_units=(5, 5), image_def=idef)
+        return res
+
+    monkeypatch.setattr(viewer_mod, "build", build_with_escape)
+    code, _hdrs, body = _req_full(f"{base}/api/download?fmt=dxf", tok)
+    assert code == 409 and json.loads(body)["ok"] is False
+
+
+def test_download_ui_hooks():
+    from importlib import resources
+
+    pkg = resources.files("linercad.viewer")
+    html = (pkg / "index.html").read_text(encoding="utf-8")
+    js = (pkg / "viewer.js").read_text(encoding="utf-8")
+    for needle in ("download-bar", 'data-fmt="dxf"', 'data-fmt="pdf"', 'data-fmt="png"'):
+        assert needle in html, needle
+    for needle in (
+        "downloadArtifact",
+        "/api/download",
+        "X-LCAD-Token",
+        "X-LCAD-Archive",
+        "Content-Disposition",
+    ):
+        assert needle in js, needle
+    assert "token=" not in js

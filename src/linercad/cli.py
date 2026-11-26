@@ -35,14 +35,14 @@ class _Parser(argparse.ArgumentParser):
 
 COMMANDS = {
     "init": "新建图纸目录：lcad init <dir> [--from <范例|用户模板> | --from-dxf x.dxf] [--sheet A3] [--set 参数=值 …]（范例见 lcad skill 的零件族卡片；用户模板见 lcad template save/list）",
-    "build": '重建产物；-m "<原话>" 时提交源文件改动；[--png] 同事务渲染 PNG 自检',
-    "edit": '事务执行临时脚本：lcad edit <script.py> [-m "<用户原话>"] [--dry-run] [--png]；--dry-run 试改不写日志/不提交，只出预览，可省略 -m（真实提交仍需 -m）；--png 同事务渲染 PNG 自检',
+    "build": '重建产物；-m "<原话>" 时提交源文件改动；[--png] 同事务渲染 PNG 自检；[--ensure-viewer | --no-viewer]',
+    "edit": '事务执行临时脚本：lcad edit <script.py> [-m "<用户原话>"] [--dry-run] [--png] [--ensure-viewer | --no-viewer]；--dry-run 试改不写日志/不提交，只出预览，可省略 -m（真实提交仍需 -m）；--png 同事务渲染 PNG 自检',
     "undo": "撤销某一轮：lcad undo eK [-m ...]",
     "context": "图纸摘要，或 lcad context <ID>... 看元素详情",
     "render": "出 PNG 自检：lcad render [--focus ID]",
     "check": "全部检查结果，按规则包分组（drafting / dimensioning / tolerancing / surface / layout）",
     "skill": "打印 SKILL.md；lcad skill <页|零件族> 打印分页或零件族卡片；lcad skill install --target claude|codex|opencode|generic|dsh [--dir .] 装进 Agent 的工作目录（dsh 全局装到 ~/.agents/skills/linercad/）",
-    "view": "打开 Viewer（本机 127.0.0.1）：lcad view [--port 8765] [--no-open]",
+    "view": "打开 Viewer（本机 127.0.0.1）：lcad view [--port 8765] [--no-open]（默认端口被占自动回退空闲端口）",
     "log": "版本列表（每次成功修改一条，新的在前）：lcad log",
     "diff": "两个版本的差异：lcad diff e1 e3（编号 / 提交 / HEAD / 标签；缺省 B = 工作区）→ 增删改的 ID + 叠加 SVG",
     "export": "定稿：lcad export --to <目录> [--formats dxf,pdf]，标题栏加修订、提交并打标签 rev-A、rev-B …",
@@ -73,13 +73,15 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("build")
     s.add_argument("-m", dest="msg", default=None)
     s.add_argument("--png", action="store_true")
-    s.add_argument("--no-view", dest="no_view", action="store_true")
+    s.add_argument("--no-view", "--no-viewer", dest="no_view", action="store_true")
+    s.add_argument("--ensure-viewer", dest="ensure_viewer", action="store_true")
     s = sub.add_parser("edit")
     s.add_argument("script")
     s.add_argument("-m", dest="msg", default=None)
     s.add_argument("--dry-run", dest="dry_run", action="store_true")
     s.add_argument("--png", action="store_true")
-    s.add_argument("--no-view", dest="no_view", action="store_true")
+    s.add_argument("--no-view", "--no-viewer", dest="no_view", action="store_true")
+    s.add_argument("--ensure-viewer", dest="ensure_viewer", action="store_true")
     s = sub.add_parser("undo")
     s.add_argument("edit")
     s.add_argument("-m", dest="msg", default=None)
@@ -91,7 +93,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--dpi", type=int, default=None)
     sub.add_parser("check")
     s = sub.add_parser("view")
-    s.add_argument("--port", type=int, default=8765)
+    s.add_argument("--port", type=int, default=None)
     s.add_argument("--no-open", action="store_true")
     sub.add_parser("log")
     s = sub.add_parser("diff")
@@ -166,6 +168,12 @@ def _run(args, parser) -> int:
         return 0
     if args.cmd is None:
         return _usage("缺少子命令")
+    if (
+        args.cmd in ("build", "edit")
+        and getattr(args, "no_view", False)
+        and getattr(args, "ensure_viewer", False)
+    ):
+        return _usage("--ensure-viewer 与 --no-viewer / --no-view 不能同时使用")
     d = args.dir
     if args.cmd == "init":
         sets = _parse_sets(getattr(args, "set", None))
@@ -215,13 +223,18 @@ def _run(args, parser) -> int:
             return _usage("lcad template 有子命令 import / save / list")
     else:
         out = commands.render(d, args.focus, args.out, args.dpi)
-    # H3: the first successful build / edit starts the background Viewer and opens it once; an
-    # already running Viewer is only refreshed (the page polls). --no-view / LCAD_NO_VIEW / CI off.
+    # H3 / R1: build / edit starts or reuses the background Viewer. --ensure-viewer forces silent
+    # daemon start (no browser popup) even under LCAD_NO_VIEW / CI; --no-viewer / --no-view off.
     if args.cmd in ("build", "edit") and out.get("ok") and not getattr(args, "dry_run", False):
         try:
             from .viewer import autostart
 
-            state = autostart(d, disabled=bool(getattr(args, "no_view", False)))
+            ensure = bool(getattr(args, "ensure_viewer", False))
+            no_view = bool(getattr(args, "no_view", False))
+            if ensure:
+                state = autostart(d, disabled=False, open_browser=False, ensure=True)
+            else:
+                state = autostart(d, disabled=no_view)
         except Exception as e:  # noqa: BLE001 - a Viewer problem must not fail the transaction
             state = {"url": None, "opened": False, "error": f"{type(e).__name__}: {e}"}
         if state is not None:

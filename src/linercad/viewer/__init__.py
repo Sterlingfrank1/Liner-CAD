@@ -7,22 +7,26 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import errno
 import io
 import json
 import math
 import os
 import re
 import secrets
+import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
+import zipfile
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
 from pathlib import Path
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, quote, urlsplit
 from urllib.request import Request as URLRequest
 from urllib.request import urlopen
 
@@ -287,12 +291,16 @@ class Viewer:
     def select(self, ids):
         with self.lock:
             r = self._current()
-            items = []
+            valid = []
+            seen = set()
             for i in ids:
+                if i in seen:
+                    continue
+                seen.add(i)
                 e = r.d.get(i) if r else None
                 if e is None:
                     continue
-                items.append(
+                valid.append(
                     {
                         "id": e.id,
                         "kind": e.kind,
@@ -302,12 +310,23 @@ class Viewer:
                         "selector": svgout.selector(e),
                     }
                 )
+            total = len(valid)
+            cap = _selection_cap()
+            truncated = cap > 0 and total > cap
+            items = valid[:cap] if truncated else valid
+            kinds: dict[str, int] = {}
+            for x in items:
+                k = x["kind"]
+                kinds[k] = kinds.get(k, 0) + 1
             self.selection = items
-            edit, _, _ = self.edit_no()
             doc = {
                 "version": self._drawing_edit(),
                 "ids": [x["id"] for x in items],
                 "items": items,
+                "count": len(items),
+                "total": total,
+                "truncated": truncated,
+                "kinds": kinds,
                 "time": datetime.now(UTC).isoformat(timespec="seconds"),
             }
             _write_json(self.dir / ".linercad" / "selection.json", doc)
@@ -505,6 +524,133 @@ class Viewer:
         with self.lock:
             return self.preview["svg"] if self.preview else self.svg
 
+    def download(self, fmt: str, preview: bool = False) -> tuple[bytes, str, str, str]:
+        """Render DXF/PDF/PNG (or zip when DXF references external images) in a temp dir
+        without touching git, drawing sources, or ``.linercad/build``.
+        """
+        fmt = (fmt or "").strip().lower()
+        if fmt not in ("dxf", "pdf", "png"):
+            raise InvalidArgument(
+                f"不支持的下载格式 {fmt!r}",
+                candidates=["dxf", "pdf", "png"],
+                values={"fmt": fmt},
+            )
+        with self.lock:
+            use_preview = bool(preview and self.preview)
+            params = dict(self.preview["values"]) if use_preview else None
+            try:
+                res = build(self.dir, params=params, dxf=True)
+            except LinerError as e:
+                raise _DownloadBuildError(
+                    e.message,
+                    code=e.code,
+                    id=e.id,
+                    candidates=e.candidates,
+                    values=e.values,
+                    hint=e.hint,
+                ) from e
+            except Exception as e:  # noqa: BLE001
+                raise _DownloadBuildError(f"{type(e).__name__}: {e}", code="build") from e
+
+            no_el = res.d.get("T.title.drawing_no")
+            raw_base = (
+                no_el.text.strip()
+                if no_el is not None and str(getattr(no_el, "text", "") or "").strip()
+                else self.dir.name
+            )
+            base = _sanitize_filename(raw_base) or _sanitize_filename(self.dir.name) or "drawing"
+            edit = self._drawing_edit() or self.edit_no()[0] or "e0"
+            suffix = "-preview" if use_preview else ""
+
+            tmpdir = Path(tempfile.mkdtemp(prefix="lcad-dl-"))
+            try:
+                if fmt == "dxf":
+                    from .. import dxfout
+
+                    dxf_path = tmpdir / "drawing.dxf"
+                    dxfout.save_doc(res.doc, dxf_path)
+                    imgs = _dxf_external_images(res.doc, self.dir)
+                    if imgs:
+                        zip_path = tmpdir / "bundle.zip"
+                        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                            zf.write(dxf_path, "drawing.dxf")
+                            for arc_rel, src_path in imgs:
+                                zf.write(src_path, arc_rel)
+                        return (
+                            zip_path.read_bytes(),
+                            "application/zip",
+                            f"{base}-{edit}{suffix}.zip",
+                            "zip",
+                        )
+                    return (
+                        dxf_path.read_bytes(),
+                        "application/dxf",
+                        f"{base}-{edit}{suffix}.dxf",
+                        "single",
+                    )
+                if fmt == "pdf":
+                    from ..render import render_pdf
+
+                    pdf_path = tmpdir / "drawing.pdf"
+                    render_pdf(res.doc, res.d.template["size"], pdf_path)
+                    return (
+                        pdf_path.read_bytes(),
+                        "application/pdf",
+                        f"{base}-{edit}{suffix}.pdf",
+                        "single",
+                    )
+                from ..render import render_png
+
+                png_path = tmpdir / "drawing.png"
+                render_png(res.doc, res.d.template["size"], png_path)
+                return (
+                    png_path.read_bytes(),
+                    "image/png",
+                    f"{base}-{edit}{suffix}.png",
+                    "single",
+                )
+            finally:
+                shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+class _DownloadBuildError(LinerError):
+    code = "build"
+
+
+def _sanitize_filename(name: str) -> str:
+    return re.sub(r'[\\/:*?"<>|\s]+', "_", str(name or "")).strip("._")
+
+
+def _dxf_external_images(doc, base_dir: Path) -> list[tuple[str, Path]]:
+    """Collect ``IMAGEDEF`` external image files relative to ``base_dir``."""
+    out = []
+    seen = set()
+    base_resolved = base_dir.resolve()
+    for idef in doc.objects.query("IMAGEDEF"):
+        raw = str(getattr(idef.dxf, "filename", "") or "").strip()
+        if not raw:
+            continue
+        rel_path = Path(raw)
+        src = (base_dir / rel_path).resolve() if not rel_path.is_absolute() else rel_path.resolve()
+        try:
+            arc_rel = src.relative_to(base_resolved).as_posix()
+        except ValueError as e:
+            raise _DownloadBuildError(
+                f"DXF 引用的外部图片不在图纸目录内：{raw}",
+                code="build",
+                values={"path": str(src)},
+            ) from e
+        if not src.is_file():
+            raise _DownloadBuildError(
+                f"DXF 引用的外部图片不存在：{raw}",
+                code="build",
+                values={"path": str(src)},
+            )
+        if arc_rel not in seen:
+            seen.add(arc_rel)
+            out.append((arc_rel, src))
+    return out
+
 
 def _content_bbox(d):
     """Union of the drawn elements' boxes (sheet coordinates) without the sheet frame and the
@@ -613,6 +759,8 @@ def _brief_intent(e):
         "measured",
         "expr",
         "table",
+        "field",
+        "label",
         "row",
         "col",
         "header",
@@ -689,6 +837,20 @@ def make_handler(viewer: Viewer):
                 code, json.dumps(obj, ensure_ascii=False).encode("utf-8"), "application/json"
             )
 
+        def _send_file(self, body: bytes, ctype: str, filename: str, archive: str):
+            ascii_name = re.sub(r"[^A-Za-z0-9._-]", "_", filename) or "download"
+            disp = f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename)}"
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Disposition", disp)
+            self.send_header("X-LCAD-Archive", archive)
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
         def do_GET(self):  # noqa: N802
             viewer.last_active = time.monotonic()
             path = self.path.split("?")[0]
@@ -716,6 +878,29 @@ def make_handler(viewer: Viewer):
                     return self._json(viewer.model())
                 if path == "/api/params":
                     return self._json(viewer.params())
+                if path == "/api/download":
+                    if not self._authorized():
+                        return self._json(
+                            {
+                                "ok": False,
+                                "error": {"code": "forbidden", "message": "origin / token"},
+                            },
+                            403,
+                        )
+                    q = {k: v[0] for k, v in parse_qs(urlsplit(self.path).query).items()}
+                    fmt = q.get("fmt", "")
+                    prev_raw = q.get("preview")
+                    if prev_raw not in (None, "", "0", "1"):
+                        raise InvalidArgument(
+                            f"preview 参数非法：{prev_raw!r}", values={"preview": prev_raw}
+                        )
+                    try:
+                        body, ctype, fname, archive = viewer.download(
+                            fmt, preview=(prev_raw == "1")
+                        )
+                    except _DownloadBuildError as e:
+                        return self._json({"ok": False, "error": e.to_dict()}, 409)
+                    return self._send_file(body, ctype, fname, archive)
                 if path in ("/api/versions", "/api/diff"):  # git work: same guards as POST
                     if not self._authorized():
                         return self._json(
@@ -815,7 +1000,20 @@ class _Server(ThreadingHTTPServer):
 
 STATE_PATH = Path(".linercad") / "viewer.json"
 LOG_PATH = Path(".linercad") / "viewer.log"
+DEFAULT_PORT = 8765
+DEFAULT_SELECTION_CAP = 50
 DEFAULT_IDLE_TIMEOUT = 1800.0  # seconds without a request before the background Viewer exits
+
+
+def _selection_cap() -> int:
+    """Maximum elements stored in selection.json (<=0 disables the cap, for tests)."""
+    raw = os.environ.get("LCAD_SELECTION_CAP")
+    if not raw:
+        return DEFAULT_SELECTION_CAP
+    try:
+        return int(raw)
+    except ValueError:
+        return DEFAULT_SELECTION_CAP
 
 
 def _state_path(dir):
@@ -910,11 +1108,15 @@ def _idle_timeout(value=None) -> float:
         return DEFAULT_IDLE_TIMEOUT
 
 
-def _suppressed(disabled=False) -> bool:
-    """--no-view, the env switch and CI all keep the auto-open off (tests open no browser)."""
-    if disabled or os.environ.get("LCAD_NO_VIEW"):
+def _suppressed(disabled=False, *, ensure=False) -> bool:
+    """--no-view / --no-viewer, env switches and CI keep auto-start off; --ensure-viewer wins."""
+    if disabled:
         return True
-    return bool(os.environ.get("CI"))
+    if ensure:
+        return False
+    return bool(
+        os.environ.get("LCAD_NO_VIEW") or os.environ.get("LCAD_NO_VIEWER") or os.environ.get("CI")
+    )
 
 
 def _viewer_identity(doc, dir):
@@ -1057,13 +1259,16 @@ def _viewer_lock(dir):
                 pass
 
 
-def autostart(dir, disabled=False, open_browser=True):
+def autostart(dir, disabled=False, open_browser=None, *, ensure=False):
     """After a successful build / edit: make sure a Viewer runs and open it once.
 
-    Returns {"url": ..., "opened": bool}; None when auto-opening is off (--no-view,
-    LCAD_NO_VIEW or CI). An already running Viewer is reused without opening a new tab.
+    Returns ``{"url", "pid", "started", "opened", "reused"}``; None when suppressed.
+    ``ensure=True`` (--ensure-viewer) overrides ``LCAD_NO_VIEW`` / ``LCAD_NO_VIEWER`` / ``CI`` and
+    keeps browser auto-open off by default. An already running Viewer is reused without a new tab.
     """
-    if _suppressed(disabled):
+    if open_browser is None:
+        open_browser = not ensure
+    if _suppressed(disabled, ensure=ensure):
         return None
     dir = Path(dir).resolve()  # --dir and the child cwd must agree for lcad -C <relative>
     _reap_children()
@@ -1071,7 +1276,13 @@ def autostart(dir, disabled=False, open_browser=True):
         with _viewer_lock(dir):
             running = _running(dir)
             if running is not None:
-                return {"url": running["url"], "opened": False}
+                return {
+                    "url": running["url"],
+                    "pid": int(running["pid"]),
+                    "started": running.get("started"),
+                    "opened": False,
+                    "reused": True,
+                }
             log = _log_path(dir)
             log.parent.mkdir(parents=True, exist_ok=True)
             args = [
@@ -1142,7 +1353,13 @@ def autostart(dir, disabled=False, open_browser=True):
             opened = bool(webbrowser.open(url))
         except Exception:  # noqa: BLE001 - no browser is a supported degradation
             opened = False
-    return {"url": url, "opened": opened}
+    return {
+        "url": url,
+        "pid": int(state["pid"]),
+        "started": state.get("started"),
+        "opened": opened,
+        "reused": False,
+    }
 
 
 def _serve_until_idle(httpd, v, idle_timeout):
@@ -1154,17 +1371,48 @@ def _serve_until_idle(httpd, v, idle_timeout):
             return
 
 
-def _start_server(dir, port):
+def _is_addr_in_use(err: OSError) -> bool:
+    """Detect port-in-use errors cross-platform (Windows SO_EXCLUSIVEADDRUSE may raise 10013)."""
+    return err.errno in (errno.EADDRINUSE, 10048, 98, 48) or getattr(err, "winerror", None) in (
+        10048,
+        10013,
+    )
+
+
+def _start_server(dir, port, *, allow_fallback=False):
     """Bind the Viewer server and publish its state; the caller owns the lock/idle loop."""
+    target = int(port)
+    if not 0 <= target <= 65535:
+        raise InvalidArgument(f"端口号 {target} 超出范围（0..65535）", values={"port": target})
     v = Viewer(dir)
     v.last_active = time.monotonic()  # the idle clock starts when the service is ready
-    httpd = _Server(("127.0.0.1", int(port)), make_handler(v))
-    url = f"http://127.0.0.1:{httpd.server_address[1]}/"
+    handler = make_handler(v)
+    try:
+        httpd = _Server(("127.0.0.1", target), handler)
+    except OSError as e:
+        if allow_fallback and target != 0 and _is_addr_in_use(e):
+            try:
+                httpd = _Server(("127.0.0.1", 0), handler)
+            except OSError as e2:
+                raise LinerError(
+                    f"无法绑定端口（默认 {target} 被占用且自动回退失败）：{e2}",
+                    code="viewer_bind",
+                    values={"port": target},
+                ) from e2
+        else:
+            raise LinerError(
+                f"无法绑定端口 127.0.0.1:{target}：{e}",
+                code="viewer_bind",
+                values={"port": target},
+                hint="改用其他 --port 或省略 --port 自动分配空闲端口",
+            ) from e
+    actual_port = int(httpd.server_address[1])
+    url = f"http://127.0.0.1:{actual_port}/"
     _write_json(
         _state_path(dir),
         {
             "pid": os.getpid(),
-            "port": int(httpd.server_address[1]),
+            "port": actual_port,
             "url": url,
             "started": datetime.now(UTC).isoformat(timespec="seconds"),
         },
@@ -1181,16 +1429,17 @@ def _open(url):
         return False
 
 
-def serve(dir, port=8765, open_browser=True, idle_timeout=None, background=False):
+def serve(dir, port=None, open_browser=True, idle_timeout=None, background=False):
     """Start the Viewer on 127.0.0.1:<port> (blocks). Writes .linercad/viewer.json for H3.
 
-    ``background`` is the autostart child: its parent holds the spawn lock, so the child must not
-    take it again (that would deadlock the two of them). An explicit ``lcad view`` reuses a live
-    Viewer and opens its URL when asked; it never overwrites a live process' state file.
+    When ``port`` is omitted (``None``) and not ``background``, binds ``DEFAULT_PORT`` (8765) and
+    falls back once to port 0 if occupied. An explicit ``--port`` fails with ``viewer_bind``.
     """
     dir = Path(dir).resolve()
+    allow_fallback = (port is None) and not background
+    target = DEFAULT_PORT if port is None else int(port)
     if background:
-        v, httpd, url = _start_server(dir, port)
+        v, httpd, url = _start_server(dir, target)
     else:
         with _viewer_lock(dir):
             existing = _running(dir)
@@ -1207,7 +1456,7 @@ def serve(dir, port=8765, open_browser=True, idle_timeout=None, background=False
                 if open_browser:
                     _open(existing["url"])
                 return
-            v, httpd, url = _start_server(dir, port)
+            v, httpd, url = _start_server(dir, target, allow_fallback=allow_fallback)
     print(json.dumps({"ok": True, "url": url, "dir": str(v.dir)}, ensure_ascii=False), flush=True)
     if open_browser:
         _open(url)

@@ -1,17 +1,43 @@
 :root { --bg:#f4f4f2; --panel:#fff; --line:#d8d8d4; --ink:#1b1b1b; --muted:#777; --sel:#1565c0;
-  --hover:#2e86de; --err:#d62728; --warn:#e67e00; --acc:#5b7fa6; font: 13px/1.45 system-ui, "Microsoft YaHei", sans-serif; }
+  --hover:#2e86de; --err:#d62728; --warn:#e67e00; --acc:#5b7fa6; --left-w: 250px; --right-w: 320px; font: 13px/1.45 system-ui, "Microsoft YaHei", sans-serif; }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); }
-#app { display: grid; height: 100vh; grid-template-columns: 250px 1fr 320px; grid-template-rows: 1fr 28px;
-  grid-template-areas: "params canvas inspector" "status status status"; }
-#params { grid-area: params; } #inspector { grid-area: inspector; } #canvas-wrap { grid-area: canvas; }
+#app { display: grid; height: 100vh; grid-template-columns: var(--left-w) 5px 1fr 5px var(--right-w); grid-template-rows: 1fr 28px;
+  grid-template-areas: "params split-l canvas split-r inspector" "status status status status status"; }
+#app.left-collapsed { grid-template-columns: 0px 0px 1fr 5px var(--right-w); }
+#app.right-collapsed { grid-template-columns: var(--left-w) 5px 1fr 0px 0px; }
+#app.left-collapsed.right-collapsed { grid-template-columns: 0px 0px 1fr 0px 0px; }
+#app.left-collapsed #params, #app.left-collapsed #split-left { display: none; }
+#app.right-collapsed #inspector, #app.right-collapsed #split-right { display: none; }
+#app.left-collapsed #preview-badge { top: 40px; }
+#params { grid-area: params; min-width: 0; } #split-left { grid-area: split-l; }
+#inspector { grid-area: inspector; min-width: 0; } #split-right { grid-area: split-r; }
+#canvas-wrap { grid-area: canvas; min-width: 0; }
 #status { grid-area: status; }
 #params, #inspector { background: var(--panel); border-right: 1px solid var(--line); overflow: auto; padding: 8px 12px; }
 #inspector { border-right: 0; border-left: 1px solid var(--line); }
+.splitter { background: var(--line); cursor: col-resize; position: relative; transition: background .12s; touch-action: none; }
+.splitter:hover, .splitter.dragging { background: var(--hover); }
+body.resizing { cursor: col-resize; user-select: none; }
+.panel-head { display: flex; align-items: center; justify-content: space-between; margin: 2px 0 8px; }
+.panel-head h2 { margin: 0; }
+.edge-expand { position: absolute; top: 10px; z-index: 6; font-size: 11px; padding: 3px 8px; background: rgba(255,255,255,.92); border: 1px solid var(--line); box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+.edge-expand.left { left: 10px; }
+.edge-expand.right { right: 10px; }
+#download-bar { position: absolute; top: 10px; right: 10px; z-index: 6; }
+#app.right-collapsed #download-bar { right: 86px; }
+#btn-download { font-size: 11px; padding: 3px 8px; background: rgba(255,255,255,.92); border: 1px solid var(--line); box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+#dl-menu { position: absolute; right: 0; top: 100%; margin-top: 3px; min-width: 96px; background: #fff; border: 1px solid var(--line); border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,.15); display: flex; flex-direction: column; padding: 3px; gap: 2px; }
+#dl-menu button { text-align: left; border: 0; background: transparent; font-size: 12px; padding: 4px 8px; border-radius: 3px; }
+#dl-menu button:hover { background: #eef3fa; }
+.panel-toggle { font-size: 11px; line-height: 1; padding: 2px 6px; color: var(--muted); }
 h2 { font-size: 13px; margin: 2px 0 8px; color: var(--muted); font-weight: 600; letter-spacing: .05em; }
 h3 { font-size: 12px; margin: 10px 0 4px; color: var(--muted); }
 #canvas-wrap { position: relative; overflow: hidden; background: #e9e9e6; }
 #canvas { width: 100%; height: 100%; cursor: crosshair; }
+#marquee { position: absolute; pointer-events: none; z-index: 5; }
+#marquee.marquee-window { border: 1.5px solid #1565c0; background: rgba(21, 101, 192, .12); }
+#marquee.marquee-crossing { border: 1.5px dashed #1a9a3c; background: rgba(26, 154, 60, .10); }
 #canvas svg { width: 100%; height: 100%; display: block; }
 #hint { position: absolute; left: 8px; bottom: 6px; color: var(--muted); font-size: 11px; pointer-events: none; }
 #status { display: flex; justify-content: space-between; align-items: center; padding: 0 12px; background: #24292e;
