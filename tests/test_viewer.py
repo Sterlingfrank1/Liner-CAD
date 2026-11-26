@@ -1316,3 +1316,22 @@ def test_download_ui_hooks():
     ):
         assert needle in js, needle
     assert "token=" not in js
+
+
+def test_viewer_no_bottom_hint_bar(server):
+    _v, base = server
+    code_html, _hdrs, raw_html = _req_full(base + "/")
+    assert code_html == 200
+    html = raw_html.decode("utf-8")
+    assert 'id="hint"' not in html and "id='hint'" not in html
+    assert 'id="canvas-wrap"' in html and 'id="canvas"' in html and 'id="status"' in html
+
+    code_css, _hdrs, raw_css = _req_full(base + "/viewer.css")
+    assert code_css == 200
+    css = raw_css.decode("utf-8")
+    assert "#hint" not in css
+    assert "grid-template-rows: 1fr 28px;" in css
+    assert '"params split-l canvas split-r inspector" "status status status status status"' in css
+    assert "#canvas-wrap { position: relative; overflow: hidden;" in css
+    assert "#canvas { width: 100%; height: 100%;" in css
+    assert "#canvas svg { width: 100%; height: 100%; display: block; }" in css
