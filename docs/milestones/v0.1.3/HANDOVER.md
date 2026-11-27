@@ -18,8 +18,8 @@
 3. **样式配置与标题栏 PNG Logo（PR-3，R13–R15）**：
    - `Cell.set()` / `Table.set()` 支持 `text_height`（`font_size`）、`align`、`wrap`、`bold`、`cols`（`col_widths`）、`row_height`、`border_width` 并在 DXF/SVG/PNG/PDF 保持同步。
    - 新增 `title_style_gb`（`GB/T 10609.1-2008`）、`table_style_gb`（`GB/T 14691-1993`）及标题栏 `table_overflow`；`d.logo()` 实现 PNG Logo 标题栏嵌入、四端输出与 `logo_external_ref` 警告。
-4. **收口与发布（PR-4，R16）**：
-   - `pyproject.toml` 与 `uv.lock` 升至 `0.1.3`，补齐 `docs/releases/v0.1.3.md`、`HANDOVER.md`、`docs/ROADMAP.md`、`README.md`、`PROGRESS.md` 与 `tests/test_release_v013.py`，并通过全局安装及 `scripts/release.py 0.1.3` 验证。
+4. **收口与发布准备（PR-4，R16）**：
+   - `pyproject.toml` 与 `uv.lock` 升至 `0.1.3`，补齐 `docs/releases/v0.1.3.md`、`HANDOVER.md`、`docs/ROADMAP.md`、`README.md`、`PROGRESS.md` 与 `tests/test_release_v013.py`，完成全量回归与 `%TEMP%` 全局 `lcad --version` == `0.1.3` 安装验证（`scripts/release.py 0.1.3 --dry-run` 与 `0.1.3` 待 PR-4 合入且 `main` CI 全绿后执行）。
 
 ## 2. 怎么验证
 
@@ -57,7 +57,7 @@ gh release view v0.1.3
 |---|---|---|---|---|
 | C1 | #164 | #165 | Viewer 全量（R1–R8）：2 轮评审通过（R2 PASS），CI 4/4 绿；`1572 passed, 1 skipped`、`evals` 40/40、Playwright E2E 通过 | 已合入 (`2ab7e4b`) |
 | C1b | #166 | #167 | 去掉 Viewer 底部 `#hint` 说明条：1 轮评审通过（R1 PASS），CI 4/4 绿；`test_viewer.py` `64 passed`、Playwright E2E 通过 | 已合入 (`16bd5c0`) |
-| C3 | #168 | #169 | 样式配置与标题栏 Logo（R13–R15）：2 轮评审通过（R2 PASS），CI 4/4 绿；`1578 passed, 1 skipped`、`evals` 40/40、`mutate.py` 41/45 (1.0, 0 FP) | 已合入 (`19e6785`) |
+| C3 | #168 | #169 | 样式配置与标题栏 Logo（R13–R15）：2 轮评审通过（R2 PASS），CI 4/4 绿；`1578 passed, 1 skipped`、`evals` 40/40、`mutate.py` 41 rules, 45/45 (1.0), 0 FP | 已合入 (`19e6785`) |
 | C2 | #170 | #171 | 项目级模板与保存前自检（R9–R12）：3 轮评审通过（R3 PASS），CI 4/4 绿；`1590 passed, 1 skipped`、`test_project_templates.py` 5 passed | 已合入 (`2b95720`) |
 | R16 | #172 | 本 PR | 版本 `0.1.3` 收口：发布说明、`HANDOVER.md`、`ROADMAP.md`、`README.md`、`tests/test_release_v013.py` 与全局安装验证 | 收口中 |
 
