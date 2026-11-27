@@ -1,6 +1,6 @@
 # Liner-CAD
 
-**v0.1.2**（[v0.1.2 发布说明](docs/releases/v0.1.2.md) · [v0.1.1](docs/releases/v0.1.1.md) · [v0.1.0](docs/releases/v0.1.0.md)） · 通用 2D 工程图 Harness 层：包名 `linercad`，命令行 `lcad`。
+**v0.1.3**（[v0.1.3 发布说明](docs/releases/v0.1.3.md) · [v0.1.2](docs/releases/v0.1.2.md) · [v0.1.1](docs/releases/v0.1.1.md) · [v0.1.0](docs/releases/v0.1.0.md)） · 通用 2D 工程图 Harness 层：包名 `linercad`，命令行 `lcad`。
 
 Liner-CAD 本身不是 Agent。推理、理解需求、写代码交给宿主 Coding Agent（Claude Code / Codex / OpenCode / WorkBuddy …）；Harness 提供语义化图纸模型、脚本运行时、制图与制造约束检查、交互 Viewer 和基于 git 的版本管理。
 
@@ -12,6 +12,12 @@ Liner-CAD 本身不是 Agent。推理、理解需求、写代码交给宿主 Cod
 | [DRAFTING-COVERAGE.md](DRAFTING-COVERAGE.md) | 机械制图专业度、覆盖矩阵、评测集 |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | 里程碑、开发流程、质量门禁、交接记录 |
 | [AGENTS.md](AGENTS.md) | Agent 行为纪律（开发本仓库时加载） |
+
+## v0.1.3 新增
+
+- **Viewer 流程闭环（R1–R8）：** `lcad build` / `edit` 支持 `--ensure-viewer`（覆盖 `LCAD_NO_VIEW` 与 `CI`）及 `--no-viewer`，默认端口被占自动回退空闲端口；左右检查器可拖宽、双击复位、双侧折叠并自适应窄屏断点；画布改为左键两态框选（L→R 全包含 / R→L 相交）、右键/中键/`Space` 平移；`Viewer.select` 上限 50 且 `lcad context "@sel"` 超 10 条返回摘要；标题栏 16 格（含空格）可点选；支持按 DXF/PDF/PNG（含外部图片打 zip）无副作用下载产物。
+- **项目级模板与保存前自检（R9–R12）：** 通过 `linercad.project.toml` 确立项目根解析链（`--project` > `LCAD_PROJECT_ROOT` > 向上找 marker > `cwd.parent`，绝不建在图纸目录内）及查找优先级（项目 > 用户 > 内置范例）；`lcad template save` 自动过滤语义操作固化为 `baseline.actions.jsonl` 并校验 `model_hash`，保存前执行有界参数 min/max 边界探测（`--force-probe-fail` / `--no-probe`），`template list` 与 `init --from` 附带来源 `trust` 提示。
+- **表格样式脚本化与标题栏 PNG Logo（R13–R15）：** `Cell.set()` / `Table.set()` 支持字高（`text_height`/`font_size`）、对齐（`align`）、换行（`wrap`）、粗体（`bold`）、列宽（`cols`/`col_widths`）、行高与外框线宽（`border_width`）；新增 GB 守护规则 `title_style_gb`、`table_style_gb` 与标题栏 `table_overflow`；支持 `d.logo()` 在标题栏格内嵌 PNG Logo、四端同步输出及 `logo_external_ref` 提示。
 
 ## v0.1.2 新增
 
@@ -32,7 +38,7 @@ Liner-CAD 本身不是 Agent。推理、理解需求、写代码交给宿主 Cod
 ```bash
 git clone https://github.com/Sterlingfrank1/Liner-CAD && cd Liner-CAD
 uv tool install --force .   # 全局安装 lcad（任意图纸目录直接运行；3D 来源：uv tool install --force --with build123d .）
-lcad --version              # 任意目录验证全局 lcad（如 0.1.2）
+lcad --version              # 任意目录验证全局 lcad（如 0.1.3）
 lcad skill install --target dsh                                  # 全局安装 DSH skill（~/.agents/skills/linercad/SKILL.md）
 # 也可装进单个工作目录：lcad skill install --target claude|codex|opencode|generic --dir <Agent 工作目录>
 

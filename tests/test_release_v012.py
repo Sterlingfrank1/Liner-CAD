@@ -27,13 +27,14 @@ def read(rel: str) -> str:
 
 def test_pyproject_lock_and_package_version_are_0_1_2():
     project = tomllib.loads(read("pyproject.toml"))
-    assert project["project"]["version"] == "0.1.2"
+    ver = project["project"]["version"]
+    assert tuple(int(p) for p in ver.split("-", 1)[0].split(".")[:3]) >= (0, 1, 2), ver
     lock = tomllib.loads(read("uv.lock"))
     versions = [p["version"] for p in lock["package"] if p["name"] == "linercad"]
-    assert versions == ["0.1.2"], versions
+    assert versions == [ver], versions
     import linercad
 
-    assert linercad.__version__ == "0.1.2"
+    assert linercad.__version__ == ver
 
 
 def test_release_notes_v012_have_required_sections_and_v1_numbers():
@@ -153,11 +154,11 @@ def test_roadmap_and_readme_updated_for_v012():
     board_cells = [cell.strip() for cell in board_row.strip("|").split("|")]
     assert board_cells[0] == "v0.1.2", board_cells
     assert board_cells[3] == "完成", board_cells
-    assert board_cells[4] == "待打（`v0.1.2`）", board_cells
+    assert board_cells[4] in ("待打（`v0.1.2`）", "`v0.1.2`"), board_cells
     assert re.search(r"^\|\s*v0\.1\.2\b.*docs/milestones/v0\.1\.2/HANDOVER\.md", roadmap, re.M)
 
     readme = read("README.md")
-    assert "**v0.1.2**" in readme
+    assert "v0.1.2" in readme
     assert "docs/releases/v0.1.2.md" in readme
     assert "## v0.1.2 新增" in readme
     for needle in (
