@@ -480,17 +480,35 @@ def _param_range_text(p):
 
 
 def _template_section():
-    """Live user-template list appended to the skill (H2): the card wants skill to list them."""
+    """Live template list (project + user) appended to the skill."""
+    from . import project as proj_mod
     from . import usertemplates
 
-    lines = ["", "## 当前用户模板（自动生成；详情 lcad template list）", ""]
+    lines = ["", "## 当前用户模板（含项目级；详情 lcad template list）", ""]
+    items = []
+    seen = set()
+    proj = None
     try:
-        items = usertemplates.list_all()
+        proj = proj_mod.resolve_project(Path.cwd().resolve(), allow_create=False)
+        if proj is not None:
+            for item in usertemplates.list_all(
+                root=proj.templates_dir, scope="project", project_root=proj.root
+            ):
+                items.append(item)
+                seen.add(item["name"])
     except LinerError:
-        items = []
+        proj = None
+    try:
+        for item in usertemplates.list_all(
+            scope="user", project_root=proj.root if proj is not None else None
+        ):
+            if item["name"] not in seen:
+                items.append(item)
+    except LinerError:
+        pass
     if not items:
         lines.append(
-            "（暂无用户模板；lcad template save <名> --description … 把当前图纸沉淀成模板）"
+            "（暂无模板；lcad template save <名> [--scope project|user] --description … 把当前图纸沉淀成模板）"
         )
     else:
         for t in items:
@@ -499,7 +517,10 @@ def _template_section():
                 for p in t.get("params", [])
             )
             desc = t.get("description") or "（无描述）"
-            lines.append(f"- `{t['name']}`：{desc}；参数：{params or '—'}")
+            tag = f"@{t['tag']}" if t.get("tag") else ""
+            lines.append(
+                f"- `{t['name']}{tag}`（{t.get('scope', 'user')} / {t.get('trust', 'local')}）：{desc}；参数：{params or '—'}"
+            )
         lines.append("")
         lines.append("匹配即从模板起步：lcad init <目录> --from <名> --set 参数=值 …")
     return "\n".join(lines)
@@ -611,31 +632,39 @@ def template_import(dir, file, name):
 
 def _validate_template_dir(staged, manifest=None):
     """Build the staged template in a *fresh* interpreter (no cached local helpers); raise if bad."""
+    import shutil
     import subprocess
     import sys
+    import tempfile
 
     env = dict(os.environ)
     env["PYTHONIOENCODING"] = "utf-8"
     env["LCAD_NO_VIEW"] = "1"
-    try:
-        r = subprocess.run(
-            [sys.executable, "-m", "linercad", "check"],
-            cwd=staged,
-            capture_output=True,
-            env=env,
-            timeout=120,
-        )
-        out = json.loads(r.stdout.decode("utf-8"))
-    except Exception as e:  # noqa: BLE001 - any failure means the template is not self-contained
-        detail = getattr(e, "message", str(e))
-        raise InvalidArgument(
-            f"模板单独构建失败（新进程）：{detail}",
-            hint="模板只打包 drawing.py / model.py / templates/；把本地 helper 一起打包，或去掉依赖",
-        ) from e
+    with tempfile.TemporaryDirectory(prefix="lcad-val-") as td:
+        work = Path(td) / "tpl"
+        shutil.copytree(staged, work)
+        base = work / "baseline.actions.jsonl"
+        if base.is_file():
+            (work / LOG).write_bytes(base.read_bytes())
+        try:
+            r = subprocess.run(
+                [sys.executable, "-m", "linercad", "check"],
+                cwd=work,
+                capture_output=True,
+                env=env,
+                timeout=120,
+            )
+            out = json.loads(r.stdout.decode("utf-8"))
+        except Exception as e:  # noqa: BLE001 - any failure means the template is not self-contained
+            detail = getattr(e, "message", str(e))
+            raise InvalidArgument(
+                f"模板单独构建失败（新进程）：{detail}",
+                hint="模板只打包 drawing.py / model.py / templates/ / assets/；把本地 helper 一起打包，或去掉依赖",
+            ) from e
     if not out.get("ok"):
         raise InvalidArgument(
             f"模板单独构建失败（新进程）：{(out.get('error') or {}).get('message', '构建失败')}",
-            hint="模板只打包 drawing.py / model.py / templates/；把本地 helper 一起打包，或去掉依赖",
+            hint="模板只打包 drawing.py / model.py / templates/ / assets/；把本地 helper 一起打包，或去掉依赖",
         )
     errors = out.get("errors") or 0
     if errors:
@@ -647,18 +676,59 @@ def _validate_template_dir(staged, manifest=None):
             if f.get("severity") == "error" and f.get("id")
         ][:10]
         raise InvalidArgument(
-            f"模板只保存构建层，单独构建有 {errors} 个 error，不能作为模板",
+            f"模板只保存构建层与语义基线，单独构建有 {errors} 个 error，不能作为模板",
             candidates=ids,
-            hint="修订层补的尺寸 / accept 不随模板保存；先把修订层改动并入 drawing.py 再 save",
+            hint="非语义操作（如增改几何）不随模板保存；先把这类改动并入 drawing.py 再 save",
         )
 
 
-def save_template(dir, name, description="", force=False):
-    """Save the current drawing as a reusable user template (requires check 0 error)."""
+def save_template(
+    dir,
+    name,
+    description="",
+    force=False,
+    *,
+    scope=None,
+    project=None,
+    tag=None,
+    dry_run=False,
+    no_probe=False,
+    force_probe_fail=False,
+):
+    """Save the current drawing as a reusable template (requires check 0 error)."""
+    from . import project as proj_mod
     from . import txn, usertemplates
 
+    if scope is not None and scope not in ("project", "user"):
+        raise InvalidArgument(
+            f"--scope {scope!r} 不支持",
+            candidates=["project", "user"],
+        )
+    if scope == "user" and project is not None and str(project).strip():
+        raise InvalidArgument("--scope user 不能同时指定 --project")
+
     name = usertemplates.validate_name(name)
+    tag_clean = proj_mod.validate_tag(tag)
     dir = Path(dir)
+    anchor = dir.resolve()
+
+    if scope == "user":
+        proj = None
+        final_scope = "user"
+        dest_root = usertemplates.home()
+    elif scope == "project" or (project is not None and str(project).strip()):
+        proj = proj_mod.resolve_project(anchor, project=project, allow_create=True)
+        final_scope = "project"
+        dest_root = proj.templates_dir
+    else:
+        proj = proj_mod.resolve_project(anchor, allow_create=False)
+        if proj is not None:
+            final_scope = "project"
+            dest_root = proj.templates_dir
+        else:
+            final_scope = "user"
+            dest_root = usertemplates.home()
+
     res = build(dir)
     errors = [f for f in res.findings if f.get("severity") == "error"]
     if errors:
@@ -667,38 +737,118 @@ def save_template(dir, name, description="", force=False):
             candidates=[f.get("id") for f in errors if f.get("id")][:10],
             hint="先把 error 修好（lcad check 看详情），只允许带 warning 保存",
         )
+    from .dxfout import external_images
+    from .runtime import load_log
+
+    extra_files = external_images(res.doc, anchor)
     warnings = []
-    log = dir / LOG
-    if log.is_file():
-        ops = [ln for ln in log.read_text(encoding="utf-8").splitlines() if ln.strip()]
-        if ops:
-            warnings.append(
-                f"修订层有 {len(ops)} 条操作：模板只保存构建层 drawing.py，修订层不保存；"
-                "需要保留请先把这些修改并入 drawing.py 再 save"
+    raw_ops = load_log(dir)
+    if raw_ops:
+        _, baseline_lines, baseline_stats = usertemplates.filter_baseline_ops(raw_ops)
+        if baseline_stats["dropped"] > 0:
+            samples_txt = "、".join(
+                f"{s.get('op')}:{s.get('id')}" for s in baseline_stats["dropped_samples"]
             )
+            warnings.append(
+                f"基线过滤丢弃 {baseline_stats['dropped']} 条非语义操作（示例：{samples_txt}）"
+            )
+    else:
+        baseline_lines = []
+        baseline_stats = {"kept": 0, "dropped": 0, "dropped_samples": []}
     try:
         dirty = txn.dirty_sources(dir)
     except LinerError:  # a drawing without git (possible in tests / hand-made dirs) has no diff
         dirty = []
     if dirty:
         warnings.append("有未提交的源文件改动：按当前文件保存")
-    # staged validation runs in a fresh interpreter before any existing template is replaced
-    manifest = usertemplates.save(
-        dir, name, description, force, build_result=res, validate=_validate_template_dir
+
+    probe_override = (
+        {"builds": 0, "failed": [], "stale_semantic": [], "skipped": [], "disabled": True}
+        if no_probe
+        else None
     )
+    on_ready = (lambda: proj_mod.ensure_project_dir(proj)) if proj is not None else None
+    target_path = usertemplates.path(name, root=dest_root).resolve()
+    manifest = usertemplates.save(
+        dir,
+        name,
+        description,
+        force,
+        build_result=res,
+        validate=_validate_template_dir,
+        root=dest_root,
+        tag=tag_clean,
+        baseline_lines=baseline_lines,
+        extra_files=extra_files,
+        probe=probe_override,
+        compute_hash=True,
+        run_probe=not no_probe,
+        force_probe_fail=force_probe_fail,
+        dry_run=dry_run,
+        on_ready=on_ready,
+    )
+    probe_res = manifest.get("probe") or {}
+    if probe_res.get("failed") or probe_res.get("stale_semantic"):
+        warnings.append(
+            f"参数边界自检存在失败项（已按 --force-probe-fail 保留，failed={len(probe_res.get('failed', []))}, "
+            f"stale_semantic={len(probe_res.get('stale_semantic', []))}）"
+        )
+    if probe_res.get("skipped"):
+        warnings.append(f"参数边界自检达到 16 次上限，跳过 {len(probe_res['skipped'])} 个边界")
     out = {
         "ok": True,
+        "scope": final_scope,
         "template": manifest,
-        "path": str(usertemplates.path(str(name))),
+        "baseline_stats": baseline_stats,
+        "path": str(target_path),
         "hint": f"lcad init <新目录> --from {manifest['name']} --set 参数=值 一步出图",
     }
+    if final_scope == "project" and proj is not None:
+        out["project"] = str(proj.root)
+        out["templates_dir"] = str(proj.templates_dir.resolve())
+        out["marker_path"] = str(proj.marker_path.resolve())
+        out["will_create_marker"] = not proj.marker_exists
+    if dry_run:
+        will_write = []
+        if proj is not None and not proj.marker_exists:
+            will_write.append(str(proj.marker_path.resolve()))
+        will_write.extend(
+            str((target_path / f).resolve())
+            for f in [*manifest.get("files", []), usertemplates.MANIFEST]
+        )
+        out["dry_run"] = True
+        out["will_write"] = will_write
     if warnings:
         out["warning"] = "；".join(warnings)
     return out
 
 
-def template_list():
-    """List the user's saved parametrised templates."""
+def template_list(dir=None, *, project=None):
+    """List saved templates (project scope first, then user scope)."""
+    from . import project as proj_mod
     from . import usertemplates
 
-    return {"ok": True, "home": str(usertemplates.home()), "templates": usertemplates.list_all()}
+    anchor = Path(dir).resolve() if dir is not None else Path.cwd().resolve()
+    proj = proj_mod.resolve_project(anchor, project=project, allow_create=False)
+    items = []
+    seen = set()
+    if proj is not None:
+        for item in usertemplates.list_all(
+            root=proj.templates_dir, scope="project", project_root=proj.root
+        ):
+            items.append(item)
+            seen.add(item["name"])
+    for item in usertemplates.list_all(
+        scope="user", project_root=proj.root if proj is not None else None
+    ):
+        if item["name"] in seen:
+            item["shadowed"] = True
+        items.append(item)
+    return {
+        "ok": True,
+        "home": str(usertemplates.home()),
+        "project": str(proj.root) if proj is not None else None,
+        "project_templates_dir": str(proj.templates_dir.resolve()) if proj is not None else None,
+        "note": "模板包内 drawing.py 与 baseline.actions.jsonl 是一个单元；只拷 drawing.py 会丢失基线修订层。",
+        "templates": items,
+    }

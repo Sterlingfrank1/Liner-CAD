@@ -104,20 +104,23 @@ d.q.lines(view="front").where(length=30, dir="h").near(120, 45).one()   # near �
 逃生口：`d.raw("D.L").entities[0].dxf.color = 1`、`d.raw_add("LINE", start=(x, y), end=(x, y), layer="THIN")`（图纸坐标）。
 
 
-## 用户模板：把一张画好的图沉淀成起步模板（H2）
+## 项目级与用户模板：把一张画好的图沉淀成起步模板（H2 + v0.1.3）
 
-用户（或你）把当前图纸存成**用户模板**后，换规格可以一条命令出图，不必重画：
+用户（或你）把当前图纸存成**项目模板**或**用户模板**后，换规格可以一条命令出图，不必重画：
 
 ```powershell
-lcad -C <图纸目录> template save bull-nose --description "牛鼻刀 D/R 参数化"   # 前提：lcad check 0 error
-lcad template list                                                          # 名称 / 描述 / 参数范围
-lcad init <新目录> --from bull-nose --set D=6 R=0.5                           # 一步出图，参数已改好
+lcad -C <图纸目录> template save bull-nose --scope project --project <工作区根> --tag r1 --description "牛鼻刀 D/R 参数化"
+lcad template list                                                          # 项目优先，含 scope/tag/trust/param_count
+lcad init <新目录> --from bull-nose --set D=6 R=0.5                           # 优先级：项目 > 用户 > 范例
 ```
 
-- 存放位置：用户级目录，**不进图纸 git**；默认 Windows `%APPDATA%\linercad\templates`，其他系统 `$XDG_DATA_HOME/linercad/templates`（或 `~/.local/share/linercad/templates`），环境变量 `LCAD_TEMPLATES` 可覆盖。每个模板含 `drawing.py`、可选 `model.py` / `templates/` 企业档，以及记录名称、描述、参数范围、创建时间的 `template.json`。
-- 只保存**构建层**：修订层 `drawing.actions.jsonl` 不随模板保存，存在时会提示；先把修订层改动并入 `drawing.py` 再 save。
+- **项目级与根目录解析**：默认优先读已有项目（`--project <根>` > 环境变量 `LCAD_PROJECT_ROOT` > 从目录向上找 `linercad.project.toml`，跳过图纸自身 `.git`、遇到祖先 `.git` 查完再停）；仅 `--scope project` 或指定 `--project` 会在无标记时自动在项目根（cwd 为图纸目录时取父目录）写 `linercad.project.toml` 与 `<根>/lcad-templates/<名>/`。**绝不建在图纸目录内**；可用 `--dry-run` 先预览将写入路径。`--tag` 只写入 `template.json`，不触发 git commit / git tag。
+- **用户级存放位置**（`--scope user` 或无项目标记兜底）：Windows `%APPDATA%\linercad\templates`，其他系统 `$XDG_DATA_HOME/linercad/templates`（或 `~/.local/share/linercad/templates`），环境变量 `LCAD_TEMPLATES` 可覆盖。
+- **两文件单元与语义基线**：模板包由 `drawing.py`（构建层）与可选 `baseline.actions.jsonl`（由修订层过滤固化的语义基线：`accept`、`general_tol`、`rough_default` 与 `D./N./G./R./DT./T./A./B./K./V.` 前缀操作，改写 `edit="e0"`；`E./C./F./X./H./S.` 丢弃并给示例）、可选 `model.py` / `templates/` / 目录内 Logo 资源及 `template.json`（含 `model_hash` 与 `probe`）组成；包内两文件是一个单元，`init --from` 时合并进单一 `drawing.actions.jsonl` 并校验无 `--set` 下的 `model_hash`（`undo e0` 拒绝）。
+- **保存前参数边界自检**：默认对每个非空且 `min != max` 的参数上下界构建并重放基线（上限 16 次，超限记入 `skipped`），发现 `Param.rule` / `error` / 语义 op 失效即拒绝保存；调试可用 `--force-probe-fail` 或 `--no-probe`。
+- **来源信任度（`trust`）**：`template list` 与 `lcad init` 返回 `trust`（`local` / `builtin` / `external`），当模板来源在当前项目之外或路径不可验证时附警告「模板含可执行 drawing.py，确认后再用」。
 - `--set 参数=值` 可一次给多个，只改 `Param` 的数字字面量默认值；找不到参数会直接失败、不建目录（`lcad check` 仍要过）。
-- **匹配即从模板起步：** 用户的要求与已有用户模板（或内置范例，`lcad init --from <名>`）匹配时，先 `lcad template list` / `init --from` 起步，只改参数与少量标注，**不要从空白重画**；模板不匹配再走重画。
+- **匹配即从模板起步：** 用户的要求与已有项目/用户模板（或内置范例，`lcad init --from <名>`）匹配时，先 `lcad template list` / `init --from` 起步，只改参数与少量标注，**不要从空白重画**；模板不匹配再走重画。
 
 
 ## 试改（dry-run，H1）

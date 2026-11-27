@@ -19,7 +19,22 @@ def _isolated_home(tmp_path, monkeypatch):
 @pytest.fixture
 def drawing(tmp_path):
     p = tmp_path / "d"
-    txn.init(p, from_="shaft")
+    txn.init(p)
+    (p / "drawing.py").write_text(
+        "from linercad import Drawing, Param\n"
+        'd = Drawing(sheet="A3", std="GB", scale="1:1")\n'
+        "P = d.params(\n"
+        '    L=Param(160, min=80, max=240, step=1, label="总长"),\n'
+        '    l1=Param(40, min=20, max=80, step=1, label="高度"),\n'
+        ")\n"
+        'front = d.view("front")\n'
+        'front.rect((0, 0), P.L, P.l1, name="body")\n'
+        'front.dim.linear("L", (0, 0), (P.L, 0), value=P.L, side="bottom")\n'
+        'front.dim.linear("H", (0, 0), (0, P.l1), value=P.l1, side="left")\n'
+        'd.title(name="参数化试件", drawing_no="LC-TPL-01", material="45")\n',
+        encoding="utf-8",
+    )
+    assert txn.build_commit(p, "clean param fixture")["errors"] == 0
     return p
 
 
@@ -67,10 +82,15 @@ def test_save_template_requires_check_zero_errors(tmp_path):
 
 def test_save_template_warns_when_the_revision_layer_exists(drawing):
     script = drawing / ".linercad" / "tmp" / "m.py"
-    script.write_text('def apply(d):\n    d["D.L"].place(side="top")\n', encoding="utf-8")
-    assert txn.edit(drawing, script, "挪")["ok"]
+    script.write_text(
+        'def apply(d):\n    d["D.L"].place(side="top")\n    d.view("front").line((0, 0), (10, 0), name="xtra")\n',
+        encoding="utf-8",
+    )
+    assert txn.edit(drawing, script, "挪并与补线")["ok"]
     out = commands.save_template(drawing, "with-actions", "带修订层")
-    assert "修订层" in out["warning"] and "不保存" in out["warning"]
+    assert "丢弃" in out["warning"] and out["baseline_stats"]["kept"] == 1
+    assert out["baseline_stats"]["dropped"] == 1
+    assert "baseline.actions.jsonl" in out["template"]["files"]
     assert "drawing.actions.jsonl" not in out["template"]["files"]
 
 
@@ -88,7 +108,7 @@ def test_init_from_user_template_with_set_one_shot(tmp_path, drawing):
     commands.save_template(drawing, "shaft-tpl", "轴模板")
     target = tmp_path / "new-shaft"
     code, out = _cli("init", str(target), "--from", "shaft-tpl", "--set", "L=220", "l1=36")
-    assert code == 0 and out["ok"] and out["template"] == "shaft-tpl"
+    assert code == 0 and out["ok"] and out["template"]["name"] == "shaft-tpl"
     text = (target / "drawing.py").read_text(encoding="utf-8")
     compact = text.replace(" ", "")
     assert "L=Param(220" in compact and "l1=Param(36" in compact
@@ -124,7 +144,7 @@ def test_template_copies_model_py_and_init_without_set(tmp_path, drawing):
     commands.save_template(drawing, "with-model", "含 model.py")
     target = tmp_path / "from-model"
     code, out = _cli("init", str(target), "--from", "with-model")
-    assert code == 0 and out["ok"] and out.get("template") == "with-model"
+    assert code == 0 and out["ok"] and (out.get("template") or {}).get("name") == "with-model"
     assert (target / "model.py").is_file() and (target / "drawing.py").is_file()
 
 
@@ -192,11 +212,9 @@ def test_save_template_rejects_a_drawing_that_needs_the_revision_layer(tmp_path)
     assert txn.build_commit(p, "加螺纹")["errors"] == 1  # committed but a check error
     script = p / ".linercad" / "tmp" / "fix.py"
     script.parent.mkdir(parents=True, exist_ok=True)
-    script.write_text(
-        'def apply(d):\n    d.view("front").dim.thread("t", "F.front.thr")\n',
-        encoding="utf-8",
-    )
-    assert txn.edit(p, script, "补螺纹尺寸")["ok"]  # current drawing is 0 error again
+    # suppress F.front.thr is a non-semantic F.* op so R10 baseline filtering drops it
+    script.write_text('def apply(d):\n    d["F.front.thr"].suppress()\n', encoding="utf-8")
+    assert txn.edit(p, script, "临时脚本删除未注螺纹")["ok"]  # current drawing is 0 error again
     with pytest.raises(LinerError) as err:
         commands.save_template(p, "needs-rev")
     assert "单独构建" in err.value.message
