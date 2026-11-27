@@ -1,6 +1,6 @@
 [project]
 name = "linercad"
-version = "0.1.2"
+version = "0.1.3"
 description = "Liner-CAD: a generic 2D engineering-drawing harness for coding agents"
 readme = "README.md"
 requires-python = ">=3.11"
